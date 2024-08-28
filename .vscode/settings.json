@@ -1,0 +1,6 @@
+{
+    "rust-analyzer.linkedProjects": [
+        "canopen/Cargo.toml",
+        "integration_tests/Cargo.toml"
+    ]
+}
