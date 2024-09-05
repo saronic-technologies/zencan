@@ -1,6 +1,9 @@
 {
     "rust-analyzer.linkedProjects": [
-        "canopen/Cargo.toml",
-        "integration_tests/Cargo.toml"
+        "canopen-client/Cargo.toml",
+        "canopen-node/Cargo.toml",
+        "canopen-common/Cargo.toml",
+        "integration_tests/Cargo.toml",
+        "eds-parser/Cargo.toml",
     ]
 }
