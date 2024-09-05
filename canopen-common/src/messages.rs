@@ -24,6 +24,12 @@ impl NmtCommandCmd {
 }
 
 const NMT_CMD_ID: CanId = CanId::Std(0);
+pub const HEARTBEAT_ID: u16 = 0x700;
+/// The default base ID for sending SDO requests (server node ID is added)
+const SDO_REQ_BASE: u16 = 0x600;
+/// The default base ID for sending SDO responses (server node ID is added)
+const SDO_RESP_BASE: u16 = 0x580;
+
 pub struct NmtCommand {
     pub cmd: NmtCommandCmd,
     pub node: u8,
@@ -58,6 +64,7 @@ impl From<NmtCommand> for CanFdMessage {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[repr(u8)]
 pub enum NmtState {
     Bootup = 0,
     Stopped = 4,
@@ -65,10 +72,44 @@ pub enum NmtState {
     PreOperational = 127,
 }
 
+pub struct InvalidNmtStateError(u8);
 
+impl TryFrom<u8> for NmtState {
+    type Error = InvalidNmtStateError;
+
+    /// Attempt to convert a u8 to an NmtState enum
+    ///
+    /// Fails with BadNmtStateError if value is not a valid state
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        use NmtState::*;
+        match value {
+            x if x == Bootup as u8 => Ok(Bootup),
+            x if x == Stopped as u8 => Ok(Stopped),
+            x if x == Operational as u8 => Ok(Operational),
+            x if x == PreOperational as u8 => Ok(PreOperational),
+            _ => Err(InvalidNmtStateError(value)),
+        }
+    }
+}
 
 pub struct Heartbeat {
+    pub node: u8,
+    pub toggle: bool,
     pub state: NmtState,
+}
+
+impl From<Heartbeat> for CanFdMessage {
+    fn from(value: Heartbeat) -> Self {
+        let mut msg = CanFdMessage::default();
+        msg.id = CanId::Std(HEARTBEAT_ID | value.node as u16);
+        msg.dlc = 1;
+        msg.data[0] = value.state as u8;
+        if value.toggle {
+            msg.data[0] |= 1<<7;
+        }
+
+        msg
+    }
 }
 
 const SYNC_ID: CanId = CanId::std(0x80);
@@ -105,25 +146,33 @@ pub fn is_std_sdo_request(can_id: CanId, node_id: u8) -> bool {
     if let CanId::Std(id) = can_id {
         let base = id & 0xff80;
         let msg_id = id & 0x7f;
-        if base == 0x580 && (msg_id == node_id as u16 || msg_id == 0) {
+        if base == SDO_REQ_BASE && (msg_id == node_id as u16 || msg_id == 0) {
             return true;
         }
     }
     false
 }
 
-
 impl TryFrom<CanFdMessage> for CanOpenMessage {
     type Error = MessageError;
 
     fn try_from(msg: CanFdMessage) -> Result<Self, Self::Error> {
         let id = msg.id();
-        match id {
-            NMT_CMD_ID => Ok(CanOpenMessage::NmtCommand(msg.try_into()?)),
-            _ => Err(MessageError::UnrecognizedId(id)),
+        if id == NMT_CMD_ID {
+            Ok(CanOpenMessage::NmtCommand(msg.try_into()?))
+        } else if id.raw() & !0x7f == HEARTBEAT_ID as u32 {
+            let node = (id.raw() & 0x7f) as u8;
+            let toggle = (msg.data[0] & (1<<7)) != 0;
+            let state: NmtState = (msg.data[0] & 0x7f)
+                .try_into()
+                .map_err(|e: InvalidNmtStateError| MessageError::InvalidNmtState(e.0))?;
+            Ok(CanOpenMessage::Heartbeat(Heartbeat { node, toggle, state }))
+        } else {
+            Err(MessageError::UnrecognizedId(id))
         }
     }
 }
+
 pub enum CanOpenMessage {
     NmtCommand(NmtCommand),
     Sync(Sync),
@@ -137,4 +186,5 @@ pub enum MessageError {
     UnexpectedId(CanId, CanId),
     InvalidField,
     UnrecognizedId(CanId),
+    InvalidNmtState(u8),
 }

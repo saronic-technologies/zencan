@@ -1,5 +1,5 @@
 [package]
-name = "integration_tests"
+name = "canopen-client"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,6 +7,5 @@ edition = "2021"
 
 [dependencies]
 canopen-common = { path = "../canopen-common" }
-canopen-node = { version = "0.1.0", path = "../canopen-node", features = ["log"] }
-canopen-client = { version = "0.1.0", path = "../canopen-client" }
 futures = "*"
+snafu = "*"

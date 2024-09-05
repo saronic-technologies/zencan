@@ -1,16 +1,20 @@
 [package]
-name = "canopen"
+name = "canopen-node"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+canopen-common = { path = "../canopen-common" }
+critical-section = "1.1"
 crossbeam = { version = "0.8", default-features=false }
 defmt-or-log = "0.2.0"
 futures = "*"
+log = { version = "0.4" }
 
 [features]
 default = ["log"]
+std = ["critical-section/std"]
 log = ["defmt-or-log/log"]
 defmt = ["defmt-or-log/defmt"]

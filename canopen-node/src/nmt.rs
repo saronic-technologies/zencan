@@ -1,8 +1,5 @@
 
-use crate::{
-    messages::*,
-    traits::{CanId, CanFdMessage},
-};
+use canopen_common::messages::{CanOpenMessage, NmtCommandCmd, NmtState};
 
 
 pub struct NmtSlave {

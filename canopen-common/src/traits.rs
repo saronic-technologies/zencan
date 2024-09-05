@@ -1,4 +1,4 @@
-use futures::{channel::mpsc::Sender, sink::Feed, Future};
+use core::time::Duration;
 
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -14,6 +14,13 @@ impl CanId {
 
     pub const fn std(id: u16) -> CanId {
         CanId::Std(id)
+    }
+
+    pub fn raw(&self) -> u32 {
+        match self {
+            CanId::Extended(id) => *id,
+            CanId::Std(id) => *id as u32,
+        }
     }
 }
 
@@ -45,13 +52,12 @@ pub trait CanSender {
 
 pub trait CanReceiver {
     fn try_recv(&mut self) -> Option<CanFdMessage>;
+    /// A blocking receive
+    fn recv(&mut self, timeout: Duration) -> Result<CanFdMessage, ()>;
 }
 
 
-pub struct MessageHandler {
-    pub id: CanId,
-    pub sender: Sender<CanFdMessage>,
-}
+
 
 // pub(crate) trait MessageHandler {
 //     fn wants_id(can_id: CanId) -> bool;

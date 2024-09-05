@@ -1,6 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::{sync::{Arc, Mutex}, time::Duration};
 
-use canopen::traits::{CanFdMessage, CanReceiver, CanSender};
+use canopen_common::traits::{CanFdMessage, CanReceiver, CanSender};
 use futures::channel::mpsc::{Sender, Receiver, channel, TryRecvError};
 
 
@@ -37,6 +37,19 @@ impl CanReceiver for SimCanReceiver {
             Err(_) => None,
         }
     }
+
+    fn recv(&mut self, _timeout: Duration) -> Result<CanFdMessage, ()> {
+        match self.receiver.try_next() {
+            Ok(result) => match result {
+                Some(msg) => Ok(msg),
+                None => {
+                    println!("Channel closed");
+                    Err(())
+                }
+            },
+            Err(_) => Err(()),
+        }
+    }
 }
 
 pub struct SimBus {
@@ -60,5 +73,9 @@ impl SimBus {
             SimCanSender { senders: self.senders.clone() },
             SimCanReceiver { receiver: rx },
         )
+    }
+
+    pub fn new_sender(&mut self) -> SimCanSender {
+        SimCanSender { senders: self.senders.clone() }
     }
 }
