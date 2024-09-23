@@ -1,10 +1,12 @@
 use std::time::{Duration, Instant};
 
 use canopen_common::{
-    sdo::{ClientCommand, SdoRequest, SdoResponse},
+    sdo::{AbortCode, ClientCommand, SdoRequest, SdoResponse},
     traits::{CanFdMessage, CanId, CanReceiver, CanSender},
 };
 use snafu::Snafu;
+
+const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Snafu)]
 pub enum SdoClientError {
@@ -12,6 +14,7 @@ pub enum SdoClientError {
     MalformedResponse,
     UnexpectedResponse,
     ServerAbort { abort_code: u32 },
+    ToggleNotAlternated,
 }
 
 type Result<T> = std::result::Result<T, SdoClientError>;
@@ -40,7 +43,7 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
                 SdoRequest::expedited_download(index, sub, data).to_can_message(self.req_cob_id);
             self.sender.send(msg).unwrap(); // TODO: Expect errors
 
-            let resp = self.wait_for_response(Duration::from_millis(50))?;
+            let resp = self.wait_for_response(RESPONSE_TIMEOUT)?;
             match resp {
                 SdoResponse::ConfirmDownload { index: _, sub: _ } => {
                     return Ok(()); // Success!
@@ -59,7 +62,7 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
                 .to_can_message(self.req_cob_id);
             self.sender.send(msg).unwrap();
 
-            let resp = self.wait_for_response(Duration::from_millis(50))?;
+            let resp = self.wait_for_response(RESPONSE_TIMEOUT)?;
             match resp {
                 SdoResponse::ConfirmDownload { index: _, sub: _ } => (),
                 SdoResponse::Abort {
@@ -70,8 +73,47 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
                 _ => return UnexpectedResponseSnafu.fail(),
             }
 
+            let mut toggle = false;
             // Send segments
-            todo!()
+            let total_segments = (data.len() + 6) / 7;
+            for n in 0..total_segments {
+                let last_segment = n == total_segments - 1;
+                let segment_size = (data.len() - n * 7).min(7);
+                let seg_msg = SdoRequest::download_segment(
+                    toggle,
+                    last_segment,
+                    &data[n * 7..n * 7 + segment_size],
+                )
+                .to_can_message(self.req_cob_id);
+                self.sender
+                    .send(seg_msg)
+                    .expect("failed sending DL segment");
+                let resp = self.wait_for_response(RESPONSE_TIMEOUT)?;
+                match resp {
+                    SdoResponse::ConfirmDownloadSegment { t } => {
+                        // Fail if toggle value doesn't match
+                        if t != toggle {
+                            let abort_msg =
+                                SdoRequest::abort(index, sub, AbortCode::ToggleNotAlternated)
+                                    .to_can_message(self.req_cob_id);
+                            self.sender.send(abort_msg).expect("Error sending abort");
+                            return ToggleNotAlternatedSnafu.fail();
+                        }
+                        // Otherwise, carry on
+                    }
+                    SdoResponse::Abort {
+                        index: _,
+                        sub: _,
+                        abort_code,
+                    } => return ServerAbortSnafu { abort_code }.fail(),
+                    _ => {
+                        // Any other message from the SDO server is unexpected
+                        return UnexpectedResponseSnafu.fail();
+                    }
+                }
+                toggle = !toggle;
+            }
+            Ok(())
         }
     }
 
@@ -81,17 +123,27 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
         let msg = SdoRequest::initiate_upload(index, sub).to_can_message(self.req_cob_id);
         self.sender.send(msg).unwrap();
 
-        let resp = self.wait_for_response(Duration::from_millis(50))?;
+        let resp = self.wait_for_response(RESPONSE_TIMEOUT)?;
 
         let expedited = match resp {
-            SdoResponse::ConfirmUpload { n, e, s: _, index: _, sub: _, data } => {
+            SdoResponse::ConfirmUpload {
+                n,
+                e,
+                s: _,
+                index: _,
+                sub: _,
+                data,
+            } => {
                 if e {
-                    read_buf.extend_from_slice(&data[4..8-n as usize]);
+                    read_buf.extend_from_slice(&data[0..4 - n as usize]);
                 }
                 e
-            },
-            SdoResponse::Abort { index: _, sub: _, abort_code } =>
-                return ServerAbortSnafu { abort_code }.fail(),
+            }
+            SdoResponse::Abort {
+                index: _,
+                sub: _,
+                abort_code,
+            } => return ServerAbortSnafu { abort_code }.fail(),
             _ => return UnexpectedResponseSnafu.fail(),
         };
 
@@ -99,23 +151,26 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
             // Read segments
             let mut toggle = false;
             loop {
-                let msg = SdoRequest::upload_segment_request(toggle)
-                    .to_can_message(self.req_cob_id);
+                let msg =
+                    SdoRequest::upload_segment_request(toggle).to_can_message(self.req_cob_id);
 
                 self.sender.send(msg).unwrap();
 
-                let resp = self.wait_for_response(Duration::from_millis(50))?;
+                let resp = self.wait_for_response(RESPONSE_TIMEOUT)?;
                 match resp {
                     SdoResponse::UploadSegment { t, n, c, data } => {
-                        read_buf.extend_from_slice(&data[1..8-n as usize]);
+                        read_buf.extend_from_slice(&data[0..7 - n as usize]);
                         if c {
                             // Transfer complete
                             break;
                         }
                     }
-                    SdoResponse::Abort { index: _, sub: _, abort_code } =>
-                        return ServerAbortSnafu { abort_code }.fail(),
-                    _ => return UnexpectedResponseSnafu.fail()
+                    SdoResponse::Abort {
+                        index: _,
+                        sub: _,
+                        abort_code,
+                    } => return ServerAbortSnafu { abort_code }.fail(),
+                    _ => return UnexpectedResponseSnafu.fail(),
                 }
                 toggle = !toggle;
             }

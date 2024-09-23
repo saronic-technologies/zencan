@@ -76,23 +76,23 @@ unsafe impl<'a> Send for ObjectStorage<'a> {}
 unsafe impl<'a> Sync for ObjectStorage<'a> {}
 
 pub struct Var<'a> {
-    data_type: DataType,
-    size: usize,
-    storage: Mutex<RefCell<ObjectStorage<'a>>>,
+    pub data_type: DataType,
+    pub size: usize,
+    pub storage: Mutex<RefCell<ObjectStorage<'a>>>,
 }
 
 pub struct Array<'a> {
-    data_type: DataType,
-    size: u8,
-    storage_sub0: Mutex<RefCell<ObjectStorage<'a>>>,
-    storage: Mutex<RefCell<ObjectStorage<'a>>>,
+    pub data_type: DataType,
+    pub size: usize,
+    pub storage_sub0: Mutex<RefCell<ObjectStorage<'a>>>,
+    pub storage: Mutex<RefCell<ObjectStorage<'a>>>,
 }
 
 pub struct Record<'a> {
-    data_types: &'a [DataType],
-    sizes: &'a [usize],
-    storage_sub0: Mutex<RefCell<ObjectStorage<'a>>>,
-    storage: &'a [Mutex<RefCell<ObjectStorage<'a>>>],
+    pub data_types: &'a [Option<DataType>],
+    pub sizes: &'a [usize],
+    pub storage_sub0: Mutex<RefCell<ObjectStorage<'a>>>,
+    pub storage: &'a [Option<Mutex<RefCell<ObjectStorage<'a>>>>],
 }
 
 pub enum Object<'a> {
@@ -124,7 +124,7 @@ impl<'a> Object<'a> {
                         size: 1,
                         storage: &arr.storage_sub0,
                     })
-                } else if sub <= arr.size {
+                } else if sub <= arr.size as u8 {
                     Some(SubObject {
                         offset: sub as usize * element_storage_size(arr.data_type),
                         data_type: arr.data_type,
@@ -144,12 +144,18 @@ impl<'a> Object<'a> {
                         storage: &rec.storage_sub0,
                     })
                 } else if sub as usize <= rec.storage.len() {
-                    Some(SubObject {
-                        offset: 0,
-                        data_type: rec.data_types[sub as usize - 1],
-                        size: rec.sizes[sub as usize - 1],
-                        storage: &rec.storage[sub as usize - 1],
-                    })
+                    let storage = rec.storage.get(sub as usize - 1)?;
+                    if let Some(storage) = storage {
+                        Some(SubObject {
+                            offset: 0,
+                            // unwrap safety: if storage is not None, data type must be not None
+                            data_type: rec.data_types[sub as usize - 1].unwrap(),
+                            size: rec.sizes[sub as usize - 1],
+                            storage,
+                        })
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
@@ -177,7 +183,7 @@ impl<'a> ODEntry<'a> {
     pub fn sub_count(&self) -> u8 {
         match self.object {
             Object::Var(_) => 1,
-            Object::Array(array) => array.size + 1,
+            Object::Array(array) => (array.size + 1) as u8,
             Object::Record(_) => todo!(),
         }
     }
@@ -238,6 +244,33 @@ impl<'a> SubObject<'a> {
             }
         })
     }
+
+    /// Get the size of the current value in the sub object
+    ///
+    /// For string types, this can be shorter than the allocated size.
+    pub fn current_size(&self) -> usize {
+        const CHUNK_SIZE: usize = 8;
+        if self.data_type.is_str() {
+            // Look for first 0
+            let mut chunk = 0;
+            let mut buf = [0; CHUNK_SIZE];
+
+            while chunk < self.size / CHUNK_SIZE + 1 {
+                let offset = chunk * CHUNK_SIZE;
+                let bytes_to_read = (self.size - offset).min(CHUNK_SIZE);
+                self.read(offset, &mut buf[0..bytes_to_read]);
+
+                if let Some(zero_pos) = buf[0..bytes_to_read].iter().position(|b| *b == 0) {
+                    return zero_pos + chunk * CHUNK_SIZE;
+                }
+                chunk += 1;
+            }
+            self.size
+        } else {
+            self.size
+        }
+    }
+
 }
 
 struct Item3Record {
@@ -286,7 +319,7 @@ static Object1000: Object = Object::Var(Var {
 const ITEM2_SIZE: u8 = 4;
 static Object1001: Object = Object::Array(Array {
     data_type: DataType::Int16,
-    size: ITEM2_SIZE,
+    size: ITEM2_SIZE as usize,
     storage_sub0: Mutex::new(RefCell::new(ObjectStorage::Const(&ITEM2_SIZE, 1))),
     storage: Mutex::new(RefCell::new(ObjectStorage::Ram(
         unsafe { MUT_DATA.item2.as_ptr() as *const u8 },
@@ -294,23 +327,23 @@ static Object1001: Object = Object::Array(Array {
     ))),
 });
 
-static ITEM3_STORAGE: [Mutex<RefCell<ObjectStorage>>; 3] = [
-    Mutex::new(RefCell::new(ObjectStorage::Ram(
+static ITEM3_STORAGE: [Option<Mutex<RefCell<ObjectStorage>>>; 3] = [
+    Some(Mutex::new(RefCell::new(ObjectStorage::Ram(
         unsafe { &MUT_DATA.item3.x as *const u32 as *const u8 },
         size_of::<u32>(),
-    ))),
-    Mutex::new(RefCell::new(ObjectStorage::Ram(
+    )))),
+    Some(Mutex::new(RefCell::new(ObjectStorage::Ram(
         unsafe { &MUT_DATA.item3.y as *const f32 as *const u8 },
         size_of::<f32>(),
-    ))),
-    Mutex::new(RefCell::new(ObjectStorage::Ram(
+    )))),
+    Some(Mutex::new(RefCell::new(ObjectStorage::Ram(
         unsafe { &MUT_DATA.item3.z as *const u8 },
         size_of::<u8>(),
-    ))),
+    )))),
 ];
 
 static Object1002: Object = Object::Record(Record {
-    data_types: &[DataType::UInt32, DataType::Real32, DataType::UInt8],
+    data_types: &[Some(DataType::UInt32), Some(DataType::Real32), Some(DataType::UInt8)],
     sizes: &[size_of::<u32>(), size_of::<f32>(), size_of::<u8>()],
     storage_sub0: Mutex::new(RefCell::new(ObjectStorage::Const(
         &CONST_DATA.item3_sub0,
@@ -319,7 +352,7 @@ static Object1002: Object = Object::Record(Record {
     storage: &ITEM3_STORAGE,
 });
 
-pub static OD_TABLE: &[ODEntry] = unsafe {
+pub static OD_TABLE: &[ODEntry] = {
     &[
         ODEntry {
             index: 0x1000,

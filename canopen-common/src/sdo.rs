@@ -95,7 +95,7 @@ pub enum AbortCode {
 
 
 pub enum ClientCommand {
-    ReqDownloadSegment = 0,
+    DownloadSegment = 0,
     InitiateDownload = 1,
     InitiateUpload = 2,
     ReqUploadSegment = 3,
@@ -110,7 +110,7 @@ impl TryFrom<u8> for ClientCommand {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         use ClientCommand::*;
         match value {
-            0 => Ok(ReqDownloadSegment),
+            0 => Ok(DownloadSegment),
             1 => Ok(InitiateDownload),
             2 => Ok(InitiateUpload),
             3 => Ok(ReqUploadSegment),
@@ -167,9 +167,19 @@ pub enum SdoRequest {
         size: u32,
     },
     InitiateBlockUpload {},
+    Abort {
+        index: u16,
+        sub: u8,
+        abort_code: u32,
+    }
 }
 
 impl SdoRequest {
+
+    pub fn abort(index: u16, sub: u8, abort_code: AbortCode) -> Self {
+        SdoRequest::Abort { index, sub, abort_code: abort_code as u32 }
+    }
+
     /// Create an initiate download message
     pub fn initiate_download(index: u16, sub: u8, size: Option<u32>) -> Self {
         let data = size.unwrap_or(0).to_le_bytes();
@@ -181,6 +191,17 @@ impl SdoRequest {
             index,
             sub,
             data,
+        }
+    }
+
+    pub fn download_segment(toggle: bool, last_segment: bool, segment_data: &[u8]) -> Self {
+        let mut data = [0; 7];
+        data[0..segment_data.len()].copy_from_slice(segment_data);
+        SdoRequest::DownloadSegment {
+            t: toggle,
+            n: 7 - segment_data.len() as u8,
+            c: last_segment,
+            data
         }
     }
 
@@ -228,18 +249,40 @@ impl SdoRequest {
                 payload[2] = (index >> 8) as u8;
                 payload[3] = sub;
                 payload[4..8].copy_from_slice(&data);
-                CanFdMessage {
-                    data: payload,
-                    dlc: 8,
-                    id,
-                }
             }
-            SdoRequest::DownloadSegment { t, n, c, data } => todo!(),
-            SdoRequest::InitiateUpload { index, sub } => todo!(),
-            SdoRequest::ReqUploadSegment { t } => todo!(),
+            SdoRequest::DownloadSegment { t, n, c, data } => {
+                payload[0] =
+                    (ClientCommand::DownloadSegment as u8) << 5 |
+                    (t as u8) << 4 |
+                    (n & 7) << 1 |
+                    (c as u8);
+
+                payload[1..8].copy_from_slice(&data);
+            },
+            SdoRequest::InitiateUpload { index, sub } => {
+                payload[0] = (ClientCommand::InitiateUpload as u8) << 5;
+                payload[1] = (index & 0xff) as u8;
+                payload[2] = (index >> 8) as u8;
+                payload[3] = sub;
+            },
+            SdoRequest::ReqUploadSegment { t } => {
+                payload[0] = (ClientCommand::ReqUploadSegment as u8) << 5| (t as u8) << 4;
+            },
+            SdoRequest::Abort { index, sub, abort_code } => {
+                payload[0] = (ClientCommand::Abort as u8) << 5;
+                payload[1] = (index & 0xff) as u8;
+                payload[2] = (index >> 8) as u8;
+                payload[3] = sub;
+                payload[4..8].copy_from_slice(&abort_code.to_le_bytes());
+            }
             SdoRequest::InitiateBlockDownload { cc, s, cs, index, sub, size } => todo!(),
             SdoRequest::InitiateBlockUpload {  } => todo!(),
+        }
 
+        CanFdMessage {
+            data: payload,
+            dlc: 8,
+            id,
         }
     }
 }
@@ -258,7 +301,13 @@ impl TryFrom<&[u8]> for SdoRequest {
         };
 
         match ccs {
-            ClientCommand::ReqDownloadSegment => todo!(),
+            ClientCommand::DownloadSegment => {
+                let t = (value[0] & (1<<4)) != 0;
+                let n = (value[0] >> 1) & 0x7;
+                let c = (value[0] & (1<<0)) != 0;
+                let data = value[1..8].try_into().unwrap();
+                Ok(SdoRequest::DownloadSegment { t, n, c, data })
+            },
             ClientCommand::InitiateDownload => {
                 let n = (value[0] >> 2) & 0x3;
                 let e = (value[0] & (1<<1)) != 0;
@@ -280,8 +329,16 @@ impl TryFrom<&[u8]> for SdoRequest {
                 let sub = value[3];
                 Ok(SdoRequest::InitiateUpload { index, sub })
             }
-            ClientCommand::ReqUploadSegment => todo!(),
-            ClientCommand::Abort => todo!(),
+            ClientCommand::ReqUploadSegment => {
+                let t = (((value[0]) >> 4) & 1) != 0;
+                Ok(SdoRequest::ReqUploadSegment { t })
+            },
+            ClientCommand::Abort => {
+                let index = value[1] as u16 | ((value[2] as u16) << 8);
+                let sub = value[3];
+                let abort_code = u32::from_le_bytes(value[4..8].try_into().unwrap());
+                Ok(SdoRequest::Abort { index, sub, abort_code })
+            },
             ClientCommand::ReqBlockUpload => todo!(),
             ClientCommand::ReqBlockDownload => todo!(),
         }
@@ -431,7 +488,7 @@ impl SdoResponse {
                 data,
             } => {
                 payload[0] =
-                    (ServerCommand::Upload as u8) << 5 | (n << 2) | ((e as u8) << 1) | s as u8;
+                    (ServerCommand::Upload as u8) << 5 | ((n & 0x3) << 2) | ((e as u8) << 1) | (s as u8);
                 payload[1] = (index & 0xff) as u8;
                 payload[2] = (index >> 8) as u8;
                 payload[3] = sub;
@@ -443,7 +500,14 @@ impl SdoResponse {
                 payload[2] = (index >> 8) as u8;
                 payload[3] = sub;
             },
-            SdoResponse::UploadSegment { t, n, c, data } => todo!(),
+            SdoResponse::UploadSegment { t, n, c, data } => {
+                payload[0] =
+                    (ServerCommand::SegmentUpload as u8) << 5 |
+                    (t as u8) << 4 |
+                    n << 1 |
+                    c as u8;
+                payload[1..8].copy_from_slice(&data);
+            },
             SdoResponse::ConfirmBlockDownload { sc } => todo!(),
             SdoResponse::Abort { index, sub, abort_code } => {
                 payload[0] = (ServerCommand::Abort as u8) << 5;

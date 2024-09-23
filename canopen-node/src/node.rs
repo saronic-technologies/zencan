@@ -7,24 +7,23 @@ use crate::{nmt::NmtSlave, sdo_server::SdoServer};
 use defmt_or_log::warn;
 
 
-pub struct Node<'a, S: CanSender> {
+pub struct Node<'a> {
     node_id: u8,
     node_state: NmtState,
     sdo_server: Option<SdoServer>,
-    sender: S,
     message_count: u32,
     od: ObjectDict<'a>
 }
 
-impl<'a, S: CanSender> Node<'a, S> {
-    pub fn new(node_id: u8, sender: S, od: ObjectDict<'a>) -> Self {
+impl<'a> Node<'a> {
+    pub fn new(node_id: u8, od: ObjectDict<'a>) -> Self {
         let message_count = 0;
         let sdo_server = None;
         let node_state = NmtState::Bootup;
-        Self { node_id, node_state, sdo_server, sender, message_count, od }
+        Self { node_id, node_state, sdo_server, message_count, od }
     }
 
-    pub fn handle_message(&mut self, msg: CanFdMessage) {
+    pub fn handle_message(&mut self, msg: CanFdMessage, send_cb: &mut dyn FnMut(CanFdMessage)) {
         // Some messages can only be handled after we have a node id
         if self.node_id != 0 {
             if is_std_sdo_request(msg.id(), self.node_id) {
@@ -32,7 +31,7 @@ impl<'a, S: CanSender> Node<'a, S> {
                 if let Some(sdo_server) = &mut self.sdo_server {
                     // Convert message into an SDO request and
                     if let Ok(req) = msg.data().try_into() {
-                        sdo_server.handle_request(&req, &self.od, &mut self.sender);
+                        sdo_server.handle_request(&req, &self.od, send_cb);
                     } else {
                         warn!("Failed to parse an SDO request message");
                     }
@@ -43,13 +42,13 @@ impl<'a, S: CanSender> Node<'a, S> {
         if let Ok(CanOpenMessage::NmtCommand(nmt)) = msg.try_into() {
             // We cannot respond to NMT commands if we do not have a valid node ID
             if self.node_id != 0 && nmt.node == 0 || nmt.node == self.node_id {
-                self.handle_nmt_command(nmt.cmd);
+                self.handle_nmt_command(nmt.cmd, send_cb);
                 self.message_count += 1;
             }
         }
     }
 
-    fn handle_nmt_command(&mut self, cmd: NmtCommandCmd) {
+    fn handle_nmt_command(&mut self, cmd: NmtCommandCmd, sender: &mut dyn FnMut(CanFdMessage)) {
         let prev_state = self.node_state;
 
         match cmd {
@@ -66,7 +65,7 @@ impl<'a, S: CanSender> Node<'a, S> {
         }
 
         if prev_state != NmtState::PreOperational && self.node_state == NmtState::PreOperational {
-            self.boot_up();
+            self.boot_up(sender);
         }
         // if self.node_id.is_some() && self.node_state == NmtState::Bootup {
         //     if let Some(cb) = self.app_reset_callback.as_mut() {
@@ -96,18 +95,18 @@ impl<'a, S: CanSender> Node<'a, S> {
     }
 
 
-    fn boot_up(&mut self) {
+    fn boot_up(&mut self, sender: &mut dyn FnMut(CanFdMessage)) {
         self.sdo_server = Some(SdoServer::new(CanId::Std(
             0x580 + self.node_id as u16,
         )));
-        self.sender.send(Heartbeat{
+        sender(Heartbeat{
             node: self.node_id,
             toggle: false,
             state: self.node_state,
-        }.into()).ok();
+        }.into());
     }
 
-    pub fn enter_preop(&mut self) {
-        self.handle_nmt_command(NmtCommandCmd::EnterPreOp);
+    pub fn enter_preop(&mut self, sender: &mut dyn FnMut(CanFdMessage)) {
+        self.handle_nmt_command(NmtCommandCmd::EnterPreOp, sender);
     }
 }

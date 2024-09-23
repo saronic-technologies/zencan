@@ -31,31 +31,22 @@ fn test_nmt_init() {
 
     const SLAVE_NODE_ID: u8 = 1;
     let mut od = ObjectDict { table: &OD_TABLE };
+    let mut node = Node::new(SLAVE_NODE_ID, od);
+    let mut bus = SimBus::new(vec![node]);
 
-    let mut bus = SimBus::new();
     let (sender, receiver) = bus.new_pair();
     let mut master = Master::new(sender, receiver);
-    let (sender, mut receiver) = bus.new_pair();
-    let mut slave = Node::new(SLAVE_NODE_ID, sender, od);
-
-    let mut dispatch = |slave: &mut Node<SimCanSender>| {
-        while let Some(msg) = receiver.try_recv() {
-            slave.handle_message(msg);
-        }
-    };
-
-    dispatch(&mut slave);
+    let (mut sender, mut receiver) = bus.new_pair();
 
 
-    assert_eq!(NmtState::Bootup, slave.nmt_state());
+
+    assert_eq!(NmtState::Bootup, bus.nodes()[0].nmt_state());
 
 
-    slave.enter_preop();
+    bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());
 
 
-    dispatch(&mut slave);
-
-    assert_eq!(NmtState::PreOperational, slave.nmt_state());
+    assert_eq!(NmtState::PreOperational, bus.nodes()[0].nmt_state());
 
     // Master should have received a boot up message
     let nodes = master.get_nodes();
@@ -66,17 +57,13 @@ fn test_nmt_init() {
     // Broadcast start command
     master.nmt_start(0).unwrap();
 
-    dispatch(&mut slave);
-
-    assert_eq!(NmtState::Operational, slave.nmt_state());
-    assert_eq!(1, slave.rx_message_count());
+    assert_eq!(NmtState::Operational, bus.nodes()[0].nmt_state());
+    assert_eq!(1, bus.nodes()[0].rx_message_count());
 
     master.nmt_stop(0).unwrap();
 
-    dispatch(&mut slave);
-
-    assert_eq!(NmtState::Stopped, slave.nmt_state());
-    assert_eq!(2, slave.rx_message_count());
+    assert_eq!(NmtState::Stopped, bus.nodes()[0].nmt_state());
+    assert_eq!(2, bus.nodes()[0].rx_message_count());
 }
 
 #[test]
@@ -111,7 +98,7 @@ fn test_sdo_server() {
     server.handle_request(
         &SdoRequest::expedited_download(0x1000, 0, &32u32.to_le_bytes()),
         &mut od,
-        &mut sender
+        &mut |tx_msg| sender.send(tx_msg).unwrap(),
     );
 
     assert_eq!(
@@ -124,7 +111,7 @@ fn test_sdo_server() {
     server.handle_request(
         &SdoRequest::initiate_upload(0x1000, 0),
         &mut od,
-        &mut sender
+        &mut |tx_msg| sender.send(tx_msg).unwrap(),
     );
     assert_eq!(
         sender.take_resp(),
@@ -145,23 +132,12 @@ fn test_sdo_server() {
 fn test_sdo_read() {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let mut bus = SimBus::new();
-    let (sender, mut receiver) = bus.new_pair();
     let od = ObjectDict { table: &OD_TABLE };
-    let mut node1 = Node::new(SLAVE_NODE_ID, sender, od);
+    let node = Node::new(SLAVE_NODE_ID, od);
+    let mut bus = SimBus::new(vec![node]);
+    let (mut sender, mut receiver) = bus.new_pair();
 
-    node1.enter_preop();
-
-    // Yuck, threaded tests! But...need to have the slave node processing messages while master
-    // blocks on responses
-    std::thread::spawn(move || {
-        loop {
-            while let Some(msg) = receiver.try_recv() {
-                node1.handle_message(msg);
-            }
-            std::thread::sleep(Duration::from_micros(500));
-        }
-    });
+    bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());
 
     let (sender, receiver) = bus.new_pair();
     let mut client = SdoClient::new_std(SLAVE_NODE_ID, sender, receiver);
