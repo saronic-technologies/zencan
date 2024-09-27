@@ -2,6 +2,8 @@ use configparser::ini::Ini;
 use snafu::{ResultExt as _, Snafu};
 use std::{collections::HashMap, path::Path, str::FromStr};
 
+use canopen_common::objects::{AccessType, DataType};
+
 #[derive(Debug, Snafu)]
 pub enum LoadError {
     IniFormatError {
@@ -89,74 +91,18 @@ impl From<u16> for ObjectType {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default)]
-#[repr(u16)]
-pub enum DataType {
-    Boolean = 1,
-    #[default]
-    Int8 = 2,
-    Int16 = 3,
-    Int32 = 4,
-    UInt8 = 5,
-    UInt16 = 6,
-    UInt32 = 7,
-    Real32 = 8,
-    VisibleString = 9,
-    OctetString = 0xa,
-    UnicodeString = 0xb,
-    Domain = 0xf,
-    Other(u16),
-}
 
-impl From<u16> for DataType {
-    fn from(value: u16) -> Self {
-        use DataType::*;
-        match value {
-            1 => Boolean,
-            2 => Int8,
-            3 => Int16,
-            4 => Int32,
-            5 => UInt8,
-            6 => UInt16,
-            7 => UInt32,
-            8 => Real32,
-            9 => VisibleString,
-            0xa => OctetString,
-            0xb => UnicodeString,
-            0xf => Domain,
-            _ => Other(value),
+fn str_to_access_type(s: &str) -> Result<AccessType, LoadError> {
+    let s = s.to_lowercase();
+    match s.as_str() {
+        "ro" => Ok(AccessType::Ro),
+        "wo" => Ok(AccessType::Wo),
+        "rw" => Ok(AccessType::Rw),
+        "const" => Ok(AccessType::Const),
+        _ => EdsFormatSnafu {
+            message: format!("Invalid AccessType: '{}'", s),
         }
-    }
-}
-
-#[derive(Copy, Clone, Debug, Default)]
-pub enum AccessType {
-    /// Read-only
-    #[default]
-    Ro,
-    /// Write-only
-    Wo,
-    /// Read-write
-    Rw,
-    /// Read-only, and also will never be changed, even internally by the device
-    Const,
-}
-
-impl FromStr for AccessType {
-    type Err = LoadError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s = s.to_lowercase();
-        match s.as_str() {
-            "ro" => Ok(Self::Ro),
-            "wo" => Ok(Self::Wo),
-            "rw" => Ok(Self::Rw),
-            "const" => Ok(Self::Const),
-            _ => EdsFormatSnafu {
-                message: format!("Invalid AccessType: '{}'", s),
-            }
-            .fail(),
-        }
+        .fail(),
     }
 }
 
@@ -301,7 +247,7 @@ impl<'a> Section<'a> {
 fn get_sub_object(section: &Section) -> Result<SubObject, LoadError> {
     Ok(SubObject {
         data_type: DataType::from(section.get_u32_hex("DataType")? as u16),
-        access_type: AccessType::from_str(&section.get_string("AccessType")?)?,
+        access_type: str_to_access_type(&section.get_string("AccessType")?)?,
         low_limit: section.get_string("LowLimit").map_or(None, |s| Some(s)),
         high_limit: section.get_string("HighLimit").map_or(None, |s| Some(s)),
         default_value: section.get_string("DefaultValue")?,

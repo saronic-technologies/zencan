@@ -16,7 +16,6 @@ impl<'a> CanSender for SimCanSender<'a> {
     fn send(&mut self, msg: CanFdMessage) -> Result<(), CanFdMessage> {
 
         for s in self.senders.borrow_mut().iter_mut() {
-            println!("Sending SIM CAN message");
             s.try_send(msg).map_err(|e| {
                 println!("Error sending: {:?}", e);
                 e.into_inner()
@@ -61,11 +60,9 @@ impl CanReceiver for SimCanReceiver {
     }
 
     fn recv(&mut self, _timeout: Duration) -> Result<CanFdMessage, ()> {
-        println!("recv");
         match self.receiver.try_next() {
             Ok(result) => match result {
                 Some(msg) => {
-                    println!("Received SIM message");
                     Ok(msg)
                 }
                 None => {

@@ -1,5 +1,5 @@
 use canopen_common::{
-    objects::{ObjectDict, SubObject},
+    objects::{AccessType, ObjectDict, SubObject},
     sdo::{AbortCode, SdoRequest, SdoResponse},
     traits::{CanFdMessage, CanId, CanSender},
 };
@@ -148,6 +148,15 @@ impl SdoServer {
                             return;
                         }
                     };
+
+                    // Verify that the requested object is writable
+                    if matches!(subobj.access_type, AccessType::Ro | AccessType::Const) {
+                        sender(
+                            SdoResponse::abort(self.index, self.sub, AbortCode::ReadOnly)
+                                .to_can_message(self.tx_cob_id),
+                        );
+                        return
+                    }
 
                     // Verify data size requested by client fits object, and abort if not
                     let dl_size = 4 - *n as usize;

@@ -1,172 +1,25 @@
-use std::{sync::{atomic::AtomicBool, Arc}, time::Duration};
+use std::{
+    sync::{atomic::AtomicBool, Arc},
+    time::Duration,
+};
 
-use canopen_client::sdo_client::SdoClient;
+use canopen_client::sdo_client::{SdoClient, SdoClientError};
 use canopen_common::{
     objects::ObjectDict,
+    sdo::AbortCode,
     traits::{CanReceiver, CanSender},
 };
 use canopen_node::{build_object_dict, node::Node};
 use integration_tests::sim_bus::{SimBus, SimCanReceiver, SimCanSender};
 
 
-build_object_dict!(
-    r#"[FileInfo]
-FileName=sample.eds
-FileVersion=1
-FileRevision=1
-LastEDS=
-EDSVersion=4.0
-Description=
-CreationTime=1:58PM
-CreationDate=09-10-2024
-CreatedBy=
-ModificationTime=1:58PM
-ModificationDate=09-10-2024
-ModifiedBy=
-
-[DeviceInfo]
-VendorName=Tester
-VendorNumber=
-ProductName=Test Product
-ProductNumber=
-RevisionNumber=0
-BaudRate_10=0
-BaudRate_20=0
-BaudRate_50=0
-BaudRate_125=0
-BaudRate_250=0
-BaudRate_500=0
-BaudRate_800=0
-BaudRate_1000=1
-SimpleBootUpMaster=0
-SimpleBootUpSlave=0
-Granularity=8
-DynamicChannelsSupported=0
-CompactPDO=0
-GroupMessaging=0
-NrOfRXPDO=0
-NrOfTXPDO=0
-LSS_Supported=0
-NG_Slave=0
-
-[DummyUsage]
-Dummy0001=0
-Dummy0002=0
-Dummy0003=0
-Dummy0004=0
-Dummy0005=0
-Dummy0006=0
-Dummy0007=0
-
-[Comments]
-Lines=0
-
-[MandatoryObjects]
-SupportedObjects=0
-
-[OptionalObjects]
-SupportedObjects=0
-
-[ManufacturerObjects]
-SupportedObjects=3
-1=0x2000
-2=0x2001
-3=0x2002
-
-[2000]
-ParameterName=Array Example
-ObjectType=0x8
-;StorageLocation=RAM
-SubNumber=0x3
-
-[2000sub0]
-ParameterName=Highest sub-index supported
-ObjectType=0x7
-;StorageLocation=RAM
-DataType=0x0005
-AccessType=ro
-DefaultValue=0x02
-PDOMapping=0
-
-[2000sub1]
-ParameterName=Sub Object 1
-ObjectType=0x7
-;StorageLocation=RAM
-DataType=0x0004
-AccessType=ro
-DefaultValue=123
-PDOMapping=0
-
-[2000sub2]
-ParameterName=Sub Object 1
-ObjectType=0x7
-;StorageLocation=RAM
-DataType=0x0004
-AccessType=ro
-DefaultValue=-1
-PDOMapping=0
-
-[2001]
-ParameterName=Record Example
-ObjectType=0x9
-;StorageLocation=RAM
-SubNumber=0x4
-
-[2001sub0]
-ParameterName=Highest sub-index supported
-ObjectType=0x7
-;StorageLocation=RAM
-DataType=0x0005
-AccessType=ro
-DefaultValue=0x04
-PDOMapping=0
-
-[2001sub1]
-ParameterName=Sub Object 1
-ObjectType=0x7
-;StorageLocation=RAM
-DataType=0x0007
-AccessType=rw
-DefaultValue=140
-PDOMapping=0
-
-[2001sub3]
-ParameterName=Sub Object 1
-ObjectType=0x7
-;StorageLocation=RAM
-DataType=0x0003
-AccessType=ro
-DefaultValue=0x10
-PDOMapping=0
-
-[2001sub4]
-ParameterName=Sub Object 1
-ObjectType=0x7
-;StorageLocation=RAM
-DataType=0x000F
-AccessType=ro
-DefaultValue=0x200
-PDOMapping=0
-
-[2002]
-ParameterName=String Var
-ObjectType=0x7
-;StorageLocation=RAM
-DataType=0x0009
-AccessType=rw
-DefaultValue=Some String
-PDOMapping=0
-"#
-);
-
-fn get_od() -> ObjectDict<'static> {
-    ObjectDict { table: &OD_TABLE }
-}
-
-fn setup() -> (SdoClient<SimCanSender<'static>, SimCanReceiver>, SimBus<'static>) {
+fn setup() -> (
+    SdoClient<SimCanSender<'static>, SimCanReceiver>,
+    SimBus<'static>,
+) {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let od = get_od();
+    let od = integration_tests::object_dict1::get_od();
     let node = Node::new(SLAVE_NODE_ID, od);
 
     let mut bus = SimBus::new(vec![node]);
@@ -197,21 +50,81 @@ pub fn test_string_write() {
     let readback = client.upload(0x2002, 0).unwrap();
     assert_eq!("Testers123".as_bytes(), readback);
     // Transfer as max-length string (the default value in EDS is 11 characters long)
-    client.download(0x2002, 0, "Testers1234".as_bytes()).unwrap();
+    client
+        .download(0x2002, 0, "Testers1234".as_bytes())
+        .unwrap();
     let readback = client.upload(0x2002, 0).unwrap();
     assert_eq!("Testers1234".as_bytes(), readback);
 }
 
-// #[test]
-// pub fn test_record_access() {
-//     let OBJECT_ID: u16 = 0x2001;
+#[test]
+pub fn test_record_access() {
+    const OBJECT_ID: u16 = 0x2001;
 
-//     let (mut client, mut bus) = setup();
-//     let mut sender = bus.new_sender();
+    let (mut client, mut bus) = setup();
+    let mut sender = bus.new_sender();
 
-//     bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());
+    bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());
 
-//     let size_data = client.upload(OBJECT_ID, 0).unwrap();
-//     assert_eq!(1, size_data.len());
-//     client.download(OBJECT_ID, , data)
-// }
+    let size_data = client.upload(OBJECT_ID, 0).unwrap();
+    assert_eq!(1, size_data.len());
+    assert_eq!(4, size_data[0]); // Highest sub index supported
+
+    // Check default values of all sub indices
+    let sub1_bytes = client.upload(OBJECT_ID, 1).unwrap();
+    assert_eq!(4, sub1_bytes.len());
+    assert_eq!(140, u32::from_le_bytes(sub1_bytes.try_into().unwrap()));
+    let sub3_bytes = client.upload(OBJECT_ID, 3).unwrap();
+    assert_eq!(2, sub3_bytes.len());
+    assert_eq!(0x20, u16::from_le_bytes(sub3_bytes.try_into().unwrap()));
+
+    // Write/readback sub1
+    client
+        .download(OBJECT_ID, 1, &4567u32.to_le_bytes())
+        .unwrap();
+    let sub1_bytes = client.upload(OBJECT_ID, 1).unwrap();
+    assert_eq!(4567, u32::from_le_bytes(sub1_bytes.try_into().unwrap()));
+
+    // Sub3 is read-only; writing should return an abort
+    let res = client.download(OBJECT_ID, 3, &100u16.to_le_bytes());
+    assert!(res.is_err());
+    assert_eq!(
+        res.unwrap_err(),
+        SdoClientError::ServerAbort {
+            abort_code: AbortCode::ReadOnly as u32
+        }
+    );
+}
+
+#[test]
+pub fn test_array_access() {
+    const OBJECT_ID: u16 = 0x2000;
+
+    let (mut client, mut bus) = setup();
+    let mut sender = bus.new_sender();
+
+    bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());
+
+    let size_data = client.upload(OBJECT_ID, 0).unwrap();
+    assert_eq!(1, size_data.len());
+    assert_eq!(2, size_data[0]); // Highest sub index supported
+
+    // Read back default values
+    let data = client.upload(OBJECT_ID, 1).unwrap();
+    assert_eq!(4, data.len());
+    assert_eq!(123, i32::from_le_bytes(data.try_into().unwrap()));
+
+    let data = client.upload(OBJECT_ID, 2).unwrap();
+    assert_eq!(4, data.len());
+    assert_eq!(-1, i32::from_le_bytes(data.try_into().unwrap()));
+
+    // Write and read
+    client.download(OBJECT_ID, 1, &(-40i32).to_le_bytes()).unwrap();
+    let data = client.upload(OBJECT_ID, 1).unwrap();
+    assert_eq!(-40, i32::from_le_bytes(data.try_into().unwrap()));
+
+    client.download(OBJECT_ID, 2, &(99i32).to_le_bytes()).unwrap();
+    let data = client.upload(OBJECT_ID, 2).unwrap();
+    assert_eq!(99, i32::from_le_bytes(data.try_into().unwrap()));
+
+}

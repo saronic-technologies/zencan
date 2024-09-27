@@ -11,3 +11,6 @@ canopen-node = { version = "0.1.0", path = "../canopen-node", features = ["log"]
 canopen-client = { version = "0.1.0", path = "../canopen-client" }
 critical-section = { version = "*", features = ["std"] }
 futures = "*"
+
+[build-dependencies]
+canopen-build = { version = "0.1.0", path = "../canopen-build" }

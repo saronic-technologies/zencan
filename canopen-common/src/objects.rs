@@ -5,7 +5,7 @@
 use core::{
     cell::RefCell,
     mem::{size_of, size_of_val},
-    ptr::{self, addr_of, addr_of_mut},
+    ptr::{self, addr_of, addr_of_mut}, str::FromStr,
 };
 use critical_section::Mutex;
 
@@ -21,9 +21,26 @@ pub enum ObjectCode {
     Record = 9,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
+pub enum AccessType {
+    /// Read-only
+    #[default]
+    Ro,
+    /// Write-only
+    Wo,
+    /// Read-write
+    Rw,
+    /// Read-only, and also will never be changed, even internally by the device
+    Const,
+}
+
+
+
+#[derive(Copy, Clone, Debug, Default)]
+#[repr(u16)]
 pub enum DataType {
     Boolean = 1,
+    #[default]
     Int8 = 2,
     Int16 = 3,
     Int32 = 4,
@@ -32,11 +49,35 @@ pub enum DataType {
     UInt32 = 7,
     Real32 = 8,
     VisibleString = 9,
-    OctetString = 10,
-    UnicodeString = 11,
-    TimeOfDay = 12,
-    TimeDifference = 13,
+    OctetString = 0xa,
+    UnicodeString = 0xb,
+    TimeOfDay = 0xc,
+    TimeDifference = 0xd,
+    Domain = 0xf,
+    Other(u16),
 }
+
+impl From<u16> for DataType {
+    fn from(value: u16) -> Self {
+        use DataType::*;
+        match value {
+            1 => Boolean,
+            2 => Int8,
+            3 => Int16,
+            4 => Int32,
+            5 => UInt8,
+            6 => UInt16,
+            7 => UInt32,
+            8 => Real32,
+            9 => VisibleString,
+            0xa => OctetString,
+            0xb => UnicodeString,
+            0xf => Domain,
+            _ => Other(value),
+        }
+    }
+}
+
 
 impl DataType {
     /// Returns true if data type is one of the string types
@@ -77,12 +118,14 @@ unsafe impl<'a> Sync for ObjectStorage<'a> {}
 
 pub struct Var<'a> {
     pub data_type: DataType,
+    pub access_type: AccessType,
     pub size: usize,
     pub storage: Mutex<RefCell<ObjectStorage<'a>>>,
 }
 
 pub struct Array<'a> {
     pub data_type: DataType,
+    pub access_type: AccessType,
     pub size: usize,
     pub storage_sub0: Mutex<RefCell<ObjectStorage<'a>>>,
     pub storage: Mutex<RefCell<ObjectStorage<'a>>>,
@@ -90,12 +133,17 @@ pub struct Array<'a> {
 
 pub struct Record<'a> {
     pub data_types: &'a [Option<DataType>],
+    pub access_types: &'a [Option<AccessType>],
     pub sizes: &'a [usize],
     pub storage_sub0: Mutex<RefCell<ObjectStorage<'a>>>,
     pub storage: &'a [Option<Mutex<RefCell<ObjectStorage<'a>>>>],
 }
 
-pub enum Object<'a> {
+pub struct Object<'a> {
+    pub data: ObjectData<'a>,
+}
+
+pub enum ObjectData<'a> {
     Var(Var<'a>),
     Array(Array<'a>),
     Record(Record<'a>),
@@ -103,12 +151,13 @@ pub enum Object<'a> {
 
 impl<'a> Object<'a> {
     pub fn get_sub<'b: 'a>(&'b self, sub: u8) -> Option<SubObject<'b>> {
-        match self {
-            Object::Var(var) => {
+        match &self.data {
+            ObjectData::Var(var) => {
                 if sub == 0 {
                     Some(SubObject {
                         offset: 0,
                         data_type: var.data_type,
+                        access_type: var.access_type,
                         size: var.size,
                         storage: &var.storage,
                     })
@@ -116,18 +165,20 @@ impl<'a> Object<'a> {
                     None
                 }
             }
-            Object::Array(arr) => {
+            ObjectData::Array(arr) => {
                 if sub == 0 {
                     Some(SubObject {
                         offset: 0,
                         data_type: DataType::UInt8,
+                        access_type: AccessType::Ro,
                         size: 1,
                         storage: &arr.storage_sub0,
                     })
                 } else if sub <= arr.size as u8 {
                     Some(SubObject {
-                        offset: sub as usize * element_storage_size(arr.data_type),
+                        offset: (sub as usize - 1) * element_storage_size(arr.data_type),
                         data_type: arr.data_type,
+                        access_type: arr.access_type,
                         size: element_storage_size(arr.data_type),
                         storage: &arr.storage,
                     })
@@ -135,11 +186,12 @@ impl<'a> Object<'a> {
                     None
                 }
             }
-            Object::Record(rec) => {
+            ObjectData::Record(rec) => {
                 if sub == 0 {
                     Some(SubObject {
                         offset: 0,
                         data_type: DataType::UInt8,
+                        access_type: AccessType::Const,
                         size: 1,
                         storage: &rec.storage_sub0,
                     })
@@ -150,6 +202,7 @@ impl<'a> Object<'a> {
                             offset: 0,
                             // unwrap safety: if storage is not None, data type must be not None
                             data_type: rec.data_types[sub as usize - 1].unwrap(),
+                            access_type: rec.access_types[sub as usize - 1].unwrap(),
                             size: rec.sizes[sub as usize - 1],
                             storage,
                         })
@@ -173,18 +226,18 @@ pub struct ODEntry<'a> {
 
 impl<'a> ODEntry<'a> {
     pub fn obj_code(&self) -> ObjectCode {
-        match self.object {
-            Object::Var(_) => ObjectCode::Var,
-            Object::Array(_) => ObjectCode::Array,
-            Object::Record(_) => ObjectCode::Record,
+        match &self.object.data {
+            ObjectData::Var(_) => ObjectCode::Var,
+            ObjectData::Array(_) => ObjectCode::Array,
+            ObjectData::Record(_) => ObjectCode::Record,
         }
     }
 
     pub fn sub_count(&self) -> u8 {
-        match self.object {
-            Object::Var(_) => 1,
-            Object::Array(array) => (array.size + 1) as u8,
-            Object::Record(_) => todo!(),
+        match &self.object.data {
+            ObjectData::Var(_) => 1,
+            ObjectData::Array(array) => (array.size + 1) as u8,
+            ObjectData::Record(_) => todo!(),
         }
     }
 }
@@ -201,6 +254,8 @@ pub struct SubObject<'a> {
     offset: usize,
     pub size: usize,
     pub data_type: DataType,
+    pub access_type: AccessType,
+
 }
 
 impl<'a> SubObject<'a> {
@@ -273,102 +328,6 @@ impl<'a> SubObject<'a> {
 
 }
 
-struct Item3Record {
-    x: u32,
-    y: f32,
-    z: u8,
-}
-
-struct MutData {
-    device_id: u32,
-    item2: [u16; ITEM2_SIZE as usize],
-    item3: Item3Record,
-}
-
-struct ConstData {
-    field1: &'static str,
-    item2_sub0: u8,
-    item3_sub0: u8,
-}
-
-static mut MUT_DATA: MutData = MutData {
-    device_id: 1,
-    item2: [0; ITEM2_SIZE as usize],
-    item3: Item3Record {
-        x: 12,
-        y: 10.0,
-        z: 255,
-    },
-};
-
-const CONST_DATA: ConstData = ConstData {
-    field1: "TESTING",
-    item2_sub0: 4,
-    item3_sub0: 3,
-};
-
-static Object1000: Object = Object::Var(Var {
-    data_type: DataType::Int32,
-    storage: Mutex::new(RefCell::new(ObjectStorage::Ram(
-        unsafe { &MUT_DATA.device_id as *const u32 as *const u8 },
-        size_of::<u32>(),
-    ))),
-    size: size_of::<u32>(),
-});
-
-const ITEM2_SIZE: u8 = 4;
-static Object1001: Object = Object::Array(Array {
-    data_type: DataType::Int16,
-    size: ITEM2_SIZE as usize,
-    storage_sub0: Mutex::new(RefCell::new(ObjectStorage::Const(&ITEM2_SIZE, 1))),
-    storage: Mutex::new(RefCell::new(ObjectStorage::Ram(
-        unsafe { MUT_DATA.item2.as_ptr() as *const u8 },
-        ITEM2_SIZE as usize * size_of::<u16>(),
-    ))),
-});
-
-static ITEM3_STORAGE: [Option<Mutex<RefCell<ObjectStorage>>>; 3] = [
-    Some(Mutex::new(RefCell::new(ObjectStorage::Ram(
-        unsafe { &MUT_DATA.item3.x as *const u32 as *const u8 },
-        size_of::<u32>(),
-    )))),
-    Some(Mutex::new(RefCell::new(ObjectStorage::Ram(
-        unsafe { &MUT_DATA.item3.y as *const f32 as *const u8 },
-        size_of::<f32>(),
-    )))),
-    Some(Mutex::new(RefCell::new(ObjectStorage::Ram(
-        unsafe { &MUT_DATA.item3.z as *const u8 },
-        size_of::<u8>(),
-    )))),
-];
-
-static Object1002: Object = Object::Record(Record {
-    data_types: &[Some(DataType::UInt32), Some(DataType::Real32), Some(DataType::UInt8)],
-    sizes: &[size_of::<u32>(), size_of::<f32>(), size_of::<u8>()],
-    storage_sub0: Mutex::new(RefCell::new(ObjectStorage::Const(
-        &CONST_DATA.item3_sub0,
-        size_of::<u8>(),
-    ))),
-    storage: &ITEM3_STORAGE,
-});
-
-pub static OD_TABLE: &[ODEntry] = {
-    &[
-        ODEntry {
-            index: 0x1000,
-            object: &Object1000,
-        },
-        ODEntry {
-            index: 0x1001,
-            object: &Object1001,
-        },
-        ODEntry {
-            index: 0x1002,
-            object: &Object1002
-        }
-    ]
-};
-
 pub struct ObjectDict<'a> {
     pub table: &'a [ODEntry<'a>],
 }
@@ -397,50 +356,50 @@ impl<'a> ObjectDict<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
 
-    #[test]
-    fn test_object_var() {
-        let dict = ObjectDict { table: &OD_TABLE };
-        let object = dict.find(0x1000).unwrap();
-        let node = object.get_sub(0).unwrap();
-        //let node = dict.find_sub(0x1000, 0).unwrap();
-        node.write(0, &10u32.to_le_bytes());
-        let mut buf = [0u8; 4];
-        node.read(0, &mut buf);
-        assert_eq!(10, u32::from_le_bytes(buf));
-    }
+//     #[test]
+//     fn test_object_var() {
+//         let dict = ObjectDict { table: &OD_TABLE };
+//         let object = dict.find(0x1000).unwrap();
+//         let node = object.get_sub(0).unwrap();
+//         //let node = dict.find_sub(0x1000, 0).unwrap();
+//         node.write(0, &10u32.to_le_bytes());
+//         let mut buf = [0u8; 4];
+//         node.read(0, &mut buf);
+//         assert_eq!(10, u32::from_le_bytes(buf));
+//     }
 
-    #[test]
-    fn test_object_array() {
-        let dict = ObjectDict { table: &OD_TABLE };
-        let object = dict.find(0x1001).unwrap();
-        let node0 = object.get_sub(0).unwrap();
-        let mut buf = [0u8];
-        node0.read(0, &mut buf);
-        assert_eq!(buf[0], ITEM2_SIZE);
+//     #[test]
+//     fn test_object_array() {
+//         let dict = ObjectDict { table: &OD_TABLE };
+//         let object = dict.find(0x1001).unwrap();
+//         let node0 = object.get_sub(0).unwrap();
+//         let mut buf = [0u8];
+//         node0.read(0, &mut buf);
+//         assert_eq!(buf[0], ITEM2_SIZE);
 
-        let node1 = object.get_sub(1).unwrap();
-        let buf = [0; 2];
-        node1.write(0, &99u16.to_le_bytes());
-    }
+//         let node1 = object.get_sub(1).unwrap();
+//         let buf = [0; 2];
+//         node1.write(0, &99u16.to_le_bytes());
+//     }
 
-    #[test]
-    fn test_object_record() {
-        let dict = ObjectDict { table: &OD_TABLE };
-        let object = dict.find(0x1002).unwrap();
-        let node1 = object.get_sub(1).unwrap();
-        node1.write(0, &44u32.to_le_bytes());
-        let mut buf = [0; 4];
-        node1.read(0, &mut buf);
-        assert_eq!(44, u32::from_le_bytes(buf));
+//     #[test]
+//     fn test_object_record() {
+//         let dict = ObjectDict { table: &OD_TABLE };
+//         let object = dict.find(0x1002).unwrap();
+//         let node1 = object.get_sub(1).unwrap();
+//         node1.write(0, &44u32.to_le_bytes());
+//         let mut buf = [0; 4];
+//         node1.read(0, &mut buf);
+//         assert_eq!(44, u32::from_le_bytes(buf));
 
-        let node3 = object.get_sub(3).unwrap();
-        node3.write(0, &22u8.to_le_bytes());
-        let mut buf = [0; 1];
-        node3.read(0, &mut buf);
-        assert_eq!(22, buf[0]);
-    }
-}
+//         let node3 = object.get_sub(3).unwrap();
+//         node3.write(0, &22u8.to_le_bytes());
+//         let mut buf = [0; 1];
+//         node3.read(0, &mut buf);
+//         assert_eq!(22, buf[0]);
+//     }
+// }

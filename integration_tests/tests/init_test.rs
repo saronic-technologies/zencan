@@ -4,7 +4,7 @@ use canopen_common::{messages::{
     self,
     NmtCommandCmd::{self, Start},
     NmtState,
-}, objects::{Object, ObjectDict, OD_TABLE}, sdo::{SdoRequest, SdoResponse}, traits::{CanFdMessage, CanId, CanReceiver}};
+}, objects::{Object, ObjectDict}, sdo::{SdoRequest, SdoResponse}, traits::{CanFdMessage, CanId, CanReceiver}};
 use canopen_common::traits::CanSender;
 
 use canopen_node::{node::Node, sdo_server::SdoServer};
@@ -30,7 +30,7 @@ fn test_nmt_init() {
     use CanReceiver;
 
     const SLAVE_NODE_ID: u8 = 1;
-    let mut od = ObjectDict { table: &OD_TABLE };
+    let mut od = integration_tests::object_dict1::get_od();
     let mut node = Node::new(SLAVE_NODE_ID, od);
     let mut bus = SimBus::new(vec![node]);
 
@@ -64,86 +64,4 @@ fn test_nmt_init() {
 
     assert_eq!(NmtState::Stopped, bus.nodes()[0].nmt_state());
     assert_eq!(2, bus.nodes()[0].rx_message_count());
-}
-
-#[test]
-fn test_sdo_server() {
-    const TX_COB_ID: CanId = CanId::Std(0x600);
-    let mut server = SdoServer::new(TX_COB_ID);
-
-    let mut od = ObjectDict { table: &OD_TABLE };
-
-    struct MockSender {
-        pub last_message: Option<CanFdMessage>,
-    }
-    impl CanSender for MockSender {
-        fn send(&mut self, msg: CanFdMessage) -> Result<(), CanFdMessage> {
-            self.last_message = Some(msg);
-            Ok(())
-        }
-    }
-
-    impl MockSender {
-        fn get_resp(&self) -> SdoResponse {
-            self.last_message.expect("No response message").try_into().unwrap()
-        }
-
-        fn take_resp(&mut self) -> SdoResponse {
-            self.last_message.take().expect("No response message").try_into().unwrap()
-        }
-    }
-
-    let mut sender = MockSender { last_message: None };
-
-    server.handle_request(
-        &SdoRequest::expedited_download(0x1000, 0, &32u32.to_le_bytes()),
-        &mut od,
-        &mut |tx_msg| sender.send(tx_msg).unwrap(),
-    );
-
-    assert_eq!(
-        sender.take_resp(),
-        SdoResponse::ConfirmDownload { index: 0x1000, sub: 0 }
-    );
-
-    // TODO: Check value is written to object dict
-
-    server.handle_request(
-        &SdoRequest::initiate_upload(0x1000, 0),
-        &mut od,
-        &mut |tx_msg| sender.send(tx_msg).unwrap(),
-    );
-    assert_eq!(
-        sender.take_resp(),
-        SdoResponse::ConfirmUpload {
-            n: 0,
-            e: true,
-            s: true,
-            index: 0x1000,
-            sub: 0,
-            data: 32u32.to_le_bytes(),
-        }
-    );
-
-
-}
-
-#[test]
-fn test_sdo_read() {
-    const SLAVE_NODE_ID: u8 = 1;
-
-    let od = ObjectDict { table: &OD_TABLE };
-    let node = Node::new(SLAVE_NODE_ID, od);
-    let mut bus = SimBus::new(vec![node]);
-    let (mut sender, mut receiver) = bus.new_pair();
-
-    bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());
-
-    let (sender, receiver) = bus.new_pair();
-    let mut client = SdoClient::new_std(SLAVE_NODE_ID, sender, receiver);
-
-    client.download(0x1000, 0, &[0xa, 0x44]).unwrap();
-    let read = client.upload(0x1000, 0).unwrap();
-
-    assert_eq!(vec![0xa, 0x44], read);
 }

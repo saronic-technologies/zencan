@@ -8,7 +8,7 @@ use snafu::Snafu;
 
 const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, PartialEq, Snafu)]
 pub enum SdoClientError {
     NoResponse,
     MalformedResponse,
@@ -159,6 +159,15 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
                 let resp = self.wait_for_response(RESPONSE_TIMEOUT)?;
                 match resp {
                     SdoResponse::UploadSegment { t, n, c, data } => {
+                        if t != toggle {
+                            self.sender
+                                .send(
+                                    SdoRequest::abort(index, sub, AbortCode::ToggleNotAlternated)
+                                        .to_can_message(self.req_cob_id),
+                                )
+                                .expect("Error sending abort");
+                            return ToggleNotAlternatedSnafu.fail()
+                        }
                         read_buf.extend_from_slice(&data[0..7 - n as usize]);
                         if c {
                             // Transfer complete
