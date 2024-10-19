@@ -92,7 +92,7 @@ fn get_default_literal(obj: u32, sub: &SubObject) -> Result<TokenStream, Compile
                 message: format!("Can't parse default value on {:x}", obj),
             })?;
             let value = num != 0;
-            Ok(quote!(value))
+            Ok(quote!(#value))
         }
         DataType::Int8 => {
             let x = s.parse_eds_i64().context(ParseIntSnafu {
