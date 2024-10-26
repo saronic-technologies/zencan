@@ -7,12 +7,12 @@ use futures::channel::mpsc::{Sender, Receiver, channel, TryRecvError};
 
 type SharedQueueList = Vec<Sender<CanFdMessage>>;
 type SharedSenderList = Vec<RefCell<Box<dyn CanSender>>>;
-pub struct SimCanSender<'a> {
+pub struct SimCanSender<'table, 'cb, const N: usize> {
     senders: Rc<RefCell<SharedQueueList>>,
-    nodes: Rc<Vec<RefCell<Node<'a>>>>,
+    nodes: Rc<Vec<RefCell<Node<'table, 'cb, N>>>>,
 }
 
-impl<'a> CanSender for SimCanSender<'a> {
+impl<'table, 'cb, const N: usize> CanSender for SimCanSender<'table, 'cb, N> {
     fn send(&mut self, msg: CanFdMessage) -> Result<(), CanFdMessage> {
 
         for s in self.senders.borrow_mut().iter_mut() {
@@ -98,22 +98,22 @@ impl CanReceiver for SimCanReceiver {
 //     }
 // }
 
-pub struct SimBus<'a> {
+pub struct SimBus<'table, 'cb, const N: usize> {
     senders: Rc<RefCell<SharedQueueList>>,
-    nodes: Rc<Vec<RefCell<Node<'a>>>>,
+    nodes: Rc<Vec<RefCell<Node<'table, 'cb, N>>>>,
 }
 
-impl<'a> SimBus<'a> {
+impl<'table, 'cb, const N: usize> SimBus<'table, 'cb, N> {
     const QSIZE: usize = 100;
 
-    pub fn new(nodes: Vec<Node<'a>>) -> Self {
+    pub fn new(nodes: Vec<Node<'table, 'cb, N>>) -> Self {
         let senders = Rc::new(RefCell::new(Vec::new()));
         // Vec<Node> -> Vec<RefCell<Node>>
         let nodes = Rc::new(nodes.into_iter().map(|n| RefCell::new(n)).collect());
         Self { senders, nodes }
     }
 
-    pub fn new_pair(&mut self) -> (SimCanSender<'a>, SimCanReceiver) {
+    pub fn new_pair(&mut self) -> (SimCanSender<'table, 'cb, N>, SimCanReceiver) {
         let sender = self.new_sender();
         let (tx, rx) = channel(Self::QSIZE);
         self.senders.borrow_mut().push(tx);
@@ -121,13 +121,13 @@ impl<'a> SimBus<'a> {
         (sender, receiver)
     }
 
-    pub fn new_sender(&mut self) -> SimCanSender<'a> {
+    pub fn new_sender(&mut self) -> SimCanSender<'table, 'cb, N> {
         let (senders, nodes) = (self.senders.clone(), self.nodes.clone());
         SimCanSender { senders, nodes }
     }
 
     /// Accessor to allow tests to access nodes on the bus while they are owned by the SimBus
-    pub fn nodes(&mut self) -> Vec<RefMut<Node<'a>>> {
+    pub fn nodes(&mut self) -> Vec<RefMut<Node<'table, 'cb, N>>> {
         self.nodes.iter().map(|n| n.borrow_mut()).collect()
     }
 }

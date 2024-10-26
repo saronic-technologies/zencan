@@ -1,5 +1,5 @@
 use canopen_common::{
-    objects::{AccessType, ObjectDict, SubObject},
+    objects::{AccessType, Object, ObjectDict, SubInfo, SubObject},
     sdo::{AbortCode, SdoRequest, SdoResponse},
     traits::{CanFdMessage, CanId, CanSender},
 };
@@ -24,22 +24,20 @@ pub struct SdoServer {
 /// Attempt to find a subobject in the object dict
 ///
 /// Returns an Err<SdoResponse> with the appropriate SDO abort response on failure
-fn lookup_sub_object<'a>(
-    od: &ObjectDict<'a>,
+fn lookup_sub_object<'a, 'table, 'cb, const N: usize>(
+    od: &'a ObjectDict<'table, 'cb, N>,
     index: u16,
     sub: u8,
-) -> Result<SubObject<'a>, SdoResponse> {
-    let obj = match od.find(index) {
-        Some(obj) => obj,
-        None => return Err(SdoResponse::abort(index, sub, AbortCode::NoSuchObject)),
-    };
+) -> Result<(&'a Object<'table, 'cb>, SubInfo), SdoResponse> {
+    let obj = od
+        .find(index)
+        .ok_or(SdoResponse::abort(index, sub, AbortCode::NoSuchObject))?;
 
-    let sub_obj = match obj.get_sub(sub) {
-        Some(obj) => obj,
-        None => return Err(SdoResponse::abort(index, sub, AbortCode::NoSuchSubIndex)),
-    };
+    let subinfo =
+        obj.sub_info(sub)
+            .ok_or(SdoResponse::abort(index, sub, AbortCode::NoSuchSubIndex))?;
 
-    Ok(sub_obj)
+    Ok((obj, subinfo))
 }
 
 impl SdoServer {
@@ -59,11 +57,7 @@ impl SdoServer {
         }
     }
 
-    fn validate_download_size(
-        &self,
-        dl_size: usize,
-        subobj: &SubObject,
-    ) -> Result<(), SdoResponse> {
+    fn validate_download_size(&self, dl_size: usize, subobj: &SubInfo) -> Result<(), SdoResponse> {
         if subobj.data_type.is_str() {
             // Strings can write shorter lengths
             if dl_size > subobj.size {
@@ -91,19 +85,19 @@ impl SdoServer {
         }
         Ok(())
     }
-    pub fn handle_request(
+
+    pub fn handle_request<const N: usize>(
         &mut self,
         req: &SdoRequest,
-        od: &ObjectDict,
+        od: &ObjectDict<N>,
         sender: &mut dyn FnMut(CanFdMessage),
     ) {
         match req {
             SdoRequest::InitiateUpload { index, sub } => {
-                let subobj = match lookup_sub_object(od, *index, *sub) {
-                    Ok(subobj) => subobj,
-                    Err(response) => {
-                        sender(response.to_can_message(self.tx_cob_id));
-                        self.state = State::Idle;
+                let (obj, subinfo) = match lookup_sub_object(od, *index, *sub) {
+                    Ok(x) => x,
+                    Err(resp) => {
+                        sender(resp.to_can_message(self.tx_cob_id));
                         return;
                     }
                 };
@@ -111,11 +105,11 @@ impl SdoServer {
                 let mut buf = [0u8; 4];
                 self.toggle_state = false;
 
-                if subobj.current_size() <= 4 {
+                if subinfo.current_size <= 4 {
                     // Do expedited upload
-                    subobj.read(0, &mut buf[0..subobj.current_size()]);
+                    obj.read(*sub, 0, &mut buf[0..subinfo.current_size]);
                     sender(
-                        SdoResponse::expedited_upload(*index, *sub, &buf[0..subobj.current_size()])
+                        SdoResponse::expedited_upload(*index, *sub, &buf[0..subinfo.current_size])
                             .to_can_message(self.tx_cob_id),
                     );
                     self.state = State::Idle;
@@ -124,7 +118,7 @@ impl SdoServer {
                     self.state = State::UploadSegment;
                     self.segment_counter = 0;
                     sender(
-                        SdoResponse::upload_acknowledge(*index, *sub, subobj.current_size() as u32)
+                        SdoResponse::upload_acknowledge(*index, *sub, subinfo.current_size as u32)
                             .to_can_message(self.tx_cob_id),
                     );
                 }
@@ -141,36 +135,37 @@ impl SdoServer {
                 self.sub = *sub;
                 if *e {
                     // Doing an expedited download
-                    let subobj = match lookup_sub_object(od, *index, *sub) {
-                        Ok(subobj) => subobj,
-                        Err(response) => {
-                            sender(response.to_can_message(self.tx_cob_id));
+
+                    let (obj, subinfo) = match lookup_sub_object(od, *index, *sub) {
+                        Ok(x) => x,
+                        Err(resp) => {
+                            sender(resp.to_can_message(self.tx_cob_id));
                             return;
                         }
                     };
 
                     // Verify that the requested object is writable
-                    if matches!(subobj.access_type, AccessType::Ro | AccessType::Const) {
+                    if matches!(subinfo.access_type, AccessType::Ro | AccessType::Const) {
                         sender(
                             SdoResponse::abort(self.index, self.sub, AbortCode::ReadOnly)
                                 .to_can_message(self.tx_cob_id),
                         );
-                        return
+                        return;
                     }
 
                     // Verify data size requested by client fits object, and abort if not
                     let dl_size = 4 - *n as usize;
-                    if let Err(abort_resp) = self.validate_download_size(dl_size, &subobj) {
+                    if let Err(abort_resp) = self.validate_download_size(dl_size, &subinfo) {
                         self.state = State::Idle;
                         sender(abort_resp.to_can_message(self.tx_cob_id));
                         return;
                     }
 
-                    subobj.write(0, &data[0..dl_size]);
+                    obj.write(*sub, 0, &data[0..dl_size]);
                     // When writing a string with length less than buffer, zero terminate
                     // Note: dl_size != subobj.size implies the data type of the object is a string
-                    if dl_size < subobj.size {
-                        subobj.write(dl_size, &[0]);
+                    if dl_size < subinfo.size {
+                        obj.write(*sub, dl_size, &[0]);
                     }
 
                     let resp = SdoResponse::download_acknowledge(*index, *sub)
@@ -178,10 +173,10 @@ impl SdoServer {
                     sender(resp);
                 } else {
                     // starting a segmented download
-                    let subobj = match lookup_sub_object(od, *index, *sub) {
-                        Ok(subobj) => subobj,
-                        Err(response) => {
-                            sender(response.to_can_message(self.tx_cob_id));
+                    let (obj, subinfo) = match lookup_sub_object(od, *index, *sub) {
+                        Ok(x) => x,
+                        Err(resp) => {
+                            sender(resp.to_can_message(self.tx_cob_id));
                             return;
                         }
                     };
@@ -190,7 +185,7 @@ impl SdoServer {
                     // abort if not
                     if *s {
                         let dl_size = 4 - *n as usize;
-                        if let Err(abort_resp) = self.validate_download_size(dl_size, &subobj) {
+                        if let Err(abort_resp) = self.validate_download_size(dl_size, &subinfo) {
                             self.state = State::Idle;
                             sender(abort_resp.to_can_message(self.tx_cob_id));
                             return;
@@ -231,12 +226,12 @@ impl SdoServer {
 
                 // Unwrap safety: If in DownloadSegment state, then the existence of the sub object
                 // is already established.
-                let subobj = lookup_sub_object(od, self.index, self.sub).unwrap();
+                let (obj, subinfo) = lookup_sub_object(od, self.index, self.sub).unwrap();
                 let offset = self.segment_counter as usize * 7;
                 let segment_size = 7 - *n as usize;
                 let write_len = offset + segment_size;
                 // Make sure this segment won't overrun the allocated storage
-                if write_len > subobj.size {
+                if write_len > subinfo.size {
                     sender(
                         SdoResponse::abort(
                             self.index,
@@ -248,11 +243,11 @@ impl SdoServer {
                     self.state = State::Idle;
                     return;
                 }
-                subobj.write(offset, &data[0..segment_size]);
+                obj.write(self.sub, offset, &data[0..segment_size]);
                 // If this is the last segment, and it's shorter than the object, zero terminate
                 if *c {
-                    if write_len < subobj.size {
-                        subobj.write(write_len, &[0]);
+                    if write_len < subinfo.size {
+                        obj.write(self.sub, write_len, &[0]);
                     }
                 }
                 let resp = SdoResponse::download_segment_acknowledge(self.toggle_state)
@@ -284,13 +279,18 @@ impl SdoServer {
                     return;
                 }
                 // Unwrap safety: We validate sub exists before ever setting self.index and self.sub
-                let subobj = od.find_sub(self.index, self.sub).unwrap();
+                let (obj, subinfo) = lookup_sub_object(od, self.index, self.sub).unwrap();
                 let read_offset = self.segment_counter as usize * 7;
-                let read_size = (subobj.current_size() - read_offset).min(7);
+                let read_size = (subinfo.current_size - read_offset).min(7);
                 let mut buf = [0; 7];
-                subobj.read(self.segment_counter as usize * 7, &mut buf[0..read_size]);
+                obj.read(
+                    self.sub,
+                    self.segment_counter as usize * 7,
+                    &mut buf[0..read_size],
+                )
+                .unwrap();
                 // Compute complete bit (is this the last segment of the upload?)
-                let c = (read_size + read_offset) == subobj.current_size();
+                let c = (read_size + read_offset) == subinfo.current_size;
                 sender(
                     SdoResponse::upload_segment(self.toggle_state, c, &buf[0..read_size])
                         .to_can_message(self.tx_cob_id),

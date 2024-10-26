@@ -91,7 +91,6 @@ impl From<u16> for ObjectType {
     }
 }
 
-
 fn str_to_access_type(s: &str) -> Result<AccessType, LoadError> {
     let s = s.to_lowercase();
     match s.as_str() {

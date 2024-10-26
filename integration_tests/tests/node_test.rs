@@ -1,25 +1,21 @@
-use std::{
-    sync::{atomic::AtomicBool, Arc},
-    time::Duration,
-};
+
 
 use canopen_client::sdo_client::{SdoClient, SdoClientError};
 use canopen_common::{
     objects::ObjectDict,
     sdo::AbortCode,
-    traits::{CanReceiver, CanSender},
+    traits::CanSender,
 };
-use canopen_node::{build_object_dict, node::Node};
-use integration_tests::sim_bus::{SimBus, SimCanReceiver, SimCanSender};
+use canopen_node::node::Node;
+use integration_tests::{object_dict1::get_od, sim_bus::{SimBus, SimCanReceiver, SimCanSender}};
 
 
-fn setup() -> (
-    SdoClient<SimCanSender<'static>, SimCanReceiver>,
-    SimBus<'static>,
+fn setup<'a, const N: usize>(od: ObjectDict<'static, 'a, N>) -> (
+    SdoClient<SimCanSender<'static, 'a, N>, SimCanReceiver>,
+    SimBus<'static, 'a, N>,
 ) {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let od = integration_tests::object_dict1::get_od();
     let node = Node::new(SLAVE_NODE_ID, od);
 
     let mut bus = SimBus::new(vec![node]);
@@ -32,7 +28,7 @@ fn setup() -> (
 
 #[test]
 pub fn test_string_write() {
-    let (mut client, mut bus) = setup();
+    let (mut client, mut bus) = setup(get_od());
     let mut sender = bus.new_sender();
 
     bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());
@@ -61,7 +57,7 @@ pub fn test_string_write() {
 pub fn test_record_access() {
     const OBJECT_ID: u16 = 0x2001;
 
-    let (mut client, mut bus) = setup();
+    let (mut client, mut bus) = setup(get_od());
     let mut sender = bus.new_sender();
 
     bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());
@@ -100,7 +96,7 @@ pub fn test_record_access() {
 pub fn test_array_access() {
     const OBJECT_ID: u16 = 0x2000;
 
-    let (mut client, mut bus) = setup();
+    let (mut client, mut bus) = setup(get_od());
     let mut sender = bus.new_sender();
 
     bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());

@@ -31,7 +31,7 @@ impl TryFrom<u8> for ServerCommand {
 }
 
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(u32)]
 pub enum AbortCode {
     /// Toggle bit not alternated

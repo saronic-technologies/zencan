@@ -7,16 +7,16 @@ use crate::{nmt::NmtSlave, sdo_server::SdoServer};
 use defmt_or_log::warn;
 
 
-pub struct Node<'a> {
+pub struct Node<'table, 'cb, const N: usize> {
     node_id: u8,
     node_state: NmtState,
     sdo_server: Option<SdoServer>,
     message_count: u32,
-    od: ObjectDict<'a>
+    od: ObjectDict<'table, 'cb, N>
 }
 
-impl<'a> Node<'a> {
-    pub fn new(node_id: u8, od: ObjectDict<'a>) -> Self {
+impl<'table, 'cb, const N: usize> Node<'table, 'cb, N> {
+    pub fn new(node_id: u8, od: ObjectDict<'table, 'cb, N>) -> Self {
         let message_count = 0;
         let sdo_server = None;
         let node_state = NmtState::Bootup;
