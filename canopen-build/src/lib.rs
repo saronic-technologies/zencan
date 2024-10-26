@@ -83,7 +83,9 @@ fn get_default_literal(obj: u32, sub: &SubObject) -> Result<TokenStream, Compile
             DataType::Other(_) => "",
         }
     } else {
-        sub.default_value.as_str()
+        // The C# EDS editor puts $NODEID+ on fields which are a function of the node id. We drop this
+        // here if present, on the assumption that such fields are handled in code.
+        sub.default_value.as_str().trim_start_matches("$NODEID+")
     };
 
     match sub.data_type {
@@ -207,7 +209,7 @@ fn build_var_object(obj: &Object, vars: &mut NativeVariables) -> Result<TokenStr
         DataType::UInt8 => (
             quote!(canopen_common::objects::DataType::UInt8),
             quote!{
-                [doc = #parameter_name]
+                #[doc = #parameter_name]
                 #field_name: u8
             },
             1
@@ -288,9 +290,11 @@ fn build_var_object(obj: &Object, vars: &mut NativeVariables) -> Result<TokenStr
         DataType::Other(_) => panic!("Bad type"),
     };
     let access_type = access_type_tokens(sub0.access_type);
+    // unused_unsafe allowed because it is applied to const pointers but not needed. TODO.
     Ok(quote! {
-        static #obj_name: canopen_common::objects::Object = canopen_common::objects::Object {
-            data: canopen_common::objects::ObjectData::Var (
+        #[allow(unused_unsafe)]
+        static #obj_name: canopen_common::objects::ObjectData =
+            canopen_common::objects::ObjectData::Var (
                 canopen_common::objects::Var {
                     data_type: #data_type,
                     access_type: #access_type,
@@ -299,8 +303,7 @@ fn build_var_object(obj: &Object, vars: &mut NativeVariables) -> Result<TokenStr
                     ))),
                     size: #size,
                 }
-            ),
-        };
+            );
     }
     .to_token_stream())
 }
@@ -315,12 +318,12 @@ fn build_array_object(
     })?;
 
     // Add sub 0 with dynamic storage: some arrays, like the error field (0x1003) use the array size
-    // as a dynamic parameter (e.g. current length of the error history)
+    // as a dynamic parameter (e.g. current length of the error history). If a default value is not
+    // provided, it is set to the size of the array
     let sub0_ident = format_ident!("object{:x}_sub0", obj.object_number);
     let default_value: u8 = sub0
         .default_value
-        .parse_eds_u64()
-        .expect("Error parsing array sub0 default value as u8") as u8;
+        .parse_eds_u64().unwrap_or(obj.sub_number as u64) as u8;
     vars.mutable_decs.push(quote!(#sub0_ident: u8));
     vars.mutable_inits.push(quote!(#sub0_ident: #default_value));
 
@@ -372,17 +375,17 @@ fn build_array_object(
         ),
         DataType::UInt16 => (
             quote!(canopen_common::objects::DataType::UInt16),
-            quote!(#field_name: u16),
+            quote!(#field_name: [u16; #array_size]),
             2,
         ),
         DataType::UInt32 => (
             quote!(canopen_common::objects::DataType::UInt32),
-            quote!(#field_name: u32),
+            quote!(#field_name: [u32; #array_size]),
             4,
         ),
         DataType::Real32 => (
             quote!(canopen_common::objects::DataType::Real32),
-            quote!(#field_name: f32),
+            quote!(#field_name: [f32; #array_size]),
             4,
         ),
         DataType::VisibleString => (
@@ -425,8 +428,8 @@ fn build_array_object(
     let access_type = access_type_tokens(sub1.access_type);
     let mut tokens = TokenStream::new();
     tokens.extend(quote! {
-        static #obj_name: canopen_common::objects::Object = canopen_common::objects::Object {
-            data: canopen_common::objects::ObjectData::Array (
+        static #obj_name: canopen_common::objects::ObjectData =
+            canopen_common::objects::ObjectData::Array (
                 canopen_common::objects::Array {
                     data_type: #data_type,
                     access_type: #access_type,
@@ -438,8 +441,7 @@ fn build_array_object(
                     ))),
                     size: #size,
                 }
-            ),
-        };
+            );
     });
 
     Ok(tokens)
@@ -614,7 +616,7 @@ fn build_record_object(
             format_ident!("MUT_DATA")
         }
     };
-    let storage_array_ident = format_ident!("OBJECT{:x}_STORAGE", obj.object_number);
+    let storage_array_ident = format_ident!("OBJECT{:X}_STORAGE", obj.object_number);
     let storage_array_len = storage_items.len();
 
     let mut tokens = TokenStream::new();
@@ -630,8 +632,11 @@ fn build_record_object(
 
     // Create the Object
     tokens.extend(quote! {
-        static #obj_name: canopen_common::objects::Object = canopen_common::objects::Object  {
-            data: canopen_common::objects::ObjectData::Record (
+
+        // Allow unused_unsafe because it is not needed for const items.
+        #[allow(unused_unsafe)]
+        static #obj_name: canopen_common::objects::ObjectData =
+            canopen_common::objects::ObjectData::Record (
                 canopen_common::objects::Record {
                     data_types: &[#(#data_types),*],
                     access_types: &[#(#access_types),*],
@@ -641,8 +646,7 @@ fn build_record_object(
                     ))),
                     sizes: &[#(#sizes),*],
                 }
-            ),
-        };
+            );
     });
 
     Ok(tokens)
@@ -675,12 +679,12 @@ pub fn compile_eds_to_string(
             }
             _ => panic!("Unknown object type: {:?}", obj),
         }
-        let object_ident = format_ident!("OBJECT{:x}", obj.object_number);
+        let object_ident = format_ident!("OBJECT{:X}", obj.object_number);
         let index = obj.object_number as u16;
         od_entries.push(quote! {
             canopen_common::objects::ODEntry {
                 index: #index,
-                object: &#object_ident,
+                data: &#object_ident,
             }
         });
     }
@@ -689,6 +693,7 @@ pub fn compile_eds_to_string(
     let const_decs = &native_vars.constant_decs;
     let mut_inits = &native_vars.mutable_inits;
     let const_inits = &native_vars.constant_inits;
+    let table_size = od_entries.len();
     let code = quote! {
         pub struct MutData {
             #(#mut_decs),*
@@ -708,8 +713,8 @@ pub fn compile_eds_to_string(
 
         #(#object_declarations)*
 
-        pub static OD_TABLE: &[canopen_common::objects::ODEntry] = {
-            &[
+        pub static OD_TABLE: [canopen_common::objects::ODEntry; #table_size] = {
+            [
                 #(#od_entries),*
             ]
         };
