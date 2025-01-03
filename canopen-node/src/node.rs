@@ -6,13 +6,22 @@ use crate::{nmt::NmtSlave, sdo_server::SdoServer};
 
 use defmt_or_log::warn;
 
+pub struct RxPdo {
+    data: [u8; 8],
+    dlc: u8,
+    cob_id: CanId,
+}
 
-pub struct Node<'table, 'cb, const N: usize> {
+pub struct TxPdo {}
+
+pub struct Node<'table, 'cb, 'rx, 'tx, const N: usize> {
     node_id: u8,
     node_state: NmtState,
     sdo_server: Option<SdoServer>,
     message_count: u32,
-    od: ObjectDict<'table, 'cb, N>
+    od: ObjectDict<'table, 'cb, N>,
+    rx_pdos: &'rx [RxPdo],
+    tx_pdos: &'tx [TxPdo],
 }
 
 impl<'table, 'cb, const N: usize> Node<'table, 'cb, N> {
@@ -36,6 +45,10 @@ impl<'table, 'cb, const N: usize> Node<'table, 'cb, N> {
                         warn!("Failed to parse an SDO request message");
                     }
                 }
+            }
+
+            if msg.id() == canopen_common::messages::SYNC_ID {
+
             }
         }
 
@@ -109,4 +122,10 @@ impl<'table, 'cb, const N: usize> Node<'table, 'cb, N> {
     pub fn enter_preop(&mut self, sender: &mut dyn FnMut(CanFdMessage)) {
         self.handle_nmt_command(NmtCommandCmd::EnterPreOp, sender);
     }
+}
+
+
+
+pub struct PdoServer<const N_RX {
+
 }

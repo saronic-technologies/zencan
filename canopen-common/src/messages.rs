@@ -112,10 +112,38 @@ impl From<Heartbeat> for CanFdMessage {
     }
 }
 
-const SYNC_ID: CanId = CanId::std(0x80);
+pub const SYNC_ID: CanId = CanId::std(0x80);
 
-pub struct Sync {
+/// Represents a SYNC object/message
+///
+/// A single CAN node can serve as the SYNC provider, sending a periodic sync object to all other
+/// nodes. The one byte count value starts at 1, and increments. On overflow, it should be reset to
+/// 1.
+#[derive(Debug, Clone, Copy)]
+pub struct SyncObject {
+    count: u8
+}
 
+impl SyncObject {
+    pub fn new(count: u8) -> Self {
+        Self { count }
+    }
+}
+
+impl Default for SyncObject {
+    fn default() -> Self {
+        Self { count: 1 }
+    }
+}
+
+impl From<SyncObject> for CanFdMessage {
+    fn from(value: SyncObject) -> Self {
+        let mut msg = CanFdMessage::default();
+        msg.id = SYNC_ID;
+        msg.dlc = 1;
+        msg.data[0] = value.count;
+        msg
+    }
 }
 
 
@@ -175,7 +203,7 @@ impl TryFrom<CanFdMessage> for CanOpenMessage {
 
 pub enum CanOpenMessage {
     NmtCommand(NmtCommand),
-    Sync(Sync),
+    Sync(SyncObject),
     Heartbeat(Heartbeat),
 
 }

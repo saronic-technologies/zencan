@@ -45,6 +45,12 @@ pub struct SimCanReceiver {
     receiver: Receiver<CanFdMessage>,
 }
 
+impl SimCanReceiver {
+    pub fn flush(&mut self) {
+        while let Some(_) = self.try_recv() {}
+    }
+}
+
 impl CanReceiver for SimCanReceiver {
     fn try_recv(&mut self) -> Option<CanFdMessage> {
         match self.receiver.try_next() {
