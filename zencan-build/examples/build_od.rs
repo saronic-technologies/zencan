@@ -20,7 +20,7 @@ fn main() {
 
     let eds = ElectronicDataSheet::load(&args.eds).expect("Failed loading EDS file");
 
-    let compiled = canopen_build::compile_eds_to_string(&eds, args.format).expect("Failed to compile");
+    let compiled = zencan_build::compile_eds_to_string(&eds, args.format).expect("Failed to compile");
 
     println!("{}", compiled);
 }

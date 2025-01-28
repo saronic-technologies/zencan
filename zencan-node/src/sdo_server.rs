@@ -1,4 +1,4 @@
-use canopen_common::{
+use zencan_common::{
     objects::{AccessType, Object, ObjectDict, SubInfo, SubObject},
     sdo::{AbortCode, SdoRequest, SdoResponse},
     traits::{CanFdMessage, CanId, CanSender},

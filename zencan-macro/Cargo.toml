@@ -9,6 +9,6 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-canopen-build = { path = "../canopen-build" }
+zencan-build = { path = "../zencan-build" }
 eds-parser = { path = "../eds-parser" }
 syn = "*"

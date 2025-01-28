@@ -181,27 +181,27 @@ pub fn is_std_sdo_request(can_id: CanId, node_id: u8) -> bool {
     false
 }
 
-impl TryFrom<CanFdMessage> for CanOpenMessage {
+impl TryFrom<CanFdMessage> for zencanMessage {
     type Error = MessageError;
 
     fn try_from(msg: CanFdMessage) -> Result<Self, Self::Error> {
         let id = msg.id();
         if id == NMT_CMD_ID {
-            Ok(CanOpenMessage::NmtCommand(msg.try_into()?))
+            Ok(zencanMessage::NmtCommand(msg.try_into()?))
         } else if id.raw() & !0x7f == HEARTBEAT_ID as u32 {
             let node = (id.raw() & 0x7f) as u8;
             let toggle = (msg.data[0] & (1<<7)) != 0;
             let state: NmtState = (msg.data[0] & 0x7f)
                 .try_into()
                 .map_err(|e: InvalidNmtStateError| MessageError::InvalidNmtState(e.0))?;
-            Ok(CanOpenMessage::Heartbeat(Heartbeat { node, toggle, state }))
+            Ok(zencanMessage::Heartbeat(Heartbeat { node, toggle, state }))
         } else {
             Err(MessageError::UnrecognizedId(id))
         }
     }
 }
 
-pub enum CanOpenMessage {
+pub enum zencanMessage {
     NmtCommand(NmtCommand),
     Sync(SyncObject),
     Heartbeat(Heartbeat),

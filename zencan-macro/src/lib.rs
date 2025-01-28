@@ -1,4 +1,4 @@
-use canopen_build::compile_eds_to_string;
+use zencan_build::compile_eds_to_string;
 use eds_parser::ElectronicDataSheet;
 
 extern crate proc_macro;

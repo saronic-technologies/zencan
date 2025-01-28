@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use canopen_common::objects::{AccessType, DataType};
+use zencan_common::objects::{AccessType, DataType};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 use snafu::{ResultExt, Snafu};
@@ -150,10 +150,10 @@ fn get_default_literal(obj: u32, sub: &SubObject) -> Result<TokenStream, Compile
 /// Convert an AccessType enum to a tokenstream expressing the variant
 fn access_type_tokens(at: AccessType) -> TokenStream {
     match at {
-        AccessType::Ro => quote!(canopen_common::objects::AccessType::Ro),
-        AccessType::Wo => quote!(canopen_common::objects::AccessType::Wo),
-        AccessType::Rw => quote!(canopen_common::objects::AccessType::Rw),
-        AccessType::Const => quote!(canopen_common::objects::AccessType::Const),
+        AccessType::Ro => quote!(zencan_common::objects::AccessType::Ro),
+        AccessType::Wo => quote!(zencan_common::objects::AccessType::Wo),
+        AccessType::Rw => quote!(zencan_common::objects::AccessType::Rw),
+        AccessType::Const => quote!(zencan_common::objects::AccessType::Const),
     }
 }
 
@@ -184,12 +184,12 @@ fn build_var_object(obj: &Object, vars: &mut NativeVariables) -> Result<TokenStr
     #[rustfmt::skip]
     let (data_type, var_statement, size) = match sub0.data_type {
         DataType::Boolean => (
-            quote!(canopen_common::objects::DataType::Boolean),
+            quote!(zencan_common::objects::DataType::Boolean),
             quote!(#field_name: bool),
             1
         ),
         DataType::Int8 => (
-            quote!(canopen_common::objects::DataType::Int8),
+            quote!(zencan_common::objects::DataType::Int8),
             quote!{
                 #[doc = #parameter_name]
                 #field_name: i8
@@ -197,17 +197,17 @@ fn build_var_object(obj: &Object, vars: &mut NativeVariables) -> Result<TokenStr
             2
         ),
         DataType::Int16 => (
-            quote!(canopen_common::objects::DataType::Int16),
+            quote!(zencan_common::objects::DataType::Int16),
             quote!(#field_name: i16),
             2
         ),
         DataType::Int32 => (
-            quote!(canopen_common::objects::DataType::Int32),
+            quote!(zencan_common::objects::DataType::Int32),
             quote!(#field_name: i32),
             4
         ),
         DataType::UInt8 => (
-            quote!(canopen_common::objects::DataType::UInt8),
+            quote!(zencan_common::objects::DataType::UInt8),
             quote!{
                 #[doc = #parameter_name]
                 #field_name: u8
@@ -215,24 +215,24 @@ fn build_var_object(obj: &Object, vars: &mut NativeVariables) -> Result<TokenStr
             1
         ),
         DataType::UInt16 => (
-            quote!(canopen_common::objects::DataType::UInt16),
+            quote!(zencan_common::objects::DataType::UInt16),
             quote!(#field_name: u16),
             2
         ),
         DataType::UInt32 => (
-            quote!(canopen_common::objects::DataType::UInt32),
+            quote!(zencan_common::objects::DataType::UInt32),
             quote!(#field_name: u32),
             4
         ),
         DataType::Real32 => (
-            quote!(canopen_common::objects::DataType::Real32),
+            quote!(zencan_common::objects::DataType::Real32),
             quote!(#field_name: f32),
             4
         ),
         DataType::VisibleString => {
             let str_len = sub0.default_value.len();
             (
-                quote!(canopen_common::objects::DataType::VisibleString),
+                quote!(zencan_common::objects::DataType::VisibleString),
                 quote!(#field_name: [u8; #str_len]),
                 sub0.default_value.len(),
             )
@@ -240,7 +240,7 @@ fn build_var_object(obj: &Object, vars: &mut NativeVariables) -> Result<TokenStr
         DataType::OctetString => {
             let str_len = sub0.default_value.len();
             (
-                quote!(canopen_common::objects::DataType::OctetString),
+                quote!(zencan_common::objects::DataType::OctetString),
                 quote!(#field_name: [u8; #str_len]),
                 sub0.default_value.len(),
             )
@@ -248,7 +248,7 @@ fn build_var_object(obj: &Object, vars: &mut NativeVariables) -> Result<TokenStr
         DataType::UnicodeString => {
             let str_len = sub0.default_value.len();
             (
-                quote!(canopen_common::objects::DataType::UnicodeString),
+                quote!(zencan_common::objects::DataType::UnicodeString),
                 quote!(#field_name: [u8; #str_len]),
                 sub0.default_value.len(),
             )
@@ -293,12 +293,12 @@ fn build_var_object(obj: &Object, vars: &mut NativeVariables) -> Result<TokenStr
     // unused_unsafe allowed because it is applied to const pointers but not needed. TODO.
     Ok(quote! {
         #[allow(unused_unsafe)]
-        static #obj_name: canopen_common::objects::ObjectData =
-            canopen_common::objects::ObjectData::Var (
-                canopen_common::objects::Var {
+        static #obj_name: zencan_common::objects::ObjectData =
+            zencan_common::objects::ObjectData::Var (
+                zencan_common::objects::Var {
                     data_type: #data_type,
                     access_type: #access_type,
-                    storage: critical_section::Mutex::new(core::cell::RefCell::new(canopen_common::objects::ObjectStorage::Ram(
+                    storage: critical_section::Mutex::new(core::cell::RefCell::new(zencan_common::objects::ObjectStorage::Ram(
                         unsafe { #ptr_inner }, #size
                     ))),
                     size: #size,
@@ -349,22 +349,22 @@ fn build_array_object(
     let array_size = obj.sub_number as usize - 1;
     let (data_type, dec, size) = match sub1.data_type {
         DataType::Boolean => (
-            quote!(canopen_common::objects:DataType::Boolean),
+            quote!(zencan_common::objects:DataType::Boolean),
             quote!(#field_name: [bool; #array_size]),
             1 * array_size,
         ),
         DataType::Int8 => (
-            quote!(canopen_common::objects::DataType::Int8),
+            quote!(zencan_common::objects::DataType::Int8),
             quote!(#field_name: [i8; #array_size]),
             1 * array_size,
         ),
         DataType::Int16 => (
-            quote!(canopen_common::objects::DataType::Int16),
+            quote!(zencan_common::objects::DataType::Int16),
             quote!(#field_name: [i16; #array_size]),
             2 * array_size,
         ),
         DataType::Int32 => (
-            quote!(canopen_common::objects::DataType::Int32),
+            quote!(zencan_common::objects::DataType::Int32),
             quote!(#field_name: [i32; #array_size]),
             4 * array_size,
         ),
@@ -374,32 +374,32 @@ fn build_array_object(
             1 * array_size,
         ),
         DataType::UInt16 => (
-            quote!(canopen_common::objects::DataType::UInt16),
+            quote!(zencan_common::objects::DataType::UInt16),
             quote!(#field_name: [u16; #array_size]),
             2,
         ),
         DataType::UInt32 => (
-            quote!(canopen_common::objects::DataType::UInt32),
+            quote!(zencan_common::objects::DataType::UInt32),
             quote!(#field_name: [u32; #array_size]),
             4,
         ),
         DataType::Real32 => (
-            quote!(canopen_common::objects::DataType::Real32),
+            quote!(zencan_common::objects::DataType::Real32),
             quote!(#field_name: [f32; #array_size]),
             4,
         ),
         DataType::VisibleString => (
-            quote!(canopen_common::objects::DataType::VisibleString),
+            quote!(zencan_common::objects::DataType::VisibleString),
             quote!(#field_name: &str),
             sub0.default_value.len(),
         ),
         DataType::OctetString => (
-            quote!(canopen_common::objects::DataType::OctetString),
+            quote!(zencan_common::objects::DataType::OctetString),
             quote!(#field_name:  &str),
             sub0.default_value.len(),
         ),
         DataType::UnicodeString => (
-            quote!(canopen_common::objects::DataType::UnicodeString),
+            quote!(zencan_common::objects::DataType::UnicodeString),
             quote!(#field_name:  &str),
             sub0.default_value.len(),
         ),
@@ -428,15 +428,15 @@ fn build_array_object(
     let access_type = access_type_tokens(sub1.access_type);
     let mut tokens = TokenStream::new();
     tokens.extend(quote! {
-        static #obj_name: canopen_common::objects::ObjectData =
-            canopen_common::objects::ObjectData::Array (
-                canopen_common::objects::Array {
+        static #obj_name: zencan_common::objects::ObjectData =
+            zencan_common::objects::ObjectData::Array (
+                zencan_common::objects::Array {
                     data_type: #data_type,
                     access_type: #access_type,
-                    storage: critical_section::Mutex::new(core::cell::RefCell::new(canopen_common::objects::ObjectStorage::Ram(
+                    storage: critical_section::Mutex::new(core::cell::RefCell::new(zencan_common::objects::ObjectStorage::Ram(
                         unsafe { #struct_name.#field_name.as_ptr() as *const u8 }, #size
                     ))),
-                    storage_sub0: critical_section::Mutex::new(core::cell::RefCell::new(canopen_common::objects::ObjectStorage::Ram(
+                    storage_sub0: critical_section::Mutex::new(core::cell::RefCell::new(zencan_common::objects::ObjectStorage::Ram(
                         unsafe { &#struct_name.#sub0_ident as *const u8 }, 1
                     ))),
                     size: #size,
@@ -546,24 +546,24 @@ fn build_record_object(
                 };
 
                 data_types.push(match sub.data_type {
-                    DataType::Boolean => quote!(Some(canopen_common::objects::DataType::Boolean)),
-                    DataType::Int8 => quote!(Some(canopen_common::objects::DataType::Int8)),
-                    DataType::Int16 => quote!(Some(canopen_common::objects::DataType::Int16)),
-                    DataType::Int32 => quote!(Some(canopen_common::objects::DataType::Int32)),
-                    DataType::UInt8 => quote!(Some(canopen_common::objects::DataType::UInt8)),
-                    DataType::UInt16 => quote!(Some(canopen_common::objects::DataType::UInt16)),
-                    DataType::UInt32 => quote!(Some(canopen_common::objects::DataType::UInt32)),
-                    DataType::Real32 => quote!(Some(canopen_common::objects::DataType::Real32)),
+                    DataType::Boolean => quote!(Some(zencan_common::objects::DataType::Boolean)),
+                    DataType::Int8 => quote!(Some(zencan_common::objects::DataType::Int8)),
+                    DataType::Int16 => quote!(Some(zencan_common::objects::DataType::Int16)),
+                    DataType::Int32 => quote!(Some(zencan_common::objects::DataType::Int32)),
+                    DataType::UInt8 => quote!(Some(zencan_common::objects::DataType::UInt8)),
+                    DataType::UInt16 => quote!(Some(zencan_common::objects::DataType::UInt16)),
+                    DataType::UInt32 => quote!(Some(zencan_common::objects::DataType::UInt32)),
+                    DataType::Real32 => quote!(Some(zencan_common::objects::DataType::Real32)),
                     DataType::VisibleString => {
-                        quote!(Some(canopen_common::objects::DataType::VisibleString))
+                        quote!(Some(zencan_common::objects::DataType::VisibleString))
                     }
                     DataType::OctetString => {
-                        quote!(Some(canopen_common::objects::DataType::OctetString))
+                        quote!(Some(zencan_common::objects::DataType::OctetString))
                     }
                     DataType::UnicodeString => {
-                        quote!(Some(canopen_common::objects::DataType::UnicodeString))
+                        quote!(Some(zencan_common::objects::DataType::UnicodeString))
                     }
-                    DataType::Domain => quote!(Some(canopen_common::objects::DataType::Domain)),
+                    DataType::Domain => quote!(Some(zencan_common::objects::DataType::Domain)),
                     DataType::Other(id) => panic!("Unknown datatype {}", id),
                     _ => panic!("Unsupported datatype: {:?}", sub.data_type),
                 });
@@ -588,7 +588,7 @@ fn build_record_object(
 
                 storage_items.push(quote!(Some(critical_section::Mutex::new(
                     core::cell::RefCell::new(
-                        canopen_common::objects::ObjectStorage::#storage_type(
+                        zencan_common::objects::ObjectStorage::#storage_type(
                             unsafe { #inner_ptr },
                             #storage_size,
                         )
@@ -624,7 +624,7 @@ fn build_record_object(
     // Create the storage array
     tokens.extend(quote! {
         static #storage_array_ident: [Option<critical_section::Mutex<core::cell::RefCell<
-            canopen_common::objects::ObjectStorage>>>; #storage_array_len
+            zencan_common::objects::ObjectStorage>>>; #storage_array_len
         ] = [
             #(#storage_items),*
         ];
@@ -635,13 +635,13 @@ fn build_record_object(
 
         // Allow unused_unsafe because it is not needed for const items.
         #[allow(unused_unsafe)]
-        static #obj_name: canopen_common::objects::ObjectData =
-            canopen_common::objects::ObjectData::Record (
-                canopen_common::objects::Record {
+        static #obj_name: zencan_common::objects::ObjectData =
+            zencan_common::objects::ObjectData::Record (
+                zencan_common::objects::Record {
                     data_types: &[#(#data_types),*],
                     access_types: &[#(#access_types),*],
                     storage: &#storage_array_ident,
-                    storage_sub0: critical_section::Mutex::new(core::cell::RefCell::new(canopen_common::objects::ObjectStorage::Ram(
+                    storage_sub0: critical_section::Mutex::new(core::cell::RefCell::new(zencan_common::objects::ObjectStorage::Ram(
                         unsafe { &CONST_DATA.#sub0_ident as *const u8 }, 1
                     ))),
                     sizes: &[#(#sizes),*],
@@ -682,7 +682,7 @@ pub fn compile_eds_to_string(
         let object_ident = format_ident!("OBJECT{:X}", obj.object_number);
         let index = obj.object_number as u16;
         od_entries.push(quote! {
-            canopen_common::objects::ODEntry {
+            zencan_common::objects::ODEntry {
                 index: #index,
                 data: &#object_ident,
             }
@@ -713,7 +713,7 @@ pub fn compile_eds_to_string(
 
         #(#object_declarations)*
 
-        pub static OD_TABLE: [canopen_common::objects::ODEntry; #table_size] = {
+        pub static OD_TABLE: [zencan_common::objects::ODEntry; #table_size] = {
             [
                 #(#od_entries),*
             ]

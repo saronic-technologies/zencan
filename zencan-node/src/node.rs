@@ -1,5 +1,5 @@
-use canopen_common::{
-    messages::{is_std_sdo_request, CanOpenMessage, Heartbeat, NmtCommandCmd, NmtState}, objects::ObjectDict, traits::{CanFdMessage, CanId, CanReceiver, CanSender}
+use zencan_common::{
+    messages::{is_std_sdo_request, zencanMessage, Heartbeat, NmtCommandCmd, NmtState}, objects::ObjectDict, traits::{CanFdMessage, CanId, CanReceiver, CanSender}
 };
 
 use crate::{nmt::NmtSlave, sdo_server::SdoServer};
@@ -14,14 +14,14 @@ pub struct RxPdo {
 
 pub struct TxPdo {}
 
-pub struct Node<'table, 'cb, 'rx, 'tx, const N: usize> {
+pub struct Node<'table, 'cb, const N: usize> {
     node_id: u8,
     node_state: NmtState,
     sdo_server: Option<SdoServer>,
     message_count: u32,
     od: ObjectDict<'table, 'cb, N>,
-    rx_pdos: &'rx [RxPdo],
-    tx_pdos: &'tx [TxPdo],
+    // rx_pdos: &'rx [RxPdo],
+    // tx_pdos: &'tx [TxPdo],
 }
 
 impl<'table, 'cb, const N: usize> Node<'table, 'cb, N> {
@@ -47,12 +47,12 @@ impl<'table, 'cb, const N: usize> Node<'table, 'cb, N> {
                 }
             }
 
-            if msg.id() == canopen_common::messages::SYNC_ID {
+            if msg.id() == zencan_common::messages::SYNC_ID {
 
             }
         }
 
-        if let Ok(CanOpenMessage::NmtCommand(nmt)) = msg.try_into() {
+        if let Ok(zencanMessage::NmtCommand(nmt)) = msg.try_into() {
             // We cannot respond to NMT commands if we do not have a valid node ID
             if self.node_id != 0 && nmt.node == 0 || nmt.node == self.node_id {
                 self.handle_nmt_command(nmt.cmd, send_cb);
@@ -126,6 +126,6 @@ impl<'table, 'cb, const N: usize> Node<'table, 'cb, N> {
 
 
 
-pub struct PdoServer<const N_RX: usize, const N_TX: usize> {
+// pub struct PdoServer<const N_RX {
 
-}
+// }

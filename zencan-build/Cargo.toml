@@ -1,10 +1,10 @@
 [package]
-name = "canopen-build"
+name = "zencan-build"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-canopen-common = { path = "../canopen-common" }
+zencan-common = { path = "../zencan-common" }
 eds-parser = { path = "../eds-parser" }
 prettyplease = "0.2"
 proc-macro2 = "1.0"

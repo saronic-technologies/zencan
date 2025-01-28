@@ -2,7 +2,7 @@ use configparser::ini::Ini;
 use snafu::{ResultExt as _, Snafu};
 use std::{collections::HashMap, path::Path, str::FromStr};
 
-use canopen_common::objects::{AccessType, DataType};
+use zencan_common::objects::{AccessType, DataType};
 
 #[derive(Debug, Snafu)]
 pub enum LoadError {

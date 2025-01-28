@@ -1,5 +1,5 @@
 
-use canopen_common::messages::{CanOpenMessage, NmtCommandCmd, NmtState};
+use zencan_common::messages::{zencanMessage, NmtCommandCmd, NmtState};
 
 
 pub struct NmtSlave {
@@ -21,11 +21,11 @@ impl NmtSlave {
         }
     }
 
-    pub fn update(&mut self, msg: Option<&CanOpenMessage>) {
+    pub fn update(&mut self, msg: Option<&zencanMessage>) {
         let prev_state = self.state;
         if let Some(msg) = msg {
             match msg {
-                CanOpenMessage::NmtCommand(cmd) => {
+                zencanMessage::NmtCommand(cmd) => {
                     match cmd.cmd {
                         NmtCommandCmd::Start => self.state = NmtState::Operational,
                         NmtCommandCmd::Stop => self.state = NmtState::Stopped,

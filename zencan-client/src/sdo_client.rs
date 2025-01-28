@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use canopen_common::{
+use zencan_common::{
     sdo::{AbortCode, ClientCommand, SdoRequest, SdoResponse},
     traits::{CanFdMessage, CanId, CanReceiver, CanSender},
 };

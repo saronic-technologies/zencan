@@ -6,11 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-canopen-common = { path = "../canopen-common" }
-canopen-node = { version = "0.1.0", path = "../canopen-node", features = ["log"] }
-canopen-client = { version = "0.1.0", path = "../canopen-client" }
+zencan-common = { path = "../zencan-common" }
+zencan-node = { version = "0.1.0", path = "../zencan-node", features = ["log"] }
+zencan-client = { version = "0.1.0", path = "../zencan-client" }
 critical-section = { version = "*", features = ["std"] }
 futures = "*"
 
 [build-dependencies]
-canopen-build = { version = "0.1.0", path = "../canopen-build" }
+zencan-build = { version = "0.1.0", path = "../zencan-build" }

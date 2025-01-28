@@ -1,14 +1,14 @@
 use std::time::Duration;
 
-use canopen_common::{messages::{
+use zencan_common::{messages::{
     self,
     NmtCommandCmd::{self, Start},
     NmtState,
 }, objects::{Object, ObjectDict}, sdo::{SdoRequest, SdoResponse}, traits::{CanFdMessage, CanId, CanReceiver}};
-use canopen_common::traits::CanSender;
+use zencan_common::traits::CanSender;
 
-use canopen_node::{node::Node, sdo_server::SdoServer};
-use canopen_client::{master::Master, sdo_client::SdoClient};
+use zencan_node::{node::Node, sdo_server::SdoServer};
+use zencan_client::{master::Master, sdo_client::SdoClient};
 use integration_tests::sim_bus::{SimBus, SimCanReceiver, SimCanSender};
 //type SimNode<'a> = Node<SimCanSender, SimCanReceiver>;
 

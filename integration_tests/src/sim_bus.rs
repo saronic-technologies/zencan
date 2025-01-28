@@ -1,7 +1,7 @@
 use std::{cell::{RefCell, RefMut}, rc::Rc, sync::{Arc, Mutex}, time::Duration};
 
-use canopen_common::traits::{CanFdMessage, CanReceiver, CanSender};
-use canopen_node::node::Node;
+use zencan_common::traits::{CanFdMessage, CanReceiver, CanSender};
+use zencan_node::node::Node;
 use futures::channel::mpsc::{Sender, Receiver, channel, TryRecvError};
 
 

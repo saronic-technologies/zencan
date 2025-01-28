@@ -1,11 +1,11 @@
 {
     "rust-analyzer.linkedProjects": [
-        "canopen-build/Cargo.toml",
-        "canopen-client/Cargo.toml",
-        "canopen-node/Cargo.toml",
-        "canopen-common/Cargo.toml",
-        "integration_tests/Cargo.toml",
         "eds-parser/Cargo.toml",
+        "integration_tests/Cargo.toml",
+        "zencan-build/Cargo.toml",
+        "zencan-common/Cargo.toml",
+        "zencan-client/Cargo.toml",
         "zencan-macro/Cargo.toml",
+        "zencan-node/Cargo.toml",
     ]
 }

@@ -3,14 +3,14 @@
 
 use std::time::Duration;
 
-use canopen_client::sdo_client::{SdoClient, SdoClientError};
-use canopen_common::{
+use zencan_client::sdo_client::{SdoClient, SdoClientError};
+use zencan_common::{
     messages::SyncObject,
     objects::ObjectDict,
     sdo::AbortCode,
     traits::{CanId, CanReceiver, CanSender},
 };
-use canopen_node::node::Node;
+use zencan_node::node::Node;
 use integration_tests::sim_bus::{SimBus, SimCanReceiver, SimCanSender};
 
 fn setup<'a, const N: usize>(

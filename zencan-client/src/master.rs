@@ -1,7 +1,7 @@
 use std::time::Instant;
 
-use canopen_common::{
-    messages::{CanOpenMessage, NmtCommand, NmtCommandCmd, NmtState},
+use zencan_common::{
+    messages::{zencanMessage, NmtCommand, NmtCommandCmd, NmtState},
     traits::{CanFdMessage, CanReceiver, CanSender},
 };
 
@@ -51,15 +51,15 @@ impl<S: CanSender, R: CanReceiver> Master<S, R> {
     }
 
     pub fn handle_message(&mut self, msg: CanFdMessage) {
-        // Attempt to convert the raw message into a CanOpenMessage. This may fail, e.g. if
-        // non CANOpen messages are received, and that's OK; those are ignored.
-        let open_msg: CanOpenMessage = match msg.try_into() {
+        // Attempt to convert the raw message into a zencanMessage. This may fail, e.g. if
+        // non zencan messages are received, and that's OK; those are ignored.
+        let open_msg: zencanMessage = match msg.try_into() {
             Ok(m) => m,
             Err(_) => return,
         };
 
         match open_msg {
-            CanOpenMessage::Heartbeat(heartbeat) => {
+            zencanMessage::Heartbeat(heartbeat) => {
                 self.handle_heartbeat(heartbeat.node, heartbeat.state, heartbeat.toggle)
             }
             _ => (),

@@ -9,7 +9,7 @@ edition = "2021"
 configparser = "3.1"
 snafu = "0.8"
 
-canopen-common = { path = "../canopen-common" }
+zencan-common = { path = "../zencan-common" }
 
 [dev-dependencies]
 tempfile = "*"

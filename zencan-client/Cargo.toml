@@ -1,12 +1,12 @@
 [package]
-name = "canopen-client"
+name = "zencan-client"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-canopen-common = { path = "../canopen-common" }
+zencan-common = { path = "../zencan-common" }
 eds-parser = { path = "../eds-parser" }
 futures = "*"
 snafu = "*"

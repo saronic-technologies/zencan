@@ -1,6 +1,6 @@
-use canopen_client::sdo_client::SdoClient;
-use canopen_common::{objects::ObjectDict, sdo::{SdoRequest, SdoResponse}, traits::{CanFdMessage, CanId, CanSender}};
-use canopen_node::{node::Node, sdo_server::SdoServer};
+use zencan_client::sdo_client::SdoClient;
+use zencan_common::{objects::ObjectDict, sdo::{SdoRequest, SdoResponse}, traits::{CanFdMessage, CanId, CanSender}};
+use zencan_node::{node::Node, sdo_server::SdoServer};
 use integration_tests::sim_bus::SimBus;
 
 

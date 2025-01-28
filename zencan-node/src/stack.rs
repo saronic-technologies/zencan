@@ -2,7 +2,7 @@
 
 // use crate::{
 //     messages::{
-//         is_std_sdo_request, CanOpenMessage, NmtCommand, NmtCommandCmd, NmtState,
+//         is_std_sdo_request, zencanMessage, NmtCommand, NmtCommandCmd, NmtState,
 //     },
 //     nmt::NmtSlave,
 //     sdo::{SdoClient, SdoServer},
@@ -51,7 +51,7 @@
 //                 }
 //             }
 
-//             let open_msg: CanOpenMessage = if let Ok(m) = msg.try_into() {
+//             let open_msg: zencanMessage = if let Ok(m) = msg.try_into() {
 //                 m
 //             } else {
 //                 continue;

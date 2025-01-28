@@ -1,12 +1,12 @@
 
 
-use canopen_client::sdo_client::{SdoClient, SdoClientError};
-use canopen_common::{
+use zencan_client::sdo_client::{SdoClient, SdoClientError};
+use zencan_common::{
     objects::ObjectDict,
     sdo::AbortCode,
     traits::CanSender,
 };
-use canopen_node::node::Node;
+use zencan_node::node::Node;
 use integration_tests::{object_dict1::get_od, sim_bus::{SimBus, SimCanReceiver, SimCanSender}};
 
 
