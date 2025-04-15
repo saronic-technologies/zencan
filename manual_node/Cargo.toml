@@ -1,0 +1,12 @@
+[package]
+name = "manual_node"
+version = "0.1.0"
+authors = ["Jeff McBride <jeff@jeffmcbride.nte>"]
+edition = "2021"
+
+
+[dependencies]
+critical-section = "1.1"
+crossbeam = { version = "0.8", default-features=false }
+zencan-common = { path = "../zencan-common" }
+zencan-node = { path = "../zencan-node" }

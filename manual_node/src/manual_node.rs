@@ -1,9 +1,13 @@
 //! A hand-coded example node instantiation
 //!
-//! Normally, this would be auto-generated from an EDS file using the zencan-build crate. But this
-//! is here to provide an example of what the generated code looks like and test facility
-//! 0
+//! Normally, this would be auto-generated from an EDS file using the
+//! zencan-build crate. But this is here to provide an example of what the
+//! generated code looks like and facilitate standalone tests w/o requiring
+//! zencan-build.
 
+use crossbeam::atomic::AtomicCell;
+use zencan_common::traits::{CanFdMessage, CanId};
+use zencan_node::node::{RxPdo, NodeStateAccess};
 pub struct MutData {
     object1000_sub0: u8,
     object1000_sub1: u32,
@@ -96,7 +100,40 @@ pub static OD_TABLE: [zencan_common::objects::ODEntry; 2usize] = {
     ]
 };
 
+pub struct NodeState {
+    rx_pdos: [RxPdo; 4],
+    sdos_cob_id: Option<CanId>,
+    sdo_mbox: AtomicCell<Option<CanFdMessage>>,
+}
 
-fn main() {
+impl NodeState {
+    pub fn new() -> Self {
+        let rx_pdos = [RxPdo::default(), RxPdo::default(), RxPdo::default(), RxPdo::default()];
+        let sdos_cob_id = None;
+        let sdo_mbox = AtomicCell::new(None);
+        Self {
+            rx_pdos,
+            sdos_cob_id,
+            sdo_mbox,
+        }
+    }
+}
 
+impl NodeStateAccess for NodeState {
+    fn set_rx_pdo_cob_id(&self, idx: usize, cob_id: Option<CanId>) {
+        self.rx_pdos[idx].cob_id.store(cob_id);
+    }
+
+    fn num_rx_pdos(&self) -> usize {
+        self.rx_pdos.len()
+    }
+
+    fn read_rx_pdo(&self, idx: usize) -> Option<CanFdMessage> {
+        self.rx_pdos[idx].mbox.take()
+    }
+    
+    /// Read a pending message for the main SDO mailbox. Will return None if there is no message.
+    fn read_sdo_mbox(&self) -> Option<CanFdMessage> {
+        self.sdo_mbox.take()
+    }
 }
