@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+crossbeam = "0.8"
 zencan-common = { path = "../zencan-common" }
 zencan-node = { version = "0.1.0", path = "../zencan-node", features = ["log"] }
 zencan-client = { version = "0.1.0", path = "../zencan-client" }

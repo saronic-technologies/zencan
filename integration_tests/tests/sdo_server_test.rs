@@ -1,5 +1,5 @@
 use zencan_client::sdo_client::SdoClient;
-use zencan_common::{objects::ObjectDict, sdo::{SdoRequest, SdoResponse}, traits::{CanFdMessage, CanId, CanSender}};
+use zencan_common::{sdo::{SdoRequest, SdoResponse}, traits::{CanFdMessage, CanId, CanSender}};
 use zencan_node::{node::Node, sdo_server::SdoServer};
 use integration_tests::sim_bus::SimBus;
 
@@ -7,9 +7,9 @@ use integration_tests::sim_bus::SimBus;
 #[test]
 fn test_sdo_server() {
     const TX_COB_ID: CanId = CanId::Std(0x600);
-    let mut server = SdoServer::new(TX_COB_ID);
+    let mut server = SdoServer::new();
 
-    let mut od = integration_tests::object_dict1::get_od();
+    let mut od = &integration_tests::object_dict1::OD_TABLE;
 
     struct MockSender {
         pub last_message: Option<CanFdMessage>,
@@ -31,28 +31,26 @@ fn test_sdo_server() {
         }
     }
 
-    let mut sender = MockSender { last_message: None };
+    //let mut sender = MockSender { last_message: None };
 
-    server.handle_request(
+    let resp = server.handle_request(
         &SdoRequest::expedited_download(0x3000, 0, &32u32.to_le_bytes()),
-        &mut od,
-        &mut |tx_msg| sender.send(tx_msg).unwrap(),
-    );
+        od,
+    ).expect("No response to expedited download");
 
     assert_eq!(
-        sender.take_resp(),
+        resp,
         SdoResponse::ConfirmDownload { index: 0x3000, sub: 0 }
     );
 
     // TODO: Check value is written to object dict
 
-    server.handle_request(
+    let resp = server.handle_request(
         &SdoRequest::initiate_upload(0x3000, 0),
-        &mut od,
-        &mut |tx_msg| sender.send(tx_msg).unwrap(),
-    );
+        od,
+    ).expect("No response to initiate upload");
     assert_eq!(
-        sender.take_resp(),
+        resp,
         SdoResponse::ConfirmUpload {
             n: 0,
             e: true,
@@ -68,8 +66,9 @@ fn test_sdo_server() {
 fn test_sdo_read() {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let od = integration_tests::object_dict1::get_od();
-    let node = Node::new(SLAVE_NODE_ID, od);
+    let od = &integration_tests::object_dict1::OD_TABLE;
+    let state = &integration_tests::object_dict1::NODE_STATE;
+    let node = Node::new(SLAVE_NODE_ID, state, od);
     let mut bus = SimBus::new(vec![node]);
     let mut sender = bus.new_sender();
 

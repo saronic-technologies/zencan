@@ -1,18 +1,18 @@
-use std::{cell::{RefCell, RefMut}, rc::Rc, sync::{Arc, Mutex}, time::Duration};
+use std::{cell::{RefCell, RefMut}, rc::Rc, time::Duration};
 
 use zencan_common::traits::{CanFdMessage, CanReceiver, CanSender};
 use zencan_node::node::Node;
-use futures::channel::mpsc::{Sender, Receiver, channel, TryRecvError};
+use futures::channel::mpsc::{Sender, Receiver, channel};
 
 
 type SharedQueueList = Vec<Sender<CanFdMessage>>;
 type SharedSenderList = Vec<RefCell<Box<dyn CanSender>>>;
-pub struct SimCanSender<'table, 'cb, const N: usize> {
+pub struct SimCanSender<'table, 'cb> {
     senders: Rc<RefCell<SharedQueueList>>,
-    nodes: Rc<Vec<RefCell<Node<'table, 'cb, N>>>>,
+    nodes: Rc<Vec<RefCell<Node<'table, 'cb>>>>,
 }
 
-impl<'table, 'cb, const N: usize> CanSender for SimCanSender<'table, 'cb, N> {
+impl<'table, 'cb> CanSender for SimCanSender<'table, 'cb> {
     fn send(&mut self, msg: CanFdMessage) -> Result<(), CanFdMessage> {
 
         for s in self.senders.borrow_mut().iter_mut() {
@@ -104,22 +104,22 @@ impl CanReceiver for SimCanReceiver {
 //     }
 // }
 
-pub struct SimBus<'table, 'cb, const N: usize> {
+pub struct SimBus<'table, 'cb> {
     senders: Rc<RefCell<SharedQueueList>>,
-    nodes: Rc<Vec<RefCell<Node<'table, 'cb, N>>>>,
+    nodes: Rc<Vec<RefCell<Node<'table, 'cb>>>>,
 }
 
-impl<'table, 'cb, const N: usize> SimBus<'table, 'cb, N> {
+impl<'table, 'cb> SimBus<'table, 'cb> {
     const QSIZE: usize = 100;
 
-    pub fn new(nodes: Vec<Node<'table, 'cb, N>>) -> Self {
+    pub fn new(nodes: Vec<Node<'table, 'cb>>) -> Self {
         let senders = Rc::new(RefCell::new(Vec::new()));
         // Vec<Node> -> Vec<RefCell<Node>>
         let nodes = Rc::new(nodes.into_iter().map(|n| RefCell::new(n)).collect());
         Self { senders, nodes }
     }
 
-    pub fn new_pair(&mut self) -> (SimCanSender<'table, 'cb, N>, SimCanReceiver) {
+    pub fn new_pair(&mut self) -> (SimCanSender<'table, 'cb>, SimCanReceiver) {
         let sender = self.new_sender();
         let (tx, rx) = channel(Self::QSIZE);
         self.senders.borrow_mut().push(tx);
@@ -127,13 +127,13 @@ impl<'table, 'cb, const N: usize> SimBus<'table, 'cb, N> {
         (sender, receiver)
     }
 
-    pub fn new_sender(&mut self) -> SimCanSender<'table, 'cb, N> {
+    pub fn new_sender(&mut self) -> SimCanSender<'table, 'cb> {
         let (senders, nodes) = (self.senders.clone(), self.nodes.clone());
         SimCanSender { senders, nodes }
     }
 
     /// Accessor to allow tests to access nodes on the bus while they are owned by the SimBus
-    pub fn nodes(&mut self) -> Vec<RefMut<Node<'table, 'cb, N>>> {
+    pub fn nodes(&mut self) -> Vec<RefMut<Node<'table, 'cb>>> {
         self.nodes.iter().map(|n| n.borrow_mut()).collect()
     }
 }

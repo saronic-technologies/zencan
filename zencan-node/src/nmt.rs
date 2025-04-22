@@ -68,6 +68,7 @@ impl NmtSlave {
     pub fn node_id(&self) -> Option<u8> {
         self.node_id
     }
+
 }
 
 pub struct NmtMaster {

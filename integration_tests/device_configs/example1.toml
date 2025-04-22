@@ -1,0 +1,52 @@
+vendor_name = "Example 1"
+num_rpdo = 4
+num_tpdo = 4
+
+[[objects]]
+index = 0x2000
+parameter_name = "Array Example"
+object_type = "array"
+data_type = "UInt32"
+access_type = "rw"
+array_size = 2
+
+[[objects]]
+index = 0x2001
+parameter_name = "Record Example"
+object_type = "record"
+[[objects.subs]]
+sub_index = 1
+data_type = "UInt32"
+access_type = "rw"
+default_value = 140
+[[objects.subs]]
+sub_index = 3
+data_type = "Int16"
+access_type = "rw"
+default_value = 140
+[[objects.subs]]
+sub_index = 4
+data_type = "VisibleString(12)"
+access_type = "rw"
+
+[[objects]]
+index = 0x3000
+object_type = "var"
+parameter_name = "u32 var"
+data_type = "uint32"
+access_type = "rw"
+
+[[objects]]
+index = 0x3003
+parameter_name = "i8 var"
+object_type = "var"
+data_type = "int8"
+access_type = "rw"
+
+[[objects]]
+index = 0x3004
+parameter_name = "i16 readonly"
+object_type = "var"
+data_type = "int16"
+access_type = "ro"
+

@@ -7,5 +7,6 @@
         "zencan-client/Cargo.toml",
         "zencan-macro/Cargo.toml",
         "zencan-node/Cargo.toml",
+        "manual_node/Cargo.toml",
     ]
 }

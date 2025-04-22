@@ -9,4 +9,3 @@ edition = "2021"
 critical-section = "1.1"
 crossbeam = { version = "0.8", default-features=false }
 zencan-common = { path = "../zencan-common" }
-zencan-node = { path = "../zencan-node" }

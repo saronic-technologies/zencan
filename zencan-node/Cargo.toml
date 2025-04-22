@@ -14,6 +14,9 @@ futures = "*"
 log = { version = "0.4" }
 zencan-macro = { path = "../zencan-macro" }
 
+[dev-dependencies]
+manual_node = { path = "../manual_node" }
+
 [features]
 default = ["log"]
 std = ["critical-section/std"]

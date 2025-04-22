@@ -12,3 +12,4 @@ proc-macro = true
 zencan-build = { path = "../zencan-build" }
 eds-parser = { path = "../eds-parser" }
 syn = "*"
+proc-macro2 = "1.0.95"

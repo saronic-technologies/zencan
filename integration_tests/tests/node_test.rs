@@ -2,21 +2,21 @@
 
 use zencan_client::sdo_client::{SdoClient, SdoClientError};
 use zencan_common::{
-    objects::ObjectDict,
+    objects::ODEntry,
     sdo::AbortCode,
     traits::CanSender,
 };
-use zencan_node::node::Node;
-use integration_tests::{object_dict1::get_od, sim_bus::{SimBus, SimCanReceiver, SimCanSender}};
+use zencan_node::node::{Node, NodeStateAccess};
+use integration_tests::{object_dict1, sim_bus::{SimBus, SimCanReceiver, SimCanSender}};
 
 
-fn setup<'a, const N: usize>(od: ObjectDict<'static, 'a, N>) -> (
-    SdoClient<SimCanSender<'static, 'a, N>, SimCanReceiver>,
-    SimBus<'static, 'a, N>,
+fn setup<'a, NS: NodeStateAccess>(od: &'static [ODEntry], node_state: &'static NS) -> (
+    SdoClient<SimCanSender<'static, 'a>, SimCanReceiver>,
+    SimBus<'static, 'a>,
 ) {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let node = Node::new(SLAVE_NODE_ID, od);
+    let node = Node::new(SLAVE_NODE_ID, node_state, od);
 
     let mut bus = SimBus::new(vec![node]);
 
@@ -28,7 +28,7 @@ fn setup<'a, const N: usize>(od: ObjectDict<'static, 'a, N>) -> (
 
 #[test]
 pub fn test_string_write() {
-    let (mut client, mut bus) = setup(get_od());
+    let (mut client, mut bus) = setup(&object_dict1::OD_TABLE, &object_dict1::NODE_STATE);
     let mut sender = bus.new_sender();
 
     bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());
@@ -57,7 +57,9 @@ pub fn test_string_write() {
 pub fn test_record_access() {
     const OBJECT_ID: u16 = 0x2001;
 
-    let (mut client, mut bus) = setup(get_od());
+    let od = &integration_tests::object_dict1::OD_TABLE;
+    let state = &object_dict1::NODE_STATE;
+    let (mut client, mut bus) = setup(od, state);
     let mut sender = bus.new_sender();
 
     bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());
@@ -96,7 +98,8 @@ pub fn test_record_access() {
 pub fn test_array_access() {
     const OBJECT_ID: u16 = 0x2000;
 
-    let (mut client, mut bus) = setup(get_od());
+    let od = &integration_tests::object_dict1::OD_TABLE;
+    let (mut client, mut bus) = setup(od, &object_dict1::NODE_STATE);
     let mut sender = bus.new_sender();
 
     bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());

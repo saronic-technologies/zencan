@@ -6,11 +6,11 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use eds_parser::ElectronicDataSheet;
+use zencan_build::device_config_to_string;
 
 #[derive(Clone, Debug, Parser)]
 struct Args {
-    eds: PathBuf,
+    config: PathBuf,
     #[clap(short, long)]
     format: bool,
 }
@@ -18,9 +18,19 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let eds = ElectronicDataSheet::load(&args.eds).expect("Failed loading EDS file");
+    let config_content = std::fs::read_to_string(&args.config).expect(&format!(
+        "Failed reading device config file {}",
+        args.config.display()
+    ));
 
-    let compiled = zencan_build::compile_eds_to_string(&eds, args.format).expect("Failed to compile");
+    let config = match toml::from_str(&config_content) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("Failed to parse TOML file: {}", e.to_string());
+            std::process::exit(1);     }
+    };
+
+    let compiled = device_config_to_string(&config, args.format).expect("Failed to compile");
 
     println!("{}", compiled);
 }

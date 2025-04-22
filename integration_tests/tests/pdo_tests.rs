@@ -3,25 +3,21 @@
 
 use std::time::Duration;
 
-use zencan_client::sdo_client::{SdoClient, SdoClientError};
+use zencan_client::sdo_client::SdoClient;
 use zencan_common::{
-    messages::SyncObject,
-    objects::ObjectDict,
-    sdo::AbortCode,
-    traits::{CanId, CanReceiver, CanSender},
+    messages::SyncObject, objects::ODEntry, traits::{CanId, CanReceiver, CanSender}
 };
-use zencan_node::node::Node;
+use zencan_node::node::{Node, NodeStateAccess};
 use integration_tests::sim_bus::{SimBus, SimCanReceiver, SimCanSender};
 
-fn setup<'a, const N: usize>(
-    od: ObjectDict<'static, 'a, N>,
-) -> (
-    SdoClient<SimCanSender<'static, 'a, N>, SimCanReceiver>,
-    SimBus<'static, 'a, N>,
+
+fn setup<'a, NS: NodeStateAccess>(od: &'static [ODEntry], node_state: &'static NS) -> (
+    SdoClient<SimCanSender<'static, 'a>, SimCanReceiver>,
+    SimBus<'static, 'a>,
 ) {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let node = Node::new(SLAVE_NODE_ID, od);
+    let node = Node::new(SLAVE_NODE_ID, node_state, od);
 
     let mut bus = SimBus::new(vec![node]);
 
@@ -33,7 +29,9 @@ fn setup<'a, const N: usize>(
 
 #[test]
 fn test_tpdo_asignment() {
-    let (mut client, mut bus) = setup(integration_tests::object_dict2::get_od());
+    let od = &integration_tests::object_dict2::OD_TABLE;
+    let state = &integration_tests::object_dict2::NODE_STATE;
+    let (mut client, mut bus) = setup(od, state);
     let mut sender = bus.new_sender();
     let (_sender, mut rx) = bus.new_pair();
     bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());

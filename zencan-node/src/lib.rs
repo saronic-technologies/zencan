@@ -7,7 +7,7 @@ pub mod sdo_server;
 pub mod stack;
 
 /// Re-expore the proc macro for building code from an inline EDS
-pub use zencan_macro::build_object_dict;
+//pub use zencan_macro::build_object_dict;
 
 /// Include the code generated for the object dict in the buils script.
 #[macro_export]

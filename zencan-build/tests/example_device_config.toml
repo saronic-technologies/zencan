@@ -1,0 +1,15 @@
+num_rpdo = 4
+num_tpdo = 4
+
+[[objects]]
+index = 0x1008
+parameter_name = "Manufacturer Device Name"
+data_type = "VisibleString"
+access_type = "Const"
+storage_size = 32
+
+[[objects]]
+index = 0x2000
+parameter_name = "Speed"
+data_type = "UInt16"
+access_type = "ro"

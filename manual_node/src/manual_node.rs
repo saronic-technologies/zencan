@@ -5,135 +5,322 @@
 //! generated code looks like and facilitate standalone tests w/o requiring
 //! zencan-build.
 
+use std::cell::RefCell;
+
+use critical_section::Mutex;
 use crossbeam::atomic::AtomicCell;
-use zencan_common::traits::{CanFdMessage, CanId};
-use zencan_node::node::{RxPdo, NodeStateAccess};
-pub struct MutData {
-    object1000_sub0: u8,
-    object1000_sub1: u32,
-    object1000_sub2: f32,
-}
-
-const ARRAY_SIZE_1001: usize = 2;
-pub struct ConstData {
-    object1001: [u32; ARRAY_SIZE_1001],
-    object1001_sub0: u8,
-}
-
-static MUT_DATA: MutData = MutData {
-    object1000_sub0: 2,
-    object1000_sub1: 120,
-    object1000_sub2: 3.14159,
+use zencan_common::{
+    objects::{
+        AccessType, ArrayObject, CallbackObject, DataType, ODEntry, ObjectCode, ObjectData, ObjectRawAccess, RecordObject, SubInfo, VarObject
+    },
+    sdo::AbortCode,
 };
 
-const CONST_DATA: ConstData = ConstData {
-    object1001: [10, 20],
-    object1001_sub0: 1,
-};
-
-static OBJECT1000_STORAGE: [Option<
-    critical_section::Mutex<core::cell::RefCell<zencan_common::objects::ObjectStorage>>,
->; 2usize] = [
-    Some(critical_section::Mutex::new(core::cell::RefCell::new(
-        zencan_common::objects::ObjectStorage::Ram(
-            unsafe { &MUT_DATA.object1000_sub1 as *const u32 as *const u8 },
-            4usize,
-        ),
-    ))),
-    Some(critical_section::Mutex::new(core::cell::RefCell::new(
-        zencan_common::objects::ObjectStorage::Ram(
-            unsafe { &MUT_DATA.object1000_sub2 as *const f32 as *const u8 },
-            4usize,
-        ),
-    ))),
-];
-
-static OBJECT1000: zencan_common::objects::ObjectData =
-    zencan_common::objects::ObjectData::Record(zencan_common::objects::Record {
-        storage: &OBJECT1000_STORAGE,
-        data_types: &[
-            Some(zencan_common::objects::DataType::UInt32),
-            Some(zencan_common::objects::DataType::Real32),
-        ],
-        access_types: &[
-            Some(zencan_common::objects::AccessType::Rw),
-            Some(zencan_common::objects::AccessType::Rw),
-        ],
-        storage_sub0: critical_section::Mutex::new(core::cell::RefCell::new(
-            zencan_common::objects::ObjectStorage::Ram(
-                unsafe { &MUT_DATA.object1000_sub0 as *const u8 },
-                1,
-            ),
-        )),
-        sizes: &[4, 4],
-    });
-
-static OBJECT1001: zencan_common::objects::ObjectData =
-    zencan_common::objects::ObjectData::Array(zencan_common::objects::Array {
-        data_type: zencan_common::objects::DataType::UInt32,
-        access_type: zencan_common::objects::AccessType::Ro,
-        storage: critical_section::Mutex::new(core::cell::RefCell::new(
-            zencan_common::objects::ObjectStorage::Ram(
-                unsafe { CONST_DATA.object1001.as_ptr() as *const u8 },
-                4usize,
-            ),
-        )),
-        storage_sub0: critical_section::Mutex::new(core::cell::RefCell::new(
-            zencan_common::objects::ObjectStorage::Ram(
-                unsafe { &CONST_DATA.object1001_sub0 as *const u8 },
-                1,
-            ),
-        )),
-        size: 4usize,
-    });
-
-pub static OD_TABLE: [zencan_common::objects::ODEntry; 2usize] = {
-    [
-        zencan_common::objects::ODEntry {
-            index: 0x1000,
-            data: &OBJECT1000,
-        },
-        zencan_common::objects::ODEntry {
-            index: 0x1001,
-            data: &OBJECT1001,
-        },
-    ]
-};
-
-pub struct NodeState {
-    rx_pdos: [RxPdo; 4],
-    sdos_cob_id: Option<CanId>,
-    sdo_mbox: AtomicCell<Option<CanFdMessage>>,
+// a record type object
+pub struct Object1000 {
+    pub sub1: AtomicCell<u32>,
+    // Sub 2 intentionally missing. It's not required for a record to implement every sub index
+    pub sub3: AtomicCell<f32>,
 }
 
-impl NodeState {
-    pub fn new() -> Self {
-        let rx_pdos = [RxPdo::default(), RxPdo::default(), RxPdo::default(), RxPdo::default()];
-        let sdos_cob_id = None;
-        let sdo_mbox = AtomicCell::new(None);
-        Self {
-            rx_pdos,
-            sdos_cob_id,
-            sdo_mbox,
+// Goal is that this impl can be created by a macro
+impl Object1000 {
+    pub fn set_sub1(&self, value: u32) {
+        self.sub1.store(value);
+    }
+    pub fn get_sub1(&self) -> u32 {
+        self.sub1.load()
+    }
+    pub fn set_sub3(&self, value: f32) {
+        self.sub3.store(value);
+    }
+    pub fn get_sub3(&self) -> f32 {
+        self.sub3.load()
+    }
+}
+
+impl ObjectRawAccess for Object1000 {
+    fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
+        match sub {
+            0 => Err(AbortCode::ReadOnly),
+            1 => {
+                let value = u32::from_le_bytes(data.try_into().map_err(|_| {
+                    if data.len() < size_of::<u32>() {
+                        AbortCode::DataTypeMismatchLengthLow
+                    } else {
+                        AbortCode::DataTypeMismatchLengthHigh
+                    }
+                })?);
+                self.set_sub1(value);
+                Ok(())
+            }
+            3 => {
+                let value = f32::from_le_bytes(data.try_into().map_err(|_| {
+                    if data.len() < size_of::<f32>() {
+                        AbortCode::DataTypeMismatchLengthLow
+                    } else {
+                        AbortCode::DataTypeMismatchLengthHigh
+                    }
+                })?);
+                self.set_sub3(value);
+                Ok(())
+            }
+            _ => Err(AbortCode::NoSuchSubIndex),
+        }
+    }
+    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+        match sub {
+            0 => {
+                buf[0] = 3;
+                Ok(())
+            }
+            1 => {
+                let value = self.get_sub1();
+                if buf.len() < size_of::<u32>() {
+                    return Err(AbortCode::DataTypeMismatchLengthLow);
+                }
+                if buf.len() > size_of::<u32>() {
+                    return Err(AbortCode::DataTypeMismatchLengthHigh);
+                }
+                buf.copy_from_slice(&value.to_le_bytes());
+                Ok(())
+            }
+            3 => {
+                let value = self.get_sub3();
+                if buf.len() < size_of::<f32>() {
+                    return Err(AbortCode::DataTypeMismatchLengthLow);
+                }
+                if buf.len() > size_of::<f32>() {
+                    return Err(AbortCode::DataTypeMismatchLengthHigh);
+                }
+                buf.copy_from_slice(&value.to_le_bytes());
+                Ok(())
+            }
+            _ => Err(AbortCode::NoSuchSubIndex),
+        }
+    }
+
+    fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
+        match sub {
+            0 => Ok(SubInfo {
+                access_type: AccessType::Ro,
+                data_type: DataType::UInt8,
+                size: 1,
+            }),
+            1 => Ok(SubInfo {
+                access_type: AccessType::Rw,
+                data_type: DataType::UInt32,
+                size: size_of::<u32>(),
+            }),
+            3 => Ok(SubInfo {
+                access_type: AccessType::Rw,
+                data_type: DataType::Real32,
+                size: size_of::<f32>(),
+            }),
+            _ => Err(AbortCode::NoSuchSubIndex),
         }
     }
 }
 
-impl NodeStateAccess for NodeState {
-    fn set_rx_pdo_cob_id(&self, idx: usize, cob_id: Option<CanId>) {
-        self.rx_pdos[idx].cob_id.store(cob_id);
+pub struct Object2000 {
+    pub array: Mutex<RefCell<[u16; 10]>>,
+}
+
+impl Object2000 {
+    pub fn set_idx(&self, idx: usize, value: u16) -> Result<(), AbortCode> {
+        if idx < 10 {
+            critical_section::with(|cs| {
+                let mut array = self.array.borrow_ref_mut(cs);
+                array[idx] = value;
+            });
+            Ok(())
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
     }
 
-    fn num_rx_pdos(&self) -> usize {
-        self.rx_pdos.len()
-    }
-
-    fn read_rx_pdo(&self, idx: usize) -> Option<CanFdMessage> {
-        self.rx_pdos[idx].mbox.take()
-    }
-    
-    /// Read a pending message for the main SDO mailbox. Will return None if there is no message.
-    fn read_sdo_mbox(&self) -> Option<CanFdMessage> {
-        self.sdo_mbox.take()
+    pub fn get_idx(&self, idx: usize) -> Result<u16, AbortCode> {
+        if idx < 10 {
+            critical_section::with(|cs| {
+                let array = self.array.borrow_ref(cs);
+                Ok(array[idx])
+            })
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
     }
 }
+
+impl ObjectRawAccess for Object2000 {
+    fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
+        if sub < 10 {
+            let idx = sub as usize;
+            let value = u16::from_le_bytes(data.try_into().map_err(|_| {
+                if data.len() < size_of::<u16>() {
+                    AbortCode::DataTypeMismatchLengthLow
+                } else {
+                    AbortCode::DataTypeMismatchLengthHigh
+                }
+            })?);
+            self.set_idx(idx, value)
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+
+    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+        if sub < 10 {
+            let idx = sub as usize;
+            let value = self.get_idx(idx)?;
+            if buf.len() < size_of::<u16>() {
+                return Err(AbortCode::DataTypeMismatchLengthLow);
+            }
+            if buf.len() > size_of::<u16>() {
+                return Err(AbortCode::DataTypeMismatchLengthHigh);
+            }
+            buf.copy_from_slice(&value.to_le_bytes());
+            Ok(())
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+
+    fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
+        if sub == 0 {
+            Ok(SubInfo {
+                access_type: AccessType::Ro,
+                data_type: DataType::UInt8,
+                size: 1,
+            })
+        } else if sub < 10 {
+            Ok(SubInfo {
+                access_type: AccessType::Rw,
+                data_type: DataType::UInt16,
+                size: size_of::<u16>(),
+            })
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+}
+
+
+// An example variable object
+pub struct Object3000 {
+    pub value: AtomicCell<u8>,
+}
+
+impl Object3000 {
+    pub fn set_value(&self, value: u8) {
+        self.value.store(value);
+    }
+    pub fn get_value(&self) -> u8 {
+        self.value.load()
+    }
+}
+
+impl ObjectRawAccess for Object3000 {
+    fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
+        if sub == 0 {
+            let value = data[0];
+            self.set_value(value);
+            Ok(())
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+
+    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+        if sub == 0 {
+            let value = self.get_value();
+            buf[0] = value;
+            Ok(())
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+
+    fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
+        if sub == 0 {
+            Ok(SubInfo {
+                access_type: AccessType::Rw,
+                data_type: DataType::UInt8,
+                size: 1,
+            })
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+}
+
+pub static OBJECT1000: Object1000 = Object1000 {
+    sub1: AtomicCell::new(0),
+    sub3: AtomicCell::new(0.0),
+};
+
+pub static OBJECT2000: Object2000 = Object2000 {
+    array: Mutex::new(RefCell::new([0; 10])),
+};
+
+pub static OBJECT3000: Object3000 = Object3000 {
+    value: AtomicCell::new(0),
+};
+
+pub static OBJECT4000: CallbackObject = CallbackObject::new(ObjectCode::Var);
+
+pub static OD_TABLE: [ODEntry; 4] = [
+    ODEntry {
+        index: 1000,
+        data: ObjectData::Storage(&OBJECT1000),
+    },
+    ODEntry {
+        index: 2000,
+        data: ObjectData::Storage(&OBJECT2000),
+    },
+    ODEntry {
+        index: 3000,
+        data: ObjectData::Storage(&OBJECT3000),
+    },
+    ODEntry {
+        index: 4000,
+        data: ObjectData::Callback(&OBJECT4000),
+    },
+];
+
+// pub struct NodeState {
+//     rx_pdos: [RxPdo; 4],
+//     sdos_cob_id: Option<CanId>,
+//     sdo_mbox: AtomicCell<Option<CanFdMessage>>,
+// }
+
+// impl NodeState {
+//     pub fn new() -> Self {
+//         let rx_pdos = [RxPdo::default(), RxPdo::default(), RxPdo::default(), RxPdo::default()];
+//         let sdos_cob_id = None;
+//         let sdo_mbox = AtomicCell::new(None);
+//         Self {
+//             rx_pdos,
+//             sdos_cob_id,
+//             sdo_mbox,
+//         }
+//     }
+// }
+
+// impl NodeStateAccess for NodeState {
+//     fn set_rx_pdo_cob_id(&self, idx: usize, cob_id: Option<CanId>) {
+//         self.rx_pdos[idx].cob_id.store(cob_id);
+//     }
+
+//     fn num_rx_pdos(&self) -> usize {
+//         self.rx_pdos.len()
+//     }
+
+//     fn read_rx_pdo(&self, idx: usize) -> Option<CanFdMessage> {
+//         self.rx_pdos[idx].mbox.take()
+//     }
+
+//     /// Read a pending message for the main SDO mailbox. Will return None if there is no message.
+//     fn read_sdo_mbox(&self) -> Option<CanFdMessage> {
+//         self.sdo_mbox.take()
+//     }
+// }

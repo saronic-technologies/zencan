@@ -1,15 +1,10 @@
-use std::time::Duration;
 
-use zencan_common::{messages::{
-    self,
-    NmtCommandCmd::{self, Start},
-    NmtState,
-}, objects::{Object, ObjectDict}, sdo::{SdoRequest, SdoResponse}, traits::{CanFdMessage, CanId, CanReceiver}};
+use zencan_common::messages::NmtState;
 use zencan_common::traits::CanSender;
 
-use zencan_node::{node::Node, sdo_server::SdoServer};
-use zencan_client::{master::Master, sdo_client::SdoClient};
-use integration_tests::sim_bus::{SimBus, SimCanReceiver, SimCanSender};
+use zencan_node::node::Node;
+use zencan_client::master::Master;
+use integration_tests::sim_bus::SimBus;
 //type SimNode<'a> = Node<SimCanSender, SimCanReceiver>;
 
 // fn get_2_devices() -> (SimStack, SimStack) {
@@ -27,16 +22,16 @@ use integration_tests::sim_bus::{SimBus, SimCanReceiver, SimCanSender};
 
 #[test]
 fn test_nmt_init() {
-    use CanReceiver;
 
     const SLAVE_NODE_ID: u8 = 1;
-    let mut od = integration_tests::object_dict1::get_od();
-    let mut node = Node::new(SLAVE_NODE_ID, od);
+    let od = &integration_tests::object_dict1::OD_TABLE;
+    let state = &integration_tests::object_dict1::NODE_STATE;
+    let node = Node::new(SLAVE_NODE_ID, state, od);
     let mut bus = SimBus::new(vec![node]);
 
     let (sender, receiver) = bus.new_pair();
     let mut master = Master::new(sender, receiver);
-    let (mut sender, mut receiver) = bus.new_pair();
+    let (mut sender, _receiver) = bus.new_pair();
 
 
 

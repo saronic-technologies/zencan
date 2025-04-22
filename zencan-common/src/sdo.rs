@@ -93,7 +93,6 @@ pub enum AbortCode {
 }
 
 
-
 pub enum ClientCommand {
     DownloadSegment = 0,
     InitiateDownload = 1,
