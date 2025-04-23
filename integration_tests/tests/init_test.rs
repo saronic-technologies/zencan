@@ -25,7 +25,7 @@ async fn test_nmt_init() {
 
     const SLAVE_NODE_ID: u8 = 1;
     let od = &integration_tests::object_dict1::OD_TABLE;
-    let state = &integration_tests::object_dict1::NODE_STATE;
+    let state = &integration_tests::object_dict1::NODE_MBOX;
     let mut node = Node::new(state, od);
     node.set_node_id(SLAVE_NODE_ID);
     let mut bus = SimBus::new(vec![state]);

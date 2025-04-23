@@ -7,11 +7,12 @@ use zencan_client::sdo_client::SdoClient;
 use zencan_common::{
     messages::SyncObject, objects::ODEntry, traits::{CanId, AsyncCanReceiver, AsyncCanSender}
 };
-use zencan_node::node::{Node, NodeStateAccess, NodeStateReceive};
+use zencan_node::node::Node;
+use zencan_node::node_mbox::{NodeMboxRead, NodeMboxWrite};
 use integration_tests::sim_bus::{SimBus, SimBusReceiver, SimBusSender};
 use futures::executor::block_on;
 
-fn setup<'a, NS: NodeStateReceive + NodeStateAccess>(od: &'static [ODEntry], node_state: &'static NS) -> (
+fn setup<'a, NS: NodeMboxWrite + NodeMboxRead>(od: &'static [ODEntry], node_state: &'static NS) -> (
     Node<'static, 'static>,
     SdoClient<SimBusSender<'a>, SimBusReceiver>,
     SimBus<'a>,
@@ -34,7 +35,7 @@ fn setup<'a, NS: NodeStateReceive + NodeStateAccess>(od: &'static [ODEntry], nod
 #[tokio::test]
 async fn test_tpdo_asignment() {
     let od = &integration_tests::object_dict2::OD_TABLE;
-    let state = &integration_tests::object_dict2::NODE_STATE;
+    let state = &integration_tests::object_dict2::NODE_MBOX;
     let (mut node, mut client, mut bus) = setup(od, state);
 
     let mut sender = bus.new_sender();

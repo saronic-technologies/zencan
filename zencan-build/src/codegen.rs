@@ -655,7 +655,7 @@ pub fn generate_state_inst(dev: &DeviceConfig) -> Result<TokenStream, CompileErr
     let n_rpdo = dev.num_rpdo as usize;
     let _n_tpdo = dev.num_tpdo as usize;
     Ok(quote! {
-        pub static NODE_STATE: NodeState<#n_rpdo> = NodeState::new();
+        pub static NODE_MBOX: NodeMbox<#n_rpdo> = NodeMbox::new();
     })
 }
 
@@ -707,7 +707,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
         #[allow(unused_imports)]
         use zencan_common::sdo::AbortCode;
         #[allow(unused_imports)]
-        use zencan_node::node::{NodeState};
+        use zencan_node::node_mbox::NodeMbox;
         #object_defs
         #object_instantiations
         pub static OD_TABLE: [ODEntry; #table_len] = [

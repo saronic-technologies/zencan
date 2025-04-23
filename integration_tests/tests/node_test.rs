@@ -5,9 +5,10 @@ use integration_tests::{
 };
 use zencan_client::sdo_client::{SdoClient, SdoClientError};
 use zencan_common::{messages::ZencanMessage, objects::ODEntry, sdo::AbortCode, traits::{AsyncCanReceiver, AsyncCanSender}};
-use zencan_node::node::{Node, NodeStateAccess, NodeStateReceive};
+use zencan_node::node::Node;
+use zencan_node::node_mbox::{NodeMboxRead, NodeMboxWrite};
 
-fn setup<'a, NS: NodeStateReceive + NodeStateAccess>(
+fn setup<'a, NS: NodeMboxWrite + NodeMboxRead>(
     od: &'static [ODEntry],
     node_state: &'static NS,
 ) -> (
@@ -59,7 +60,7 @@ impl Drop for BusLogger {
 #[tokio::test]
 #[serial_test::serial]
 async fn test_string_write() {
-    let (mut node, mut client, mut bus) = setup(&object_dict1::OD_TABLE, &object_dict1::NODE_STATE);
+    let (mut node, mut client, mut bus) = setup(&object_dict1::OD_TABLE, &object_dict1::NODE_MBOX);
     let mut sender = bus.new_sender();
     let _logger = BusLogger::new(bus.new_receiver());
 
@@ -112,7 +113,7 @@ async fn test_record_access() {
     const OBJECT_ID: u16 = 0x2001;
 
     let od = &integration_tests::object_dict1::OD_TABLE;
-    let state = &object_dict1::NODE_STATE;
+    let state = &object_dict1::NODE_MBOX;
     let (mut node, mut client, mut bus) = setup(od, state);
     let mut sender = bus.new_sender();
 
@@ -172,7 +173,7 @@ async fn test_array_access() {
     const OBJECT_ID: u16 = 0x2000;
 
     let od = &integration_tests::object_dict1::OD_TABLE;
-    let (mut node, mut client, mut bus) = setup(od, &object_dict1::NODE_STATE);
+    let (mut node, mut client, mut bus) = setup(od, &object_dict1::NODE_MBOX);
     let mut sender = bus.new_sender();
 
 

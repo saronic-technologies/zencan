@@ -3,6 +3,7 @@
 pub mod lss;
 pub mod nmt;
 pub mod node;
+pub mod node_mbox;
 pub mod sdo_server;
 pub mod stack;
 

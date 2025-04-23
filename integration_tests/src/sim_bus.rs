@@ -1,18 +1,19 @@
 use std::{cell::RefCell, sync::Arc, time::Duration};
 
 use zencan_common::traits::{CanFdMessage, AsyncCanReceiver, AsyncCanSender};
-use zencan_node::node::{Node, NodeStateReceive};
+use zencan_node::node::Node;
+use zencan_node::node_mbox::NodeMboxWrite;
 
 use tokio::{sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender}, time::timeout_at};
 
 pub struct SimBus<'a> {
-    node_states: Arc<RefCell<Vec<&'a dyn NodeStateReceive>>>,
+    node_states: Arc<RefCell<Vec<&'a dyn NodeMboxWrite>>>,
     /// List of all the open channels for sending recieved messages to
     receiver_channels: Arc<RefCell<Vec<UnboundedSender<CanFdMessage>>>>,
 }
 
 impl<'a> SimBus<'a> {
-    pub fn new(node_states: Vec<&'a dyn NodeStateReceive>) -> Self {
+    pub fn new(node_states: Vec<&'a dyn NodeMboxWrite>) -> Self {
         Self {
             node_states: Arc::new(RefCell::new(node_states)),
             receiver_channels: Arc::new(RefCell::new(Vec::new())),
@@ -51,7 +52,7 @@ impl<'a> SimBus<'a> {
 }
 
 pub struct SimBusSender<'a> {
-    node_states: Arc<RefCell<Vec<&'a dyn NodeStateReceive>>>,
+    node_states: Arc<RefCell<Vec<&'a dyn NodeMboxWrite>>>,
     external_channels: Arc<RefCell<Vec<UnboundedSender<CanFdMessage>>>>,
 }
 
