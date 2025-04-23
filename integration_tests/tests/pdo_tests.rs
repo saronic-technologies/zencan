@@ -5,36 +5,41 @@ use std::time::Duration;
 
 use zencan_client::sdo_client::SdoClient;
 use zencan_common::{
-    messages::SyncObject, objects::ODEntry, traits::{CanId, CanReceiver, CanSender}
+    messages::SyncObject, objects::ODEntry, traits::{CanId, AsyncCanReceiver, AsyncCanSender}
 };
-use zencan_node::node::{Node, NodeStateAccess};
-use integration_tests::sim_bus::{SimBus, SimCanReceiver, SimCanSender};
+use zencan_node::node::{Node, NodeStateAccess, NodeStateReceive};
+use integration_tests::sim_bus::{SimBus, SimBusReceiver, SimBusSender};
+use futures::executor::block_on;
 
-
-fn setup<'a, NS: NodeStateAccess>(od: &'static [ODEntry], node_state: &'static NS) -> (
-    SdoClient<SimCanSender<'static, 'a>, SimCanReceiver>,
-    SimBus<'static, 'a>,
+fn setup<'a, NS: NodeStateReceive + NodeStateAccess>(od: &'static [ODEntry], node_state: &'static NS) -> (
+    Node<'static, 'static>,
+    SdoClient<SimBusSender<'a>, SimBusReceiver>,
+    SimBus<'a>,
 ) {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let node = Node::new(SLAVE_NODE_ID, node_state, od);
+    let mut node = Node::new(node_state, od);
+    node.set_node_id(SLAVE_NODE_ID);
 
-    let mut bus = SimBus::new(vec![node]);
+    let mut bus = SimBus::new(vec![node_state]);
 
-    let (sender, receiver) = bus.new_pair();
+    let sender = bus.new_sender();
+    let receiver = bus.new_receiver();
     let client = SdoClient::new_std(SLAVE_NODE_ID, sender, receiver);
 
-    (client, bus)
+    (node, client, bus)
 }
 
-#[test]
-fn test_tpdo_asignment() {
+
+#[tokio::test]
+async fn test_tpdo_asignment() {
     let od = &integration_tests::object_dict2::OD_TABLE;
     let state = &integration_tests::object_dict2::NODE_STATE;
-    let (mut client, mut bus) = setup(od, state);
+    let (mut node, mut client, mut bus) = setup(od, state);
+
     let mut sender = bus.new_sender();
-    let (_sender, mut rx) = bus.new_pair();
-    bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());
+    let mut rx = bus.new_receiver();
+    node.enter_preop(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
 
     // Set COB-ID
     const TPDO_COMM1_ID: u16 = 0x1800;
@@ -43,7 +48,7 @@ fn test_tpdo_asignment() {
 
     // Set the TPDO COB ID
     client
-        .download(TPDO_COMM1_ID, PDO_COMM_COB_SUBID, &0x181u32.to_le_bytes())
+        .download(TPDO_COMM1_ID, PDO_COMM_COB_SUBID, &0x181u32.to_le_bytes()).await
         .unwrap();
     // Set to sync driven
     client
@@ -51,23 +56,23 @@ fn test_tpdo_asignment() {
             TPDO_COMM1_ID,
             PDO_COMM_TRANSMISSION_TYPE_SUBID,
             &0u8.to_le_bytes(),
-        )
+        ).await
         .unwrap();
 
     rx.flush();
 
     let mut sender = bus.new_sender();
     let sync_msg = SyncObject::new(1).into();
-    sender.send(sync_msg).unwrap();
+    sender.send(sync_msg).await.unwrap();
 
     // We expect to receive the sync message just recieved first
     let rx_sync_msg = rx
-        .recv(Duration::from_millis(50))
+        .recv(Duration::from_millis(50)).await
         .expect("Expected SYNC message, no CAN message received");
     assert_eq!(sync_msg.id, rx_sync_msg.id);
     // Then expect a PDO message
     let msg = rx
-        .recv(Duration::from_millis(50))
+        .recv(Duration::from_millis(50)).await
         .expect("Expected PDO, no CAN message received");
     assert_eq!(CanId::std(0x181), msg.id);
 }

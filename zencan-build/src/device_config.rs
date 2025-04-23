@@ -1,4 +1,3 @@
-use eds_parser::ObjectType;
 use serde::{de::Error, Deserialize};
 use zencan_common::objects::{AccessType, ObjectCode};
 

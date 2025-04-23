@@ -233,7 +233,7 @@ impl SdoServer {
                 }
                 self.toggle_state = !self.toggle_state;
                 self.segment_counter += 1;
-                Some(SdoResponse::download_segment_acknowledge(self.toggle_state))
+                Some(SdoResponse::download_segment_acknowledge(!self.toggle_state))
             }
 
             SdoRequest::ReqUploadSegment { t } => {
@@ -272,7 +272,7 @@ impl SdoServer {
                 if c {
                     self.state = State::Idle;
                 }
-                Some(SdoResponse::upload_segment(self.toggle_state, c, &buf[0..read_size]))
+                Some(SdoResponse::upload_segment(!self.toggle_state, c, &buf[0..read_size]))
             }
             SdoRequest::InitiateBlockDownload {
                 cc: _,

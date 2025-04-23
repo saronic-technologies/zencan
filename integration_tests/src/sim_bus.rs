@@ -1,157 +1,99 @@
-use std::{cell::{RefCell, RefMut}, rc::Rc, time::Duration};
+use std::{cell::RefCell, sync::Arc, time::Duration};
 
-use zencan_common::traits::{CanFdMessage, CanReceiver, CanSender};
-use zencan_node::node::Node;
-use futures::channel::mpsc::{Sender, Receiver, channel};
+use zencan_common::traits::{CanFdMessage, AsyncCanReceiver, AsyncCanSender};
+use zencan_node::node::{Node, NodeStateReceive};
 
+use tokio::{sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender}, time::timeout_at};
 
-type SharedQueueList = Vec<Sender<CanFdMessage>>;
-type SharedSenderList = Vec<RefCell<Box<dyn CanSender>>>;
-pub struct SimCanSender<'table, 'cb> {
-    senders: Rc<RefCell<SharedQueueList>>,
-    nodes: Rc<Vec<RefCell<Node<'table, 'cb>>>>,
+pub struct SimBus<'a> {
+    node_states: Arc<RefCell<Vec<&'a dyn NodeStateReceive>>>,
+    /// List of all the open channels for sending recieved messages to
+    receiver_channels: Arc<RefCell<Vec<UnboundedSender<CanFdMessage>>>>,
 }
 
-impl<'table, 'cb> CanSender for SimCanSender<'table, 'cb> {
-    fn send(&mut self, msg: CanFdMessage) -> Result<(), CanFdMessage> {
-
-        for s in self.senders.borrow_mut().iter_mut() {
-            s.try_send(msg).map_err(|e| {
-                println!("Error sending: {:?}", e);
-                e.into_inner()
-            })?;
+impl<'a> SimBus<'a> {
+    pub fn new(node_states: Vec<&'a dyn NodeStateReceive>) -> Self {
+        Self {
+            node_states: Arc::new(RefCell::new(node_states)),
+            receiver_channels: Arc::new(RefCell::new(Vec::new())),
         }
+    }
 
-        let mut messages_to_send = Vec::new();
-        for node in self.nodes.iter() {
-            // Nodes will send messages in response to receiving them. When trying to send the
-            // message to node which is currently being delivered to, the borrow will fail because
-            // it is already borrowed up the stack frame. This is a good thing; we don't really want
-            // to deliver sent messages back to the sender.
-            if let Ok(mut sender) = node.try_borrow_mut() {
-                sender.handle_message(msg, &mut |tx_msg| messages_to_send.push(tx_msg));
+    pub fn new_receiver(&mut self) -> SimBusReceiver {
+        let (tx, rx) = unbounded_channel();
+        self.receiver_channels.borrow_mut().push(tx);
+        SimBusReceiver { channel_rx: rx }
+    }
+
+    pub fn new_sender(&mut self) -> SimBusSender<'a> {
+        SimBusSender {
+            node_states: self.node_states.clone(),
+            external_channels: self.receiver_channels.clone(),
+        }
+    }
+
+    pub fn process(&mut self, nodes: &mut[&mut Node]) {
+        let mut to_deliver = Vec::new();
+        for (i, n) in nodes.iter_mut().enumerate() {
+            n.process(&mut |msg_to_send| {
+                to_deliver.push((i, msg_to_send.clone()))
+            });
+        }
+        for (sender_idx, msg) in &to_deliver {
+            // Send the message to all nodes except the one that sent it
+            for (i, n) in self.node_states.borrow().iter().enumerate() {
+                if i != *sender_idx {
+                    n.store_message(msg.clone()).ok();
+                }
             }
         }
+    }
+}
 
-        for msg in messages_to_send {
-            self.send(msg).unwrap();
+pub struct SimBusSender<'a> {
+    node_states: Arc<RefCell<Vec<&'a dyn NodeStateReceive>>>,
+    external_channels: Arc<RefCell<Vec<UnboundedSender<CanFdMessage>>>>,
+}
+
+impl<'a> AsyncCanSender for SimBusSender<'a> {
+    async fn send(&mut self, msg: CanFdMessage) -> Result<(), CanFdMessage> {
+        // Send to nodes on the bus
+        for ns in self.node_states.borrow().iter() {
+            // It doesn't matter if store message fails; that just means the node did not
+            // recognize/accept the message
+            ns.store_message(msg).ok();
+        }
+        // Send to external listeners on the bus (those created by `new_receiver()``)
+        for rx in self.external_channels.borrow_mut().iter() {
+            rx.send(msg.clone()).unwrap();
         }
 
         Ok(())
     }
 }
 
-pub struct SimCanReceiver {
-    receiver: Receiver<CanFdMessage>,
+pub struct SimBusReceiver {
+    channel_rx: UnboundedReceiver<CanFdMessage>,
 }
 
-impl SimCanReceiver {
+impl SimBusReceiver {
     pub fn flush(&mut self) {
-        while let Some(_) = self.try_recv() {}
+        while let Ok(_) = self.channel_rx.try_recv() {}
     }
 }
 
-impl CanReceiver for SimCanReceiver {
-    fn try_recv(&mut self) -> Option<CanFdMessage> {
-        match self.receiver.try_next() {
-            Ok(result) => match result {
-                Some(msg) => Some(msg),
-                None => {
-                    println!("Channel closed");
-                    None
-                }
-            }
+impl AsyncCanReceiver for SimBusReceiver {
+    async fn recv(&mut self, timeout: Duration) -> Result<CanFdMessage, ()> {
+        timeout_at(tokio::time::Instant::now() + timeout.into(), self.channel_rx.recv()).await.map_err(|_| {
+            println!("Timeout receiving message");
+            ()
+        }).map(|msg| msg.expect("Receive channel closed"))
+    }
+
+    async fn try_recv(&mut self) -> Option<CanFdMessage> {
+        match self.channel_rx.try_recv() {
+            Ok(msg) => Some(msg),
             Err(_) => None,
         }
     }
-
-    fn recv(&mut self, _timeout: Duration) -> Result<CanFdMessage, ()> {
-        match self.receiver.try_next() {
-            Ok(result) => match result {
-                Some(msg) => {
-                    Ok(msg)
-                }
-                None => {
-                    println!("Channel closed");
-                    Err(())
-                }
-            },
-            Err(_) => Err(()),
-        }
-    }
 }
-
-// pub struct SimBusBuilder {
-//     senders: SharedQueueList,
-//     sinks: SharedSenderList,
-// }
-
-// impl SimBusBuilder {
-//     pub fn new() -> Self {
-//         let senders = Vec::new();
-//         let sinks = Vec::new();
-//         Self { senders,  sinks }
-//     }
-
-//     pub fn add_sink(&mut self, node: impl CanSender + 'static) {
-//         self.sinks.push(RefCell::new(Box::new(node)));
-//     }
-
-//     pub fn build(self) -> SimBus {
-//         let senders = self.senders;
-//         let nodes = Rc::new(self.nodes);
-//         SimBus { senders, sinks }
-//     }
-// }
-
-pub struct SimBus<'table, 'cb> {
-    senders: Rc<RefCell<SharedQueueList>>,
-    nodes: Rc<Vec<RefCell<Node<'table, 'cb>>>>,
-}
-
-impl<'table, 'cb> SimBus<'table, 'cb> {
-    const QSIZE: usize = 100;
-
-    pub fn new(nodes: Vec<Node<'table, 'cb>>) -> Self {
-        let senders = Rc::new(RefCell::new(Vec::new()));
-        // Vec<Node> -> Vec<RefCell<Node>>
-        let nodes = Rc::new(nodes.into_iter().map(|n| RefCell::new(n)).collect());
-        Self { senders, nodes }
-    }
-
-    pub fn new_pair(&mut self) -> (SimCanSender<'table, 'cb>, SimCanReceiver) {
-        let sender = self.new_sender();
-        let (tx, rx) = channel(Self::QSIZE);
-        self.senders.borrow_mut().push(tx);
-        let receiver = SimCanReceiver { receiver: rx };
-        (sender, receiver)
-    }
-
-    pub fn new_sender(&mut self) -> SimCanSender<'table, 'cb> {
-        let (senders, nodes) = (self.senders.clone(), self.nodes.clone());
-        SimCanSender { senders, nodes }
-    }
-
-    /// Accessor to allow tests to access nodes on the bus while they are owned by the SimBus
-    pub fn nodes(&mut self) -> Vec<RefMut<Node<'table, 'cb>>> {
-        self.nodes.iter().map(|n| n.borrow_mut()).collect()
-    }
-}
-
-// pub struct NodeWrapper<'a> {
-//     pub node: Node<'a>,
-//     pub sender: SimCanSender<'a>,
-// }
-
-// impl<'a> NodeWrapper<'a> {
-//     pub fn new(node: Node<'a>, sender: SimCanSender<'a>) -> Self {
-//         Self { node, sender }
-//     }
-// }
-
-// impl<'a> CanSender for NodeWrapper<'a> {
-//     fn send(&mut self, msg: CanFdMessage) -> Result<(), CanFdMessage> {
-//         self.node.handle_message(msg, &mut |msg| self.sender.send(msg).unwrap());
-//         Ok(())
-//     }
-// }

@@ -1,19 +1,23 @@
 use std::time::{Duration, Instant};
 
-use zencan_common::{
-    sdo::{AbortCode, ClientCommand, SdoRequest, SdoResponse},
-    traits::{CanFdMessage, CanId, CanReceiver, CanSender},
-};
 use snafu::Snafu;
+use zencan_common::{
+    sdo::{AbortCode, SdoRequest, SdoResponse},
+    traits::{AsyncCanReceiver, AsyncCanSender, CanId},
+};
 
-const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
+const RESPONSE_TIMEOUT: Duration = Duration::from_millis(100);
 
 #[derive(Debug, PartialEq, Snafu)]
 pub enum SdoClientError {
     NoResponse,
     MalformedResponse,
     UnexpectedResponse,
-    ServerAbort { abort_code: u32 },
+    ServerAbort {
+        index: u16,
+        sub: u8,
+        abort_code: u32,
+    },
     ToggleNotAlternated,
 }
 
@@ -26,7 +30,7 @@ pub struct SdoClient<S, R> {
     receiver: R,
 }
 
-impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
+impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     pub fn new_std(server_node_id: u8, sender: S, receiver: R) -> Self {
         Self {
             req_cob_id: CanId::Std(0x600 + server_node_id as u16),
@@ -36,40 +40,52 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
         }
     }
 
-    pub fn download(&mut self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
+    pub async fn download(&mut self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
         if data.len() <= 4 {
             // Do an expedited transfer
             let msg =
                 SdoRequest::expedited_download(index, sub, data).to_can_message(self.req_cob_id);
-            self.sender.send(msg).unwrap(); // TODO: Expect errors
+            self.sender.send(msg).await.unwrap(); // TODO: Expect errors
 
-            let resp = self.wait_for_response(RESPONSE_TIMEOUT)?;
+            let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
             match resp {
                 SdoResponse::ConfirmDownload { index: _, sub: _ } => {
                     return Ok(()); // Success!
                 }
                 SdoResponse::Abort {
-                    index: _,
-                    sub: _,
+                    index,
+                    sub,
                     abort_code,
                 } => {
-                    return ServerAbortSnafu { abort_code }.fail();
+                    return ServerAbortSnafu {
+                        index,
+                        sub,
+                        abort_code,
+                    }
+                    .fail();
                 }
                 _ => return UnexpectedResponseSnafu.fail(),
             }
         } else {
             let msg = SdoRequest::initiate_download(index, sub, Some(data.len() as u32))
                 .to_can_message(self.req_cob_id);
-            self.sender.send(msg).unwrap();
+            self.sender.send(msg).await.unwrap();
 
-            let resp = self.wait_for_response(RESPONSE_TIMEOUT)?;
+            let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
             match resp {
                 SdoResponse::ConfirmDownload { index: _, sub: _ } => (),
                 SdoResponse::Abort {
-                    index: _,
-                    sub: _,
+                    index,
+                    sub,
                     abort_code,
-                } => return ServerAbortSnafu { abort_code }.fail(),
+                } => {
+                    return ServerAbortSnafu {
+                        index,
+                        sub,
+                        abort_code,
+                    }
+                    .fail()
+                }
                 _ => return UnexpectedResponseSnafu.fail(),
             }
 
@@ -87,8 +103,9 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
                 .to_can_message(self.req_cob_id);
                 self.sender
                     .send(seg_msg)
+                    .await
                     .expect("failed sending DL segment");
-                let resp = self.wait_for_response(RESPONSE_TIMEOUT)?;
+                let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
                 match resp {
                     SdoResponse::ConfirmDownloadSegment { t } => {
                         // Fail if toggle value doesn't match
@@ -96,16 +113,26 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
                             let abort_msg =
                                 SdoRequest::abort(index, sub, AbortCode::ToggleNotAlternated)
                                     .to_can_message(self.req_cob_id);
-                            self.sender.send(abort_msg).expect("Error sending abort");
+                            self.sender
+                                .send(abort_msg)
+                                .await
+                                .expect("Error sending abort");
                             return ToggleNotAlternatedSnafu.fail();
                         }
                         // Otherwise, carry on
                     }
                     SdoResponse::Abort {
-                        index: _,
-                        sub: _,
+                        index,
+                        sub,
                         abort_code,
-                    } => return ServerAbortSnafu { abort_code }.fail(),
+                    } => {
+                        return ServerAbortSnafu {
+                            index,
+                            sub,
+                            abort_code,
+                        }
+                        .fail()
+                    }
                     _ => {
                         // Any other message from the SDO server is unexpected
                         return UnexpectedResponseSnafu.fail();
@@ -117,13 +144,13 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
         }
     }
 
-    pub fn upload(&mut self, index: u16, sub: u8) -> Result<Vec<u8>> {
+    pub async fn upload(&mut self, index: u16, sub: u8) -> Result<Vec<u8>> {
         let mut read_buf = Vec::new();
 
         let msg = SdoRequest::initiate_upload(index, sub).to_can_message(self.req_cob_id);
-        self.sender.send(msg).unwrap();
+        self.sender.send(msg).await.unwrap();
 
-        let resp = self.wait_for_response(RESPONSE_TIMEOUT)?;
+        let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
 
         let expedited = match resp {
             SdoResponse::ConfirmUpload {
@@ -140,10 +167,10 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
                 e
             }
             SdoResponse::Abort {
-                index: _,
-                sub: _,
+                index,
+                sub,
                 abort_code,
-            } => return ServerAbortSnafu { abort_code }.fail(),
+            } => return ServerAbortSnafu { index, sub, abort_code }.fail(),
             _ => return UnexpectedResponseSnafu.fail(),
         };
 
@@ -154,9 +181,9 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
                 let msg =
                     SdoRequest::upload_segment_request(toggle).to_can_message(self.req_cob_id);
 
-                self.sender.send(msg).unwrap();
+                self.sender.send(msg).await.unwrap();
 
-                let resp = self.wait_for_response(RESPONSE_TIMEOUT)?;
+                let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
                 match resp {
                     SdoResponse::UploadSegment { t, n, c, data } => {
                         if t != toggle {
@@ -165,8 +192,9 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
                                     SdoRequest::abort(index, sub, AbortCode::ToggleNotAlternated)
                                         .to_can_message(self.req_cob_id),
                                 )
+                                .await
                                 .expect("Error sending abort");
-                            return ToggleNotAlternatedSnafu.fail()
+                            return ToggleNotAlternatedSnafu.fail();
                         }
                         read_buf.extend_from_slice(&data[0..7 - n as usize]);
                         if c {
@@ -175,10 +203,10 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
                         }
                     }
                     SdoResponse::Abort {
-                        index: _,
-                        sub: _,
+                        index,
+                        sub,
                         abort_code,
-                    } => return ServerAbortSnafu { abort_code }.fail(),
+                    } => return ServerAbortSnafu { index, sub, abort_code }.fail(),
                     _ => return UnexpectedResponseSnafu.fail(),
                 }
                 toggle = !toggle;
@@ -187,12 +215,13 @@ impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
         Ok(read_buf)
     }
 
-    fn wait_for_response(&mut self, mut timeout: Duration) -> Result<SdoResponse> {
+    async fn wait_for_response(&mut self, mut timeout: Duration) -> Result<SdoResponse> {
         let wait_until = Instant::now() + timeout;
         loop {
             let msg = self
                 .receiver
                 .recv(timeout)
+                .await
                 .map_err(|_| NoResponseSnafu.build())?;
             if msg.id == self.resp_cob_id {
                 return Ok(msg.try_into().map_err(|_| MalformedResponseSnafu.build())?);

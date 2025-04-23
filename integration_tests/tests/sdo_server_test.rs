@@ -1,35 +1,35 @@
 use zencan_client::sdo_client::SdoClient;
-use zencan_common::{sdo::{SdoRequest, SdoResponse}, traits::{CanFdMessage, CanId, CanSender}};
+use zencan_common::{sdo::{SdoRequest, SdoResponse}, traits::AsyncCanSender};
 use zencan_node::{node::Node, sdo_server::SdoServer};
 use integration_tests::sim_bus::SimBus;
+use futures::executor::block_on;
 
 
 #[test]
 fn test_sdo_server() {
-    const TX_COB_ID: CanId = CanId::Std(0x600);
     let mut server = SdoServer::new();
 
-    let mut od = &integration_tests::object_dict1::OD_TABLE;
+    let od = &integration_tests::object_dict1::OD_TABLE;
 
-    struct MockSender {
-        pub last_message: Option<CanFdMessage>,
-    }
-    impl CanSender for MockSender {
-        fn send(&mut self, msg: CanFdMessage) -> Result<(), CanFdMessage> {
-            self.last_message = Some(msg);
-            Ok(())
-        }
-    }
+    // struct MockSender {
+    //     pub last_message: Option<CanFdMessage>,
+    // }
+    // impl CanSender for MockSender {
+    //     fn send(&mut self, msg: CanFdMessage) -> Result<(), CanFdMessage> {
+    //         self.last_message = Some(msg);
+    //         Ok(())
+    //     }
+    // }
 
-    impl MockSender {
-        fn get_resp(&self) -> SdoResponse {
-            self.last_message.expect("No response message").try_into().unwrap()
-        }
+    // impl MockSender {
+    //     fn get_resp(&self) -> SdoResponse {
+    //         self.last_message.expect("No response message").try_into().unwrap()
+    //     }
 
-        fn take_resp(&mut self) -> SdoResponse {
-            self.last_message.take().expect("No response message").try_into().unwrap()
-        }
-    }
+    //     fn take_resp(&mut self) -> SdoResponse {
+    //         self.last_message.take().expect("No response message").try_into().unwrap()
+    //     }
+    // }
 
     //let mut sender = MockSender { last_message: None };
 
@@ -62,23 +62,24 @@ fn test_sdo_server() {
     );
 }
 
-#[test]
-fn test_sdo_read() {
+#[tokio::test]
+async fn test_sdo_read() {
     const SLAVE_NODE_ID: u8 = 1;
 
     let od = &integration_tests::object_dict1::OD_TABLE;
     let state = &integration_tests::object_dict1::NODE_STATE;
-    let node = Node::new(SLAVE_NODE_ID, state, od);
-    let mut bus = SimBus::new(vec![node]);
+    let mut node = Node::new(state, od);
+    let mut bus = SimBus::new(vec![state]);
     let mut sender = bus.new_sender();
 
-    bus.nodes()[0].enter_preop(&mut |tx_msg| sender.send(tx_msg).unwrap());
+    node.enter_preop(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
 
-    let (sender, receiver) = bus.new_pair();
+    let sender = bus.new_sender();
+    let receiver = bus.new_receiver();
     let mut client = SdoClient::new_std(SLAVE_NODE_ID, sender, receiver);
 
-    client.download(0x3000, 0, &[0xa, 0xb, 0xc, 0xd]).unwrap();
-    let read = client.upload(0x3000, 0).unwrap();
+    client.download(0x3000, 0, &[0xa, 0xb, 0xc, 0xd]).await.unwrap();
+    let read = client.upload(0x3000, 0).await.unwrap();
 
     assert_eq!(vec![0xa, 0xb, 0xc, 0xd], read);
 }

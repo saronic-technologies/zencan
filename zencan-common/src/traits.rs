@@ -56,8 +56,15 @@ pub trait CanReceiver {
     fn recv(&mut self, timeout: Duration) -> Result<CanFdMessage, ()>;
 }
 
+pub trait AsyncCanSender {
+    fn send(&mut self, msg: CanFdMessage) -> impl core::future::Future<Output = Result<(), CanFdMessage>>;
+}
 
-
+pub trait AsyncCanReceiver {
+    fn try_recv(&mut self) -> impl core::future::Future<Output = Option<CanFdMessage>>;
+    /// A blocking receive
+    fn recv(&mut self, timeout: Duration) ->  impl core::future::Future<Output = Result<CanFdMessage, ()>>;
+}
 
 // pub(crate) trait MessageHandler {
 //     fn wants_id(can_id: CanId) -> bool;

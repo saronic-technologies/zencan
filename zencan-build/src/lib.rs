@@ -1,8 +1,6 @@
 use std::path::Path;
 
 use device_config::DeviceConfig;
-use proc_macro2::TokenStream;
-use quote::quote;
 use snafu::ResultExt;
 
 pub mod device_config;
@@ -14,10 +12,6 @@ pub use codegen::device_config_to_tokens;
 pub use codegen::device_config_to_string;
 use crate::errors::*;
 
-fn string_to_byte_literal(s: &str) -> TokenStream {
-    let b = s.as_bytes();
-    quote!([#(#b),*])
-}
 
 // fn get_default_literal(obj: u32, sub: &SubObject) -> Result<TokenStream, CompileError> {
 //     let s = if sub.default_value.is_empty() {

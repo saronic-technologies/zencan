@@ -1,11 +1,11 @@
 use crate::device_config::{DataType as DCDataType, DefaultValue};
 use crate::{
-    device_config::{DeviceConfig, Object, ObjectCodeDeser, ObjectDefinition, SubDefinition},
+    device_config::{DeviceConfig, Object, ObjectDefinition, SubDefinition},
     errors::CompileError,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use zencan_common::objects::{AccessType, DataType, ObjectCode};
+use zencan_common::objects::{AccessType, ObjectCode};
 
 fn get_sub_field_name(sub: &SubDefinition) -> Result<syn::Ident, CompileError> {
     match &sub.field_name {
@@ -41,6 +41,8 @@ fn get_rust_type_and_size(data_type: DCDataType) -> (syn::Type, usize) {
         _ => panic!("Unsupported data type {:?}", data_type),
     }
 }
+
+#[allow(dead_code)]
 fn object_code_to_tokens(obj_code: ObjectCode) -> TokenStream {
     match obj_code {
         ObjectCode::Null => quote!(zencan_common::objects::ObjectCode::Null),
@@ -508,6 +510,39 @@ fn get_object_impls(
             let mut sub_info_match_statements = TokenStream::new();
             let mut default_init_statements = TokenStream::new();
 
+            // For records, sub0 gives the highest sub object support by the record
+            let max_sub = def.subs.iter().map(|s| s.sub_index).max().unwrap_or(0);
+            accessor_methods.extend(quote! {
+                pub fn get_sub0(&self) -> u8 {
+                    #max_sub
+                }
+            });
+            write_match_statements.extend(quote! {
+                0 => {
+                    Err(AbortCode::ReadOnly)
+                }
+            });
+            let read_snippet = scalar_read_snippet(
+                &format_ident!("sub0"),
+                &syn::parse_str::<syn::Type>("u8").unwrap(),
+                1,
+            );
+            read_match_statements.extend(quote! {
+                0 => {
+                    #read_snippet
+                    Ok(())
+                }
+            });
+            sub_info_match_statements.extend(quote! {
+                0 => {
+                    Ok(SubInfo {
+                        access_type: zencan_common::objects::AccessType::Ro,
+                        data_type: zencan_common::objects::DataType::UInt8,
+                        size: 1,
+                    })
+                }
+            });
+
             for sub in &def.subs {
                 let field_name = get_sub_field_name(sub)?;
                 let (field_type, size) = get_rust_type_and_size(sub.data_type);
@@ -645,9 +680,8 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
                 },
             });
         } else {
-            let object_code = object_code_to_tokens(obj.object_code());
             object_instantiations.extend(quote! {
-                pub static #inst_name: CallbackObject = CallbackObject::new(#object_code);
+                pub static #inst_name: CallbackObject = CallbackObject::new();
             });
             table_entries.extend(quote! {
                 ODEntry {

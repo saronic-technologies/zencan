@@ -1,8 +1,8 @@
-use eds_parser::ElectronicDataSheet;
+// use eds_parser::ElectronicDataSheet;
 
-extern crate proc_macro;
-use proc_macro::TokenStream;
-use std::str::FromStr as _;
+// extern crate proc_macro;
+// use proc_macro::TokenStream;
+// use std::str::FromStr as _;
 
 
 // #[proc_macro]

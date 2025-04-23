@@ -121,6 +121,7 @@ impl TryFrom<u8> for ClientCommand {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum SdoRequest {
     InitiateDownload {
         // Number of unused bytes in data
@@ -274,7 +275,7 @@ impl SdoRequest {
                 payload[3] = sub;
                 payload[4..8].copy_from_slice(&abort_code.to_le_bytes());
             }
-            SdoRequest::InitiateBlockDownload { cc, s, cs, index, sub, size } => todo!(),
+            SdoRequest::InitiateBlockDownload { cc: _, s: _, cs: _, index: _, sub: _, size: _ } => todo!(),
             SdoRequest::InitiateBlockUpload {  } => todo!(),
         }
 
@@ -507,7 +508,7 @@ impl SdoResponse {
                     c as u8;
                 payload[1..8].copy_from_slice(&data);
             },
-            SdoResponse::ConfirmBlockDownload { sc } => todo!(),
+            SdoResponse::ConfirmBlockDownload { sc: _ } => todo!(),
             SdoResponse::Abort { index, sub, abort_code } => {
                 payload[0] = (ServerCommand::Abort as u8) << 5;
                 payload[1] = (index & 0xff) as u8;

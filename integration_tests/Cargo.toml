@@ -12,6 +12,10 @@ zencan-node = { version = "0.1.0", path = "../zencan-node", features = ["log"] }
 zencan-client = { version = "0.1.0", path = "../zencan-client" }
 critical-section = { version = "*", features = ["std"] }
 futures = "*"
+tokio = { version = "1.44.2", features = ["rt", "macros", "time", "sync"] }
+
+[dev-dependencies]
+serial_test = "3.2.0"
 
 [build-dependencies]
 zencan-build = { version = "0.1.0", path = "../zencan-build" }

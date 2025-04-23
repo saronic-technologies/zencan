@@ -1,4 +1,4 @@
-use crate::traits::{CanId, CanFdMessage};
+use crate::{sdo::{SdoRequest, SdoResponse}, traits::{CanFdMessage, CanId}};
 
 #[derive(Copy, Clone, Debug)]
 #[repr(u8)]
@@ -23,13 +23,14 @@ impl NmtCommandCmd {
     }
 }
 
-const NMT_CMD_ID: CanId = CanId::Std(0);
+pub const NMT_CMD_ID: CanId = CanId::Std(0);
 pub const HEARTBEAT_ID: u16 = 0x700;
 /// The default base ID for sending SDO requests (server node ID is added)
-const SDO_REQ_BASE: u16 = 0x600;
+pub const SDO_REQ_BASE: u16 = 0x600;
 /// The default base ID for sending SDO responses (server node ID is added)
-const SDO_RESP_BASE: u16 = 0x580;
+pub const SDO_RESP_BASE: u16 = 0x580;
 
+#[derive(Debug, Clone, Copy)]
 pub struct NmtCommand {
     pub cmd: NmtCommandCmd,
     pub node: u8,
@@ -92,6 +93,7 @@ impl TryFrom<u8> for NmtState {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Heartbeat {
     pub node: u8,
     pub toggle: bool,
@@ -146,6 +148,16 @@ impl From<SyncObject> for CanFdMessage {
     }
 }
 
+impl From<CanFdMessage> for SyncObject {
+    fn from(msg: CanFdMessage) -> Self {
+        if msg.id() == SYNC_ID {
+            let count = msg.data()[0];
+            Self { count }
+        } else {
+            panic!("Invalid message ID for SyncObject");
+        }
+    }
+}
 
 
 
@@ -181,31 +193,43 @@ pub fn is_std_sdo_request(can_id: CanId, node_id: u8) -> bool {
     false
 }
 
-impl TryFrom<CanFdMessage> for zencanMessage {
+impl TryFrom<CanFdMessage> for ZencanMessage {
     type Error = MessageError;
 
     fn try_from(msg: CanFdMessage) -> Result<Self, Self::Error> {
         let id = msg.id();
         if id == NMT_CMD_ID {
-            Ok(zencanMessage::NmtCommand(msg.try_into()?))
+            Ok(ZencanMessage::NmtCommand(msg.try_into()?))
         } else if id.raw() & !0x7f == HEARTBEAT_ID as u32 {
             let node = (id.raw() & 0x7f) as u8;
             let toggle = (msg.data[0] & (1<<7)) != 0;
             let state: NmtState = (msg.data[0] & 0x7f)
                 .try_into()
                 .map_err(|e: InvalidNmtStateError| MessageError::InvalidNmtState(e.0))?;
-            Ok(zencanMessage::Heartbeat(Heartbeat { node, toggle, state }))
-        } else {
+            Ok(ZencanMessage::Heartbeat(Heartbeat { node, toggle, state }))
+        } else if id.raw() & 0xff80 == 0x580 {
+            // SDO response
+            let resp: SdoResponse = msg.try_into().map_err(|_| MessageError::MalformedMsg(id))?;
+            Ok(ZencanMessage::SdoResponse(resp))
+        } else if id.raw() >= 0x580 && id.raw() <= 0x580+256 {
+            // SDO request
+            let req: SdoRequest = msg.data().try_into().map_err(|_| MessageError::MalformedMsg(id))?;
+            Ok(ZencanMessage::SdoRequest(req))
+        } else if id == SYNC_ID {
+            Ok(ZencanMessage::Sync(msg.try_into().map_err(|_| MessageError::MalformedMsg(id))?))
+        }else {
             Err(MessageError::UnrecognizedId(id))
         }
     }
 }
 
-pub enum zencanMessage {
+#[derive(Debug)]
+pub enum ZencanMessage {
     NmtCommand(NmtCommand),
     Sync(SyncObject),
     Heartbeat(Heartbeat),
-
+    SdoRequest(SdoRequest),
+    SdoResponse(SdoResponse),
 }
 
 pub enum MessageError {

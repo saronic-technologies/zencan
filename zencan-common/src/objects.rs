@@ -106,20 +106,6 @@ impl DataType {
     }
 }
 
-fn element_storage_size(dt: DataType) -> usize {
-    match dt {
-        DataType::Boolean => 1,
-        DataType::Int8 => 1,
-        DataType::Int16 => 2,
-        DataType::Int32 => 4,
-        DataType::UInt8 => 1,
-        DataType::UInt16 => 2,
-        DataType::UInt32 => 4,
-        DataType::Real32 => 5,
-        _ => 0,
-    }
-}
-
 pub trait ObjectRawAccess: Sync + Send {
     /// Read raw bytes from a subobject
     ///
@@ -192,19 +178,15 @@ pub struct CallbackObject {
     read_cb: AtomicCell<Option<ReadHookFn>>,
     info_cb: AtomicCell<Option<InfoHookFn>>,
     context: AtomicCell<Option<&'static dyn Context>>,
-    object_code: ObjectCode,
 }
 
 impl CallbackObject {
-    pub const fn new(
-        object_code: ObjectCode,
-    ) -> Self {
+    pub const fn new() -> Self {
         Self {
             write_cb: AtomicCell::new(None),
             read_cb: AtomicCell::new(None),
             info_cb: AtomicCell::new(None),
             context: AtomicCell::new(None),
-            object_code,
         }
     }
 

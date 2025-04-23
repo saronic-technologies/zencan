@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use zencan_common::{
-    messages::{zencanMessage, NmtCommand, NmtCommandCmd, NmtState},
+    messages::{ZencanMessage, NmtCommand, NmtCommandCmd, NmtState},
     traits::{CanFdMessage, AsyncCanReceiver, AsyncCanSender},
 };
 
@@ -53,13 +53,13 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> Master<S, R> {
     fn handle_message(&mut self, msg: CanFdMessage) {
         // Attempt to convert the raw message into a zencanMessage. This may fail, e.g. if
         // non zencan messages are received, and that's OK; those are ignored.
-        let open_msg: zencanMessage = match msg.try_into() {
+        let open_msg: ZencanMessage = match msg.try_into() {
             Ok(m) => m,
             Err(_) => return,
         };
 
         match open_msg {
-            zencanMessage::Heartbeat(heartbeat) => {
+            ZencanMessage::Heartbeat(heartbeat) => {
                 self.handle_heartbeat(heartbeat.node, heartbeat.state, heartbeat.toggle)
             }
             _ => (),
