@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use zencan_common::{
     messages::{zencanMessage, NmtCommand, NmtCommandCmd, NmtState},
-    traits::{CanFdMessage, CanReceiver, CanSender},
+    traits::{CanFdMessage, AsyncCanReceiver, AsyncCanSender},
 };
 
 type Result<T> = std::result::Result<T, ()>;
@@ -34,7 +34,7 @@ pub struct Master<S, R> {
     nodes: [Node; MAX_NODES],
 }
 
-impl<S: CanSender, R: CanReceiver> Master<S, R> {
+impl<S: AsyncCanSender, R: AsyncCanReceiver> Master<S, R> {
     pub fn new(sender: S, receiver: R) -> Self {
         let nodes = [Node::default(); MAX_NODES];
         Self {
@@ -44,13 +44,13 @@ impl<S: CanSender, R: CanReceiver> Master<S, R> {
         }
     }
 
-    pub fn process_rx(&mut self) {
-        while let Some(msg) = self.receiver.try_recv() {
+    pub async fn process_rx(&mut self) {
+        while let Some(msg) = self.receiver.try_recv().await {
             self.handle_message(msg);
         }
     }
 
-    pub fn handle_message(&mut self, msg: CanFdMessage) {
+    fn handle_message(&mut self, msg: CanFdMessage) {
         // Attempt to convert the raw message into a zencanMessage. This may fail, e.g. if
         // non zencan messages are received, and that's OK; those are ignored.
         let open_msg: zencanMessage = match msg.try_into() {
@@ -67,8 +67,8 @@ impl<S: CanSender, R: CanReceiver> Master<S, R> {
     }
 
     /// Get a list of all nodes detected on the bus via heartbeat/reset messages
-    pub fn get_nodes(&mut self) -> &[Node] {
-        self.process_rx();
+    pub async fn get_nodes(&mut self) -> &[Node] {
+        self.process_rx().await;
 
         // Find the first empty slot; this indicates the end of the list
         let n = self.nodes.iter().position(|n| n.id == 0).unwrap_or(MAX_NODES);
@@ -105,34 +105,34 @@ impl<S: CanSender, R: CanReceiver> Master<S, R> {
     /// Send application reset command
     ///
     /// node - The node ID to command, or 0 to broadcast to all nodes
-    pub fn nmt_reset_app(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandCmd::ResetApp, node)
+    pub async fn nmt_reset_app(&mut self, node: u8) -> Result<()> {
+        self.send_nmt_cmd(NmtCommandCmd::ResetApp, node).await
     }
 
     /// Send communications reset command
     ///
     /// node - The node ID to command, or 0 to broadcast to all nodes
-    pub fn nmt_reset_comms(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandCmd::ResetComm, node)
+    pub async fn nmt_reset_comms(&mut self, node: u8) -> Result<()> {
+        self.send_nmt_cmd(NmtCommandCmd::ResetComm, node).await
     }
 
     /// Send start operation command
     ///
     /// node - The node ID to command, or 0 to broadcast to all nodes
-    pub fn nmt_start(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandCmd::Start, node)
+    pub async fn nmt_start(&mut self, node: u8) -> Result<()> {
+        self.send_nmt_cmd(NmtCommandCmd::Start, node).await
     }
 
     /// Send start operation command
     ///
     /// node - The node ID to command, or 0 to broadcast to all nodes
-    pub fn nmt_stop(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandCmd::Stop, node)
+    pub async fn nmt_stop(&mut self, node: u8) -> Result<()> {
+        self.send_nmt_cmd(NmtCommandCmd::Stop, node).await
     }
 
-    fn send_nmt_cmd(&mut self, cmd: NmtCommandCmd, node: u8) -> Result<()> {
+    async fn send_nmt_cmd(&mut self, cmd: NmtCommandCmd, node: u8) -> Result<()> {
         let message = NmtCommand { cmd, node };
-        self.sender.send(message.into()).map_err(|_| ())?;
+        self.sender.send(message.into()).await.map_err(|_| ())?;
         Ok(())
     }
 }
