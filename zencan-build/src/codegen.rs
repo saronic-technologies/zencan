@@ -266,11 +266,12 @@ fn get_object_impls(
                 return Err(AbortCode::DataTypeMismatchLengthHigh);
             }
 
+            // Unwrap safety: closure always returns Some(_) so fetch_update will never fail
             self.#field_name.fetch_update(|old| {
                 let mut new = old.clone();
                 new[offset..offset + data.len()].copy_from_slice(data);
                 Some(new)
-            });
+            }).unwrap();
         }
     }
 
@@ -407,7 +408,7 @@ fn get_object_impls(
                             AbortCode::DataTypeMismatchLengthHigh
                         }
                     })?);
-                    self.set((sub - 1) as usize, value);
+                    self.set((sub - 1) as usize, value)?;
                 };
                 read_snippet = quote! {
                     if offset != 0 {
