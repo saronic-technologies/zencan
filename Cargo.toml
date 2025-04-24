@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = [
+    "zencan-build",
+    "zencan-client",
+    "zencan-common",
+    "zencan-node",
+]
