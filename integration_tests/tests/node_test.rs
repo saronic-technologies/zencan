@@ -4,24 +4,33 @@ use integration_tests::{
     sim_bus::{SimBus, SimBusReceiver, SimBusSender},
 };
 use zencan_client::sdo_client::{SdoClient, SdoClientError};
-use zencan_common::{messages::ZencanMessage, objects::ODEntry, sdo::AbortCode, traits::{AsyncCanReceiver, AsyncCanSender}};
-use zencan_node::node::Node;
+use zencan_common::{
+    messages::ZencanMessage,
+    objects::ODEntry,
+    sdo::AbortCode,
+    traits::{AsyncCanReceiver, AsyncCanSender},
+};
 use zencan_node::node_mbox::{NodeMboxRead, NodeMboxWrite};
+use zencan_node::{node::Node, node_state::NodeStateAccess};
 
-fn setup<'a, NS: NodeMboxWrite + NodeMboxRead>(
+mod bus_logger;
+use bus_logger::BusLogger;
+
+fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
     od: &'static [ODEntry],
-    node_state: &'static NS,
+    mbox: &'static M,
+    state: &'static S,
 ) -> (
-    Node<'static, 'static>,
+    Node<'static>,
     SdoClient<SimBusSender<'a>, SimBusReceiver>,
     SimBus<'a>,
 ) {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let mut node = Node::new(node_state, od);
+    let mut node = Node::new(mbox, state, od);
     node.set_node_id(SLAVE_NODE_ID);
 
-    let mut bus = SimBus::new(vec![node_state]);
+    let mut bus = SimBus::new(vec![mbox]);
 
     let sender = bus.new_sender();
     let receiver = bus.new_receiver();
@@ -30,37 +39,15 @@ fn setup<'a, NS: NodeMboxWrite + NodeMboxRead>(
     (node, client, bus)
 }
 
-struct BusLogger {
-    rx: SimBusReceiver,
-}
-
-impl BusLogger {
-    pub fn new(rx: SimBusReceiver) -> Self {
-        Self { rx }
-    }
-
-    pub fn print(&mut self) {
-        while let Some(msg) = block_on(self.rx.try_recv()) {
-            let parsed_msg: Result<ZencanMessage, _> = msg.try_into();
-            if let Ok(msg) = parsed_msg {
-                println!("Received message: {:?}", msg);
-            } else {
-                println!("Received message: {:?}", msg);
-            }
-        }
-    }
-}
-
-impl Drop for BusLogger {
-    fn drop(&mut self) {
-        self.print();
-    }
-}
 
 #[tokio::test]
 #[serial_test::serial]
 async fn test_string_write() {
-    let (mut node, mut client, mut bus) = setup(&object_dict1::OD_TABLE, &object_dict1::NODE_MBOX);
+    let (mut node, mut client, mut bus) = setup(
+        &object_dict1::OD_TABLE,
+        &object_dict1::NODE_MBOX,
+        &object_dict1::NODE_STATE,
+    );
     let mut sender = bus.new_sender();
     let _logger = BusLogger::new(bus.new_receiver());
 
@@ -112,9 +99,10 @@ async fn test_string_write() {
 async fn test_record_access() {
     const OBJECT_ID: u16 = 0x2001;
 
-    let od = &integration_tests::object_dict1::OD_TABLE;
-    let state = &object_dict1::NODE_MBOX;
-    let (mut node, mut client, mut bus) = setup(od, state);
+    let od = &object_dict1::OD_TABLE;
+    let state = &object_dict1::NODE_STATE;
+    let mbox = &object_dict1::NODE_MBOX;
+    let (mut node, mut client, mut bus) = setup(od, mbox, state);
     let mut sender = bus.new_sender();
 
     node.enter_preop(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
@@ -127,7 +115,6 @@ async fn test_record_access() {
     };
 
     let test_task = async move {
-
         let size_data = client.upload(OBJECT_ID, 0).await.unwrap();
         assert_eq!(1, size_data.len());
         assert_eq!(4, size_data[0]); // Highest sub index supported
@@ -172,12 +159,14 @@ async fn test_record_access() {
 async fn test_array_access() {
     const OBJECT_ID: u16 = 0x2000;
 
-    let od = &integration_tests::object_dict1::OD_TABLE;
-    let (mut node, mut client, mut bus) = setup(od, &object_dict1::NODE_MBOX);
+    let (mut node, mut client, mut bus) = setup(
+        &object_dict1::OD_TABLE,
+        &object_dict1::NODE_MBOX,
+        &object_dict1::NODE_STATE,
+    );
     let mut sender = bus.new_sender();
 
-
-    let mut send_cb = |tx_msg| {block_on(sender.send(tx_msg)).unwrap()};
+    let mut send_cb = |tx_msg| block_on(sender.send(tx_msg)).unwrap();
     node.enter_preop(&mut send_cb);
 
     let node_process_task = async move {
@@ -200,7 +189,6 @@ async fn test_array_access() {
         let data = client.upload(OBJECT_ID, 2).await.unwrap();
         assert_eq!(4, data.len());
         assert_eq!(-1, i32::from_le_bytes(data.try_into().unwrap()));
-
 
         // Write and read
         client

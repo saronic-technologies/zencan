@@ -19,6 +19,7 @@ pub enum SdoClientError {
         abort_code: u32,
     },
     ToggleNotAlternated,
+    UnexpectedSize,
 }
 
 type Result<T> = std::result::Result<T, SdoClientError>;
@@ -213,6 +214,30 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
             }
         }
         Ok(read_buf)
+    }
+
+    /// Download an object to the SDO server, assuming it is an u32
+    pub async fn download_u32(&mut self, index: u16, sub: u8, data: u32) -> Result<()> {
+        let data = data.to_le_bytes();
+        self.download(index, sub, &data).await
+    }
+
+    /// Read an object from the SDO server, assuming it is an u8
+    pub async fn upload_u8(&mut self, index: u16, sub: u8) -> Result<u8> {
+        let data = self.upload(index, sub).await?;
+        if data.len() != 1 {
+            return UnexpectedSizeSnafu.fail();
+        }
+        Ok(data[0])
+    }
+
+    /// Read an object from the SDO server, assuming it is an u32
+    pub async fn upload_u32(&mut self, index: u16, sub: u8) -> Result<u32> {
+        let data = self.upload(index, sub).await?;
+        if data.len() != 4 {
+            return UnexpectedSizeSnafu.fail();
+        }
+        Ok(u32::from_le_bytes(data.try_into().unwrap()))
     }
 
     async fn wait_for_response(&mut self, mut timeout: Duration) -> Result<SdoResponse> {

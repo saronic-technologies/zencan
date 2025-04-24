@@ -1,5 +1,8 @@
 use serde::{de::Error, Deserialize};
-use zencan_common::objects::{AccessType, ObjectCode};
+use zencan_common::{objects::{AccessType, ObjectCode}, pdo};
+
+use crate::errors::*;
+use snafu::ResultExt as _;
 
 pub fn mandatory_objects() -> Vec<ObjectDefinition> {
     vec![
@@ -19,7 +22,7 @@ pub fn mandatory_objects() -> Vec<ObjectDefinition> {
             application_callback: false,
             object: Object::Var(VarDefinition {
                 data_type: DataType::UInt8.into(),
-                access_type: AccessType::Const.into(),
+                access_type: AccessType::Ro.into(),
                 default_value: Some(DefaultValue::Integer(0x00000000)),
             }),
         },
@@ -65,6 +68,68 @@ pub fn mandatory_objects() -> Vec<ObjectDefinition> {
             }),
         },
     ]
+}
+
+pub fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
+
+    let mut objects = Vec::new();
+
+    fn add_objects(objects: &mut Vec<ObjectDefinition>, i: usize, tx: bool) {
+        let pdo_type = if tx { "TPDO" } else { "RPDO" };
+        let comm_index = if tx { 0x1800 } else { 0x1400 };
+        let mapping_index = if tx { 0x1A00 } else { 0x1600 };
+
+        objects.push(ObjectDefinition {
+            index: comm_index + i as u16,
+            parameter_name: format!("{}{} Communication Parameter", pdo_type, i),
+            application_callback: true,
+            object: Object::Record(RecordDefinition {
+                subs: vec![
+                    SubDefinition {
+                        sub_index: 1,
+                        parameter_name: format!("COB-ID for {}{}", pdo_type, i),
+                        field_name: None,
+                        data_type: DataType::UInt32.into(),
+                        access_type: AccessType::Rw.into(),
+                        default_value: None,
+                    },
+                    SubDefinition {
+                        sub_index: 2,
+                        parameter_name: format!("Transmission type for {}{}", pdo_type, i),
+                        field_name: None,
+                        data_type: DataType::UInt8.into(),
+                        access_type: AccessType::Rw.into(),
+                        default_value: None,
+                    },
+                ],
+            }),
+        });
+
+        objects.push(ObjectDefinition {
+            index: mapping_index + i as u16,
+            parameter_name: format!("{}{} Mapping Parameters", pdo_type, i),
+            application_callback: true,
+            object: Object::Record(RecordDefinition {
+                subs: (0..64).map(|j| {
+                    SubDefinition {
+                        sub_index: j + 1,
+                        parameter_name: format!("{}{} Mapping App Object {}", pdo_type, i, j),
+                        field_name: None,
+                        data_type: DataType::UInt32.into(),
+                        access_type: AccessType::Rw.into(),
+                        default_value: None,
+                    }
+                }).collect()
+            }),
+        });
+    }
+    for i in 0..num_rpdo {
+        add_objects(&mut objects, i, false);
+    }
+    for i in 0..num_tpdo {
+        add_objects(&mut objects, i, true);
+    }
+    objects
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -175,102 +240,18 @@ impl ObjectDefinition {
 impl DeviceConfig {
     pub fn load(
         config_path: impl AsRef<std::path::Path>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let config_str = std::fs::read_to_string(config_path)?;
-        let mut config: DeviceConfig = toml::from_str(&config_str)?;
+    ) -> Result<Self, CompileError> {
+        let config_str = std::fs::read_to_string(&config_path).context(IoSnafu)?;
+        let mut config: DeviceConfig = toml::from_str(&config_str).context(ParseTomlSnafu {
+            message: format!("Error parsing {}", config_path.as_ref().display())})?;
 
         // Add mandatory objects to the config
         config.objects.extend(mandatory_objects());
 
-        // Add PDO objects to the config
-        for i in 0..config.num_rpdo {
-            config.objects.push(ObjectDefinition {
-                index: 0x1400 + i as u16,
-                parameter_name: format!("RPDO{} Communication Parameter", i),
-                application_callback: true,
-                object: Object::Record(RecordDefinition {
-                    subs: vec![
-                        SubDefinition {
-                            sub_index: 1,
-                            parameter_name: format!("COB-ID for RPDO{}", i),
-                            field_name: Some("cob_id".into()),
-                            data_type: DataType::UInt32,
-                            access_type: AccessTypeDeser(AccessType::Const),
-                            default_value: None,
-                        },
-                        SubDefinition {
-                            sub_index: 1,
-                            parameter_name: "Mapping Parameter".to_string(),
-                            field_name: None,
-                            data_type: DataType::UInt32,
-                            access_type: AccessTypeDeser(AccessType::Const),
-                            default_value: None,
-                        },
-                    ],
-                }),
-            });
-            config.objects.push(ObjectDefinition {
-                index: 0x1600 + i as u16,
-                parameter_name: format!("RPDO{} Mapping Parameter", i),
-                application_callback: true,
-                object: Object::Record(RecordDefinition {
-                    subs: (0..64).map(|j| {
-                        SubDefinition {
-                            sub_index: j+1,
-                            parameter_name: format!("RPDO{} App Object {}", i, j),
-                            field_name: None,
-                            data_type: DataType::UInt32,
-                            access_type: AccessTypeDeser(AccessType::Rw),
-                            default_value: None,
-                        }
-                    }).collect()
-                }),
-            });
-        }
-        for i in 0..config.num_tpdo {
-            config.objects.push(ObjectDefinition {
-                index: 0x1800 + i as u16,
-                parameter_name: format!("TPDO{} Communication Parameter", i),
-                application_callback: true,
-                object: Object::Record(RecordDefinition {
-                    subs: vec![
-                        SubDefinition {
-                            sub_index: 1,
-                            parameter_name: format!("COB-ID for TPDO{}", i),
-                            field_name: Some("cob_id".into()),
-                            data_type: DataType::UInt32,
-                            access_type: AccessTypeDeser(AccessType::Const),
-                            default_value: None,
-                        },
-                        SubDefinition {
-                            sub_index: 1,
-                            parameter_name: "Mapping Parameter".to_string(),
-                            field_name: None,
-                            data_type: DataType::UInt32,
-                            access_type: AccessTypeDeser(AccessType::Const),
-                            default_value: None,
-                        },
-                    ],
-                }),
-            });
-            config.objects.push(ObjectDefinition {
-                index: 0x1A00 + i as u16,
-                parameter_name: format!("TPDO{} Mapping Parameter", i),
-                application_callback: true,
-                object: Object::Record(RecordDefinition {
-                    subs: (0..64).map(|j| {
-                        SubDefinition {
-                            sub_index: j+1,
-                            parameter_name: format!("TPDO{} App Object {}", i, j),
-                            field_name: None,
-                            data_type: DataType::UInt32,
-                            access_type: AccessTypeDeser(AccessType::Rw),
-                            default_value: None
-                        }
-                    }).collect()
-                }),
-            });
-        }
+        config.objects.extend(pdo_objects(
+            config.num_rpdo as usize,
+            config.num_tpdo as usize,
+        ));
 
         Ok(config)
     }

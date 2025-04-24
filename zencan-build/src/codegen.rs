@@ -655,7 +655,10 @@ pub fn generate_state_inst(dev: &DeviceConfig) -> Result<TokenStream, CompileErr
     let n_rpdo = dev.num_rpdo as usize;
     let _n_tpdo = dev.num_tpdo as usize;
     Ok(quote! {
-        pub static NODE_MBOX: NodeMbox<#n_rpdo> = NodeMbox::new();
+        //pub static RPDOS: [Pdo; #n_rpdo] = [const { Pdo::new() } ; #n_rpdo];
+
+        pub static NODE_STATE: NodeState<#n_rpdo, 0> = NodeState::new();
+        pub static NODE_MBOX: NodeMbox = NodeMbox::new(NODE_STATE.rpdos());
     })
 }
 
@@ -664,10 +667,13 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
     let mut object_instantiations = TokenStream::new();
     let mut table_entries = TokenStream::new();
 
-    for obj in &dev.objects {
+    let mut sorted_objects: Vec<&ObjectDefinition> = dev.objects.iter().collect();
+    sorted_objects.sort_by_key(|o| o.index);
+
+    for obj in &sorted_objects {
         let struct_name = format_ident!("Object{:X}", obj.index);
         let inst_name = format_ident!("OBJECT{:X}", obj.index);
-        let index = obj.index;
+        let index: syn::Lit = syn::parse_str(&format!("0x{:X}", obj.index)).unwrap();
         if !obj.application_callback {
             object_defs.extend(generate_object_code(&obj, &struct_name)?);
             object_instantiations.extend(quote! {
@@ -708,6 +714,8 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
         use zencan_common::sdo::AbortCode;
         #[allow(unused_imports)]
         use zencan_node::node_mbox::NodeMbox;
+        #[allow(unused_imports)]
+        use zencan_node::node_state::NodeState;
         #object_defs
         #object_instantiations
         pub static OD_TABLE: [ODEntry; #table_len] = [

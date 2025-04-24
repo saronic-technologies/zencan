@@ -1,15 +1,12 @@
 use crossbeam::atomic::AtomicCell;
 use zencan_common::traits::{CanFdMessage, CanId};
 
+use crate::node_state::Pdo;
+
 /// A trait for the (typically auto-generated) shared data struct to implement for reading data from mailboxes
 pub trait NodeMboxRead : Sync + Send {
     /// Get the number of RX PDO mailboxes available
     fn num_rx_pdos(&self) -> usize;
-    /// Read a pending message for one of the RX PDOs. Will panic if idx is out of bounds. Will
-    /// return None if there is no message.
-    fn read_rx_pdo(&self, idx: usize) -> Option<CanFdMessage>;
-    /// Update the COB ID assignment for the given RX PDO mailbox
-    fn set_rx_pdo_cob_id(&self, idx: usize, cob_id: Option<CanId>);
     /// Set the receive COB ID for the SDO server
     /// Read a pending message for the main SDO mailbox. Will return None if there is no message.
     fn set_sdo_cob_id(&self, cob_id: Option<CanId>);
@@ -33,9 +30,7 @@ pub struct RxPdoMbox {
     /// The current COB ID for this PDO
     pub cob_id: AtomicCell<Option<CanId>>,
     /// Holds any pending message for this PDO
-    pub mbox: AtomicCell<Option<CanFdMessage>>,
-
-    // TODO: Other PDO config can be store here (e.g. mirrored from PDO config objects)
+    pub mbox: AtomicCell<Option<[u8; 8]>>,
 }
 
 impl RxPdoMbox {
@@ -47,16 +42,15 @@ impl RxPdoMbox {
     }
 }
 
-pub struct NodeMbox<const N_RPDO: usize> {
-    rx_pdos: [RxPdoMbox; N_RPDO],
+pub struct NodeMbox {
+    rx_pdos: &'static [Pdo],
     sdo_cob_id: AtomicCell<Option<CanId>>,
     sdo_mbox: AtomicCell<Option<CanFdMessage>>,
     nmt_mbox: AtomicCell<Option<CanFdMessage>>,
 }
 
-impl<const N_RPDO: usize> NodeMbox<N_RPDO> {
-    pub const fn new() -> Self {
-        let rx_pdos = [const { RxPdoMbox::new() }; N_RPDO];
+impl NodeMbox {
+    pub const fn new(rx_pdos: &'static [Pdo]) -> Self {
         let sdo_cob_id = AtomicCell::new(None);
         let sdo_mbox = AtomicCell::new(None);
         let nmt_mbox = AtomicCell::new(None);
@@ -69,17 +63,9 @@ impl<const N_RPDO: usize> NodeMbox<N_RPDO> {
     }
 }
 
-impl<const N_RPDO: usize> NodeMboxRead for NodeMbox<N_RPDO> {
-    fn set_rx_pdo_cob_id(&self, idx: usize, cob_id: Option<CanId>) {
-        self.rx_pdos[idx].cob_id.store(cob_id);
-    }
-
+impl NodeMboxRead for NodeMbox {
     fn num_rx_pdos(&self) -> usize {
         self.rx_pdos.len()
-    }
-
-    fn read_rx_pdo(&self, idx: usize) -> Option<CanFdMessage> {
-        self.rx_pdos[idx].mbox.take()
     }
 
     fn set_sdo_cob_id(&self, cob_id: Option<CanId>) {
@@ -95,7 +81,7 @@ impl<const N_RPDO: usize> NodeMboxRead for NodeMbox<N_RPDO> {
     }
 }
 
-impl<const N_RPDO: usize> NodeMboxWrite for NodeMbox<N_RPDO> {
+impl NodeMboxWrite for NodeMbox {
     fn store_message(&self, msg: CanFdMessage) -> Result<(), CanFdMessage> {
         let id = msg.id();
         if id == zencan_common::messages::NMT_CMD_ID {
@@ -103,12 +89,15 @@ impl<const N_RPDO: usize> NodeMboxWrite for NodeMbox<N_RPDO> {
             return Ok(())
         }
 
-        for rpdo in &self.rx_pdos {
-            if let Some(cob_id) = rpdo.cob_id.load() {
-                if id == cob_id {
-                    rpdo.mbox.store(Some(msg));
-                    return Ok(());
-                }
+        for rpdo in self.rx_pdos {
+            if !rpdo.valid.load() {
+                continue;
+            }
+            if id == rpdo.cob_id.load() {
+                let mut data = [0u8; 8];
+                data[0..msg.data().len()].copy_from_slice(msg.data());
+                rpdo.buffered_value.store(Some(data));
+                return Ok(());
             }
         }
 

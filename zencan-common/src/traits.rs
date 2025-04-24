@@ -22,6 +22,13 @@ impl CanId {
             CanId::Std(id) => *id as u32,
         }
     }
+
+    pub fn is_extended(&self) -> bool {
+        match self {
+            CanId::Extended(_) => true,
+            CanId::Std(_) => false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -36,7 +43,19 @@ impl Default for CanFdMessage {
         Self { data: [0; 64], dlc: 0, id: CanId::Std(0) }
     }
 }
+
 impl CanFdMessage {
+    pub fn new(id: CanId, data: &[u8]) -> Self {
+        let mut msg = Self::default();
+        msg.id = id;
+        msg.dlc = data.len() as u8;
+        if msg.dlc > 64 {
+            panic!("Data length exceeds maximum size of 64 bytes");
+        }
+        msg.data[0..msg.dlc as usize].copy_from_slice(data);
+        msg
+    }
+
     pub fn id(&self) -> CanId {
         self.id
     }

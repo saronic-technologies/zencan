@@ -100,8 +100,7 @@ pub fn compile_device_config(
     config_path: impl AsRef<Path>,
     out_path: impl AsRef<Path>,
 ) -> Result<(), CompileError> {
-    let config: DeviceConfig = toml::from_str(&std::fs::read_to_string(&config_path).context(IoSnafu)?)
-        .context(ParseTomlSnafu { message: format!("Parsing {:?}", config_path.as_ref()) })?;
+    let config = DeviceConfig::load(config_path.as_ref())?;
 
     let code = device_config_to_string(&config, true)?.to_string();
 
