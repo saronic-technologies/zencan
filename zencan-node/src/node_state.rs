@@ -14,6 +14,12 @@ pub struct Pdo {
     pub mapping_params: [AtomicCell<u32>; 32],
 }
 
+impl Default for Pdo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Pdo {
     pub const fn new() -> Self {
         let cob_id = AtomicCell::new(CanId::Std(0));
@@ -49,6 +55,12 @@ pub trait NodeStateAccess {
 pub struct NodeState<const N_RPDO: usize, const N_TPDO: usize> {
     pub rpdos: [Pdo; N_RPDO],
     pub tpdos: [Pdo; N_TPDO],
+}
+
+impl<const N_RPDO: usize, const N_TPDO: usize> Default for NodeState<N_RPDO, N_TPDO> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<const N_RPDO: usize, const N_TPDO: usize> NodeState<N_RPDO, N_TPDO> {

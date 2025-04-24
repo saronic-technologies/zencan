@@ -38,6 +38,12 @@ pub struct SdoServer {
 //     Ok((obj, subinfo))
 // }
 
+impl Default for SdoServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SdoServer {
     pub fn new() -> Self {
         let toggle_state = false;
@@ -226,10 +232,8 @@ impl SdoServer {
                 // Unwrap safety: Both existence and size of the sub object are already checked
                 obj.write(self.sub, offset, &data[0..segment_size]).unwrap();
                 // If this is the last segment, and it's shorter than the object, zero terminate
-                if *c {
-                    if write_len < subinfo.size {
-                        obj.write(self.sub, write_len, &[0]).unwrap();
-                    }
+                if *c && write_len < subinfo.size {
+                    obj.write(self.sub, write_len, &[0]).unwrap();
                 }
                 self.toggle_state = !self.toggle_state;
                 self.segment_counter += 1;

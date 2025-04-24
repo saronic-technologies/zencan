@@ -1,5 +1,5 @@
 use serde::{de::Error, Deserialize};
-use zencan_common::{objects::{AccessType, ObjectCode}, pdo};
+use zencan_common::objects::{AccessType, ObjectCode};
 
 use crate::errors::*;
 use snafu::ResultExt as _;
@@ -11,7 +11,7 @@ pub fn mandatory_objects() -> Vec<ObjectDefinition> {
             parameter_name: "Device Type".to_string(),
             application_callback: false,
             object: Object::Var(VarDefinition {
-                data_type: DataType::UInt32.into(),
+                data_type: DataType::UInt32,
                 access_type: AccessType::Const.into(),
                 default_value: Some(DefaultValue::Integer(0x00000000)),
             }),
@@ -21,7 +21,7 @@ pub fn mandatory_objects() -> Vec<ObjectDefinition> {
             parameter_name: "Error Register".to_string(),
             application_callback: false,
             object: Object::Var(VarDefinition {
-                data_type: DataType::UInt8.into(),
+                data_type: DataType::UInt8,
                 access_type: AccessType::Ro.into(),
                 default_value: Some(DefaultValue::Integer(0x00000000)),
             }),
@@ -36,7 +36,7 @@ pub fn mandatory_objects() -> Vec<ObjectDefinition> {
                         sub_index: 1,
                         parameter_name: "Vendor ID".to_string(),
                         field_name: None,
-                        data_type: DataType::UInt32.into(),
+                        data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
                         default_value: None,
                     },
@@ -44,7 +44,7 @@ pub fn mandatory_objects() -> Vec<ObjectDefinition> {
                         sub_index: 2,
                         parameter_name: "Product Code".to_string(),
                         field_name: None,
-                        data_type: DataType::UInt32.into(),
+                        data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
                         default_value: None,
                     },
@@ -52,7 +52,7 @@ pub fn mandatory_objects() -> Vec<ObjectDefinition> {
                         sub_index: 3,
                         parameter_name: "Revision Number".to_string(),
                         field_name: None,
-                        data_type: DataType::UInt32.into(),
+                        data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
                         default_value: None,
                     },
@@ -60,7 +60,7 @@ pub fn mandatory_objects() -> Vec<ObjectDefinition> {
                         sub_index: 4,
                         parameter_name: "Serial Number".to_string(),
                         field_name: None,
-                        data_type: DataType::UInt32.into(),
+                        data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
                         default_value: None,
                     },
@@ -89,7 +89,7 @@ pub fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
                         sub_index: 1,
                         parameter_name: format!("COB-ID for {}{}", pdo_type, i),
                         field_name: None,
-                        data_type: DataType::UInt32.into(),
+                        data_type: DataType::UInt32,
                         access_type: AccessType::Rw.into(),
                         default_value: None,
                     },
@@ -97,7 +97,7 @@ pub fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
                         sub_index: 2,
                         parameter_name: format!("Transmission type for {}{}", pdo_type, i),
                         field_name: None,
-                        data_type: DataType::UInt8.into(),
+                        data_type: DataType::UInt8,
                         access_type: AccessType::Rw.into(),
                         default_value: None,
                     },
@@ -115,7 +115,7 @@ pub fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
                         sub_index: j + 1,
                         parameter_name: format!("{}{} Mapping App Object {}", pdo_type, i, j),
                         field_name: None,
-                        data_type: DataType::UInt32.into(),
+                        data_type: DataType::UInt32,
                         access_type: AccessType::Rw.into(),
                         default_value: None,
                     }
@@ -377,7 +377,7 @@ impl<'de> serde::Deserialize<'de> for DataType {
 
         let s = String::deserialize(deserializer)?.to_lowercase();
         if s == "boolean" {
-            return Ok(DataType::Boolean);
+            Ok(DataType::Boolean)
         } else if s == "int8" {
             return Ok(DataType::Int8);
         } else if s == "int16" {

@@ -58,11 +58,8 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> Master<S, R> {
             Err(_) => return,
         };
 
-        match open_msg {
-            ZencanMessage::Heartbeat(heartbeat) => {
-                self.handle_heartbeat(heartbeat.node, heartbeat.state, heartbeat.toggle)
-            }
-            _ => (),
+        if let ZencanMessage::Heartbeat(heartbeat) = open_msg {
+            self.handle_heartbeat(heartbeat.node, heartbeat.state, heartbeat.toggle)
         }
     }
 

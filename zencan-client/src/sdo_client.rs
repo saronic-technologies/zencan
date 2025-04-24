@@ -51,21 +51,21 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
             let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
             match resp {
                 SdoResponse::ConfirmDownload { index: _, sub: _ } => {
-                    return Ok(()); // Success!
+                    Ok(())// Success!
                 }
                 SdoResponse::Abort {
                     index,
                     sub,
                     abort_code,
                 } => {
-                    return ServerAbortSnafu {
+                    ServerAbortSnafu {
                         index,
                         sub,
                         abort_code,
                     }
-                    .fail();
+                    .fail()
                 }
-                _ => return UnexpectedResponseSnafu.fail(),
+                _ => UnexpectedResponseSnafu.fail(),
             }
         } else {
             let msg = SdoRequest::initiate_download(index, sub, Some(data.len() as u32))
@@ -249,7 +249,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                 .await
                 .map_err(|_| NoResponseSnafu.build())?;
             if msg.id == self.resp_cob_id {
-                return Ok(msg.try_into().map_err(|_| MalformedResponseSnafu.build())?);
+                return msg.try_into().map_err(|_| MalformedResponseSnafu.build());
             }
             timeout = wait_until.saturating_duration_since(Instant::now());
             if timeout.is_zero() {

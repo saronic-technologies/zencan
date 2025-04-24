@@ -299,7 +299,7 @@ pub struct ODEntry<'a> {
     pub data: ObjectData<'a>,
 }
 
-impl<'a> ODEntry<'a> {
+impl ODEntry<'_> {
     // pub fn obj_code(&self) -> ObjectCode {
     //     match &self.data {
     //         ObjectData::Var(_) => ObjectCode::Var,
@@ -319,7 +319,7 @@ impl<'a> ODEntry<'a> {
     // }
 }
 
-unsafe impl<'a> Sync for ODEntry<'a> {}
+unsafe impl Sync for ODEntry<'_> {}
 
 // pub struct SubObject<'a, 'b> {
 //     // NOTE: Maybe ObjectStorage here should actually be an Arc<Mutex<>>; we will need some locking
@@ -613,7 +613,7 @@ pub fn find_object<'a, 'b>(table: &'b[ODEntry<'a>], index: u16) -> Option<&'b Ob
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
 
     // #[test]

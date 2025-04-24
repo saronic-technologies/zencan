@@ -11,7 +11,7 @@ fn get_sub_field_name(sub: &SubDefinition) -> Result<syn::Ident, CompileError> {
     match &sub.field_name {
         Some(field_name) => {
             // Validate that the given field name is a valid rust identifier
-            match syn::parse_str::<syn::Ident>(&field_name) {
+            match syn::parse_str::<syn::Ident>(field_name) {
                 Ok(ident) => Ok(ident),
                 Err(_) => Err(CompileError::InvalidFieldName {
                     field_name: field_name.clone(),
@@ -176,17 +176,17 @@ fn get_default_tokens(
                     ),
                 });
             }
-            Ok(string_to_byte_literal_tokens(&s, data_type.size())?)
+            Ok(string_to_byte_literal_tokens(s, data_type.size())?)
         }
         DefaultValue::Float(f) => match data_type {
             DCDataType::Real32 => Ok(quote!(#f)),
             _ => {
-                return Err(CompileError::DefaultValueTypeMismatch {
+                Err(CompileError::DefaultValueTypeMismatch {
                     message: format!(
                         "Default value {} is not a valid value for type {:?}",
                         f, data_type
                     ),
-                });
+                })
             }
         },
         DefaultValue::Integer(i) => {
@@ -207,12 +207,12 @@ fn get_default_tokens(
                 DCDataType::UInt32 => Ok(quote!(#i as u32)),
                 DCDataType::Real32 => Ok(quote!(#i as f32)),
                 _ => {
-                    return Err(CompileError::DefaultValueTypeMismatch {
+                    Err(CompileError::DefaultValueTypeMismatch {
                         message: format!(
                             "Default value {} is not a valid value for type {:?}",
                             i, data_type
                         ),
-                    });
+                    })
                 }
             }
         }
@@ -374,7 +374,7 @@ fn get_object_impls(
 
             let default_tokens: Vec<_> = default_value
                 .iter()
-                .map(|v| get_default_tokens(&v, def.data_type))
+                .map(|v| get_default_tokens(v, def.data_type))
                 .collect::<Result<Vec<_>, CompileError>>()?;
 
             let write_snippet;
@@ -675,7 +675,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
         let inst_name = format_ident!("OBJECT{:X}", obj.index);
         let index: syn::Lit = syn::parse_str(&format!("0x{:X}", obj.index)).unwrap();
         if !obj.application_callback {
-            object_defs.extend(generate_object_code(&obj, &struct_name)?);
+            object_defs.extend(generate_object_code(obj, &struct_name)?);
             object_instantiations.extend(quote! {
                 pub static #inst_name: #struct_name = #struct_name::default();
             });
@@ -730,7 +730,7 @@ pub fn device_config_to_string(dev: &DeviceConfig, format: bool) -> Result<Strin
     if format {
         let parsed_file = match syn::parse_file(&tokens.to_string()) {
             Ok(f) => f,
-            Err(e) => panic!("Error parsing generated code: {}", e.to_string()),
+            Err(e) => panic!("Error parsing generated code: {}", e),
         };
         Ok(prettyplease::unparse(&parsed_file))
     } else {

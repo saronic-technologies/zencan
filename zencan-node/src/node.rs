@@ -303,7 +303,7 @@ impl<'table> Node<'table> {
         if let Some(msg) = self.mbox.read_sdo_mbox() {
             self.message_count += 1;
             if let Ok(req) = msg.data().try_into() {
-                if let Some(resp) = self.sdo_server.handle_request(&req, &self.od) {
+                if let Some(resp) = self.sdo_server.handle_request(&req, self.od) {
                     send_cb(resp.to_can_message(self.sdo_tx_cob_id()));
                 }
             } else {
@@ -325,7 +325,7 @@ impl<'table> Node<'table> {
 
         for rpdo in self.state.get_rpdos() {
             if let Some(new_data) = rpdo.buffered_value.take() {
-                store_pdo_data(&new_data, &rpdo, self.od);
+                store_pdo_data(&new_data, rpdo, self.od);
             }
         }
     }

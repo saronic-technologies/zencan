@@ -111,7 +111,7 @@ pub fn compile_device_config(
 pub fn build_node_from_device_config(name: &str, config_path: impl AsRef<Path>) -> Result<(), CompileError> {
     let output_file_path =
         Path::new(&std::env::var_os("OUT_DIR").ok_or(NotRunViaCargoSnafu.build())?)
-            .join(&format!("zencan_node_{}.rs", name));
+            .join(format!("zencan_node_{}.rs", name));
 
     compile_device_config(&config_path, &output_file_path)?;
 

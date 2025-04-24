@@ -1,6 +1,6 @@
 use configparser::ini::Ini;
 use snafu::{ResultExt as _, Snafu};
-use std::{collections::HashMap, path::Path, str::FromStr};
+use std::{collections::HashMap, path::Path};
 
 use zencan_common::objects::{AccessType, DataType};
 
@@ -175,7 +175,7 @@ impl<'a> Section<'a> {
     ///
     /// The field must contain a valid integer value or an error is returned
     pub fn get_u32(&self, field: &str) -> Result<u32, LoadError> {
-        Ok(match self.map.get(&field.to_lowercase()) {
+        match self.map.get(&field.to_lowercase()) {
             Some(value) => Ok(value.as_ref().unwrap()),
             None => EdsFormatSnafu {
                 message: format!("Missing required field '{}' in '{}'", field, self.section),
@@ -185,11 +185,11 @@ impl<'a> Section<'a> {
         .parse()
         .context(ParseIntSnafu {
             message: format!("Parsing '{}' in section '{}'", field, self.section),
-        })?)
+        })
     }
 
     pub fn get_u32_hex(&self, field: &str) -> Result<u32, LoadError> {
-        Ok(match self.map.get(&field.to_lowercase()) {
+        match self.map.get(&field.to_lowercase()) {
             Some(value) => Ok(value.as_ref().unwrap()),
             None => EdsFormatSnafu {
                 message: format!("Missing required field '{}' in '{}'", field, self.section),
@@ -199,7 +199,7 @@ impl<'a> Section<'a> {
         .parse_hex()
         .context(ParseIntSnafu {
             message: format!("Parsing '{}' in section '{}'", field, self.section),
-        })?)
+        })
     }
 
     pub fn get_u32_hex_opt(&self, field: &str) -> Result<Option<u32>, LoadError> {
@@ -247,8 +247,8 @@ fn get_sub_object(section: &Section) -> Result<SubObject, LoadError> {
     Ok(SubObject {
         data_type: DataType::from(section.get_u32_hex("DataType")? as u16),
         access_type: str_to_access_type(&section.get_string("AccessType")?)?,
-        low_limit: section.get_string("LowLimit").map_or(None, |s| Some(s)),
-        high_limit: section.get_string("HighLimit").map_or(None, |s| Some(s)),
+        low_limit: section.get_string("LowLimit").ok(),
+        high_limit: section.get_string("HighLimit").ok(),
         default_value: section.get_string("DefaultValue")?,
         pdo_mapping: section.get_bool("PDOMapping")?,
     })
@@ -329,7 +329,7 @@ impl ElectronicDataSheet {
             modified_by: file_info_cfg.get_string("ModifiedBy")?,
         };
 
-        let di_cfg = Section::from_map(&map, "DeviceInfo")?;
+        let di_cfg = Section::from_map(map, "DeviceInfo")?;
         let device_info = DeviceInfo {
             vendor_name: di_cfg.get_string("VendorName")?,
             vendor_number: di_cfg.get_u32_opt("VendorNumber")?,
@@ -357,9 +357,9 @@ impl ElectronicDataSheet {
         Ok(ElectronicDataSheet {
             file_info,
             device_info,
-            mandatory_objects: read_object_list(&map, "MandatoryObjects")?,
-            optional_objects: read_object_list(&map, "OptionalObjects")?,
-            manufacturer_objects: read_object_list(&map, "ManufacturerObjects")?,
+            mandatory_objects: read_object_list(map, "MandatoryObjects")?,
+            optional_objects: read_object_list(map, "OptionalObjects")?,
+            manufacturer_objects: read_object_list(map, "ManufacturerObjects")?,
         })
     }
 

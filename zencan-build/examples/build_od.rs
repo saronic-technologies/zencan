@@ -18,15 +18,13 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let config_content = std::fs::read_to_string(&args.config).expect(&format!(
-        "Failed reading device config file {}",
-        args.config.display()
-    ));
+    let config_content = std::fs::read_to_string(&args.config).unwrap_or_else(|_| panic!("Failed reading device config file {}",
+        args.config.display()));
 
     let config = match toml::from_str(&config_content) {
         Ok(config) => config,
         Err(e) => {
-            eprintln!("Failed to parse TOML file: {}", e.to_string());
+            eprintln!("Failed to parse TOML file: {}", e);
             std::process::exit(1);     }
     };
 

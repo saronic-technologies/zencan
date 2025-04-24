@@ -221,7 +221,7 @@ impl SdoRequest {
     }
 
     pub fn initiate_upload(index: u16, sub: u8) -> Self {
-        SdoRequest::InitiateUpload { index: index, sub: sub }
+        SdoRequest::InitiateUpload { index, sub }
     }
 
     pub fn upload_segment_request(toggle: bool) -> Self {
@@ -241,8 +241,7 @@ impl SdoRequest {
                 data,
             } => {
                 payload[0] =
-                    (ClientCommand::InitiateDownload as u8) << 5 |
-                    (n << 2) |
+                    ((ClientCommand::InitiateDownload as u8) << 5) | (n << 2) |
                     ((e as u8) << 1) |
                     s as u8;
                 payload[1] = (index & 0xff) as u8;
@@ -252,9 +251,7 @@ impl SdoRequest {
             }
             SdoRequest::DownloadSegment { t, n, c, data } => {
                 payload[0] =
-                    (ClientCommand::DownloadSegment as u8) << 5 |
-                    (t as u8) << 4 |
-                    (n & 7) << 1 |
+                    ((ClientCommand::DownloadSegment as u8) << 5) | ((t as u8) << 4) | ((n & 7) << 1) |
                     (c as u8);
 
                 payload[1..8].copy_from_slice(&data);
@@ -266,7 +263,7 @@ impl SdoRequest {
                 payload[3] = sub;
             },
             SdoRequest::ReqUploadSegment { t } => {
-                payload[0] = (ClientCommand::ReqUploadSegment as u8) << 5| (t as u8) << 4;
+                payload[0] = ((ClientCommand::ReqUploadSegment as u8) << 5) | ((t as u8) << 4);
             },
             SdoRequest::Abort { index, sub, abort_code } => {
                 payload[0] = (ClientCommand::Abort as u8) << 5;
@@ -488,7 +485,7 @@ impl SdoResponse {
                 data,
             } => {
                 payload[0] =
-                    (ServerCommand::Upload as u8) << 5 | ((n & 0x3) << 2) | ((e as u8) << 1) | (s as u8);
+                    ((ServerCommand::Upload as u8) << 5) | ((n & 0x3) << 2) | ((e as u8) << 1) | (s as u8);
                 payload[1] = (index & 0xff) as u8;
                 payload[2] = (index >> 8) as u8;
                 payload[3] = sub;
@@ -502,9 +499,7 @@ impl SdoResponse {
             },
             SdoResponse::UploadSegment { t, n, c, data } => {
                 payload[0] =
-                    (ServerCommand::SegmentUpload as u8) << 5 |
-                    (t as u8) << 4 |
-                    n << 1 |
+                    ((ServerCommand::SegmentUpload as u8) << 5) | ((t as u8) << 4) | (n << 1) |
                     c as u8;
                 payload[1..8].copy_from_slice(&data);
             },
@@ -518,7 +513,7 @@ impl SdoResponse {
 
             },
             SdoResponse::ConfirmDownloadSegment { t } => {
-                payload[0] = (ServerCommand::SegmentDownload as u8) << 5 | (t as u8) << 4;
+                payload[0] = ((ServerCommand::SegmentDownload as u8) << 5) | ((t as u8) << 4);
             },
 
         }

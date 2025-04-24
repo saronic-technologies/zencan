@@ -1,4 +1,3 @@
-use eds_parser::ElectronicDataSheet;
 
 #[test]
 fn compile_test() {
