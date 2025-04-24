@@ -99,10 +99,7 @@ impl From<u16> for DataType {
 impl DataType {
     /// Returns true if data type is one of the string types
     pub fn is_str(&self) -> bool {
-        match self {
-            Self::VisibleString | Self::OctetString | Self::UnicodeString => true,
-            _ => false,
-        }
+        matches!(self, Self::VisibleString | Self::OctetString | Self::UnicodeString)
     }
 }
 
@@ -161,15 +158,6 @@ pub trait ObjectRawAccess: Sync + Send {
         // not a string type or no null-terminator was found
         Ok(size)
     }
-}
-
-pub trait VarObject : ObjectRawAccess + Sync {
-}
-
-pub trait RecordObject : ObjectRawAccess + Sync {
-}
-
-pub trait ArrayObject : ObjectRawAccess + Sync {
 }
 
 #[derive(Default)]
@@ -242,8 +230,6 @@ impl<T: Any + Sync + Send + 'static> Context for T {
     }
 }
 
-// pub trait Context: Any {}
-
 /// Object read/write callback function signature
 type ReadHookFn = fn(
     ctx: &Option<&dyn Context>,
@@ -299,124 +285,6 @@ pub struct ODEntry<'a> {
     pub data: ObjectData<'a>,
 }
 
-impl ODEntry<'_> {
-    // pub fn obj_code(&self) -> ObjectCode {
-    //     match &self.data {
-    //         ObjectData::Var(_) => ObjectCode::Var,
-    //         ObjectData::Array(_) => ObjectCode::Array,
-    //         ObjectData::Record(_) => ObjectCode::Record,
-    //         ObjectData::Callback(obj) => obj.object_code,
-    //     }
-    // }
-
-    // pub fn sub_count(&self) -> u8 {
-    //     match &self.data {
-    //         ObjectData::Var(_) => 1,
-    //         ObjectData::Array(array) => (array.size() + 1) as u8,
-    //         ObjectData::Record(_) => todo!(),
-    //         ObjectData::Callback(_) => todo!(),
-    //     }
-    // }
-}
-
-unsafe impl Sync for ODEntry<'_> {}
-
-// pub struct SubObject<'a, 'b> {
-//     // NOTE: Maybe ObjectStorage here should actually be an Arc<Mutex<>>; we will need some locking
-//     // at some point for threaded access, and maybe it should be at the sub object level rather than
-//     // a single mutex on the whole dict...
-//     storage: &'b Mutex<RefCell<ObjectStorage<'a>>>,
-//     /// The offset into the storage at which this sub element is stored (e.g. for arrays and
-//     /// records)
-//     offset: usize,
-//     pub size: usize,
-//     pub data_type: DataType,
-//     pub access_type: AccessType,
-// }
-
-// impl<'a, 'b> SubObject<'a, 'b> {
-//     fn write(&self, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
-//         let offset = offset + self.offset;
-//         critical_section::with(|cs| match *self.storage.borrow_ref_mut(cs) {
-//             ObjectStorage::Ram(ptr, size) => {
-//                 let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, size) };
-//                 if offset + data.len() > size {
-//                     return Err(AbortCode::DataTypeMismatchLengthHigh);
-//                 }
-//                 slice[offset..offset + data.len()].copy_from_slice(data);
-//                 Ok(())
-//             }
-//             ObjectStorage::Const(_, _) => Err(AbortCode::ReadOnly),
-//             ObjectStorage::App(ref mut cb) => {
-//                 if let Some(write) = cb.write.as_mut() {
-//                     write(offset, data);
-//                 }
-//                 Ok(())
-//             }
-//         })
-
-//     }
-
-//     /// Read raw bytes from the object
-//     ///
-//     /// This function will panic on invalid read. It is up to the caller to ensure that the size
-//     /// and offset fall within the range of the object
-//     fn read(&self, offset: usize, buf: &mut [u8]) {
-//         let offset = offset + self.offset;
-//         critical_section::with(|cs| match *self.storage.borrow(cs).borrow() {
-//             ObjectStorage::Ram(ptr, size) => {
-//                 let slice = unsafe { core::slice::from_raw_parts(ptr, size) };
-//                 buf.copy_from_slice(&slice[offset..offset + buf.len()])
-//             }
-//             ObjectStorage::Const(ptr, size) => {
-//                 let slice = unsafe { core::slice::from_raw_parts(ptr, size) };
-//                 buf.copy_from_slice(&slice[offset..offset + buf.len()])
-//             }
-//             ObjectStorage::App(ref callbacks) => {
-//                 if let Some(read) = callbacks.read {
-//                     read(offset, buf);
-//                 } else {
-//                     panic!("Attempted to read from DOMAIN with no registered callback");
-//                 }
-//             }
-//         })
-//     }
-
-//     /// Get the size of the current value in the sub object
-//     ///
-//     /// For string types, this can be shorter than the allocated size.
-//     pub fn current_size(&self) -> usize {
-//         const CHUNK_SIZE: usize = 8;
-//         if self.data_type.is_str() {
-//             // Look for first 0
-//             let mut chunk = 0;
-//             let mut buf = [0; CHUNK_SIZE];
-
-//             while chunk < self.size / CHUNK_SIZE + 1 {
-//                 let offset = chunk * CHUNK_SIZE;
-//                 let bytes_to_read = (self.size - offset).min(CHUNK_SIZE);
-//                 self.read(offset, &mut buf[0..bytes_to_read]);
-
-//                 if let Some(zero_pos) = buf[0..bytes_to_read].iter().position(|b| *b == 0) {
-//                     return zero_pos + chunk * CHUNK_SIZE;
-//                 }
-//                 chunk += 1;
-//             }
-//             self.size
-//         } else {
-//             self.size
-//         }
-//     }
-// }
-
-// pub trait ObjectDictTrait<'table, 'cb> {
-//     fn find(&self, index: u16) -> Option<&Object<'table, 'cb>>;
-// }
-
-// pub struct Object<'table> {
-//     entry: &'table ODEntry<'table>,
-// }
-
 pub struct SubInfo {
     /// The size (or max size) of this sub object, in bytes
     pub size: usize,
@@ -425,181 +293,6 @@ pub struct SubInfo {
     /// Indicates what accesses (i.e. read/write) are allowed on this sub object
     pub access_type: AccessType,
 }
-
-// impl<'table> Object<'table> {
-
-//     /// Write data into a subobject
-//     pub fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
-//         if let Some(hook) = self.callbacks.write {
-//             (hook)(&self.callbacks.context, self, sub, offset, data)
-//         } else {
-//             let sub = self.get_sub(sub).ok_or(AbortCode::NoSuchSubIndex)?;
-//             sub.write(offset, data)?;
-//             Ok(())
-//         }
-//     }
-
-//     /// Read data from a subobj
-//     ///
-//     /// This function will panic if the read size is not valid. It is the responsibility of the
-//     /// caller to validate the size before reading.
-//     pub fn read(&self, sub: u8, offset: usize, data: &mut [u8]) -> Result<(), AbortCode> {
-//         if let Some(hook) = self.callbacks.read {
-//             (hook)(&self.callbacks.context, self, sub, offset, data)
-//         } else {
-//             let sub = self.get_sub(sub).ok_or(AbortCode::NoSuchSubIndex)?;
-//             sub.read(offset, data);
-//             Ok(())
-//         }
-//     }
-
-
-//     /// Get metadata about one of the sub objects in this object
-//     ///
-//     /// Returns None if the provide sub index is invalid
-//     ///
-//     /// # Arguments
-//     /// - `sub`: The sub index to request
-//     pub fn sub_info(&self, sub: u8) -> Option<SubInfo> {
-//         let sub = self.get_sub(sub)?;
-//         Some(SubInfo {
-//             size: sub.size,
-//             current_size: sub.current_size(),
-//             data_type: sub.data_type,
-//             access_type: sub.access_type,
-//         })
-//     }
-
-//     fn get_sub<'c>(&'c self, sub: u8) -> Option<SubObject<'table, 'c>> {
-//         match &self.entry.data {
-//             ObjectData::Var(var) => {
-//                 if sub == 0 {
-//                     Some(SubObject {
-//                         offset: 0,
-//                         data_type: var.data_type,
-//                         access_type: var.access_type,
-//                         size: var.size,
-//                         storage: &var.storage,
-//                     })
-//                 } else {
-//                     None
-//                 }
-//             }
-//             ObjectData::Array(arr) => {
-//                 if sub == 0 {
-//                     Some(SubObject {
-//                         offset: 0,
-//                         data_type: DataType::UInt8,
-//                         access_type: AccessType::Ro,
-//                         size: 1,
-//                         storage: &arr.storage_sub0,
-//                     })
-//                 } else if sub <= arr.size as u8 {
-//                     Some(SubObject {
-//                         offset: (sub as usize - 1) * element_storage_size(arr.data_type),
-//                         data_type: arr.data_type,
-//                         access_type: arr.access_type,
-//                         size: element_storage_size(arr.data_type),
-//                         storage: &arr.storage,
-//                     })
-//                 } else {
-//                     None
-//                 }
-//             }
-//             ObjectData::Record(rec) => {
-//                 if sub == 0 {
-//                     Some(SubObject {
-//                         offset: 0,
-//                         data_type: DataType::UInt8,
-//                         access_type: AccessType::Const,
-//                         size: 1,
-//                         storage: &rec.storage_sub0,
-//                     })
-//                 } else if sub as usize <= rec.storage.len() {
-//                     let storage = rec.storage.get(sub as usize - 1)?;
-//                     if let Some(storage) = storage {
-//                         Some(SubObject {
-//                             offset: 0,
-//                             // unwrap safety: if storage is not None, data type must be not None
-//                             data_type: rec.data_types[sub as usize - 1].unwrap(),
-//                             access_type: rec.access_types[sub as usize - 1].unwrap(),
-//                             size: rec.sizes[sub as usize - 1],
-//                             storage,
-//                         })
-//                     } else {
-//                         None
-//                     }
-//                 } else {
-//                     None
-//                 }
-//             }
-//         }
-//     }
-
-// }
-/// Builder to create an object dict from a table of ODEntry objects
-///
-/// The main function of the builder is to enforce the registration of callback hooks is done
-/// up front so that they can be immutable during operation of the dictionary.
-// pub struct ObjectDictBuilder<'a, 'b, const N: usize> {
-//     pub table: [InternalEntry<'a, 'b>; N],
-// }
-
-// impl<'a, 'b, const N: usize> ObjectDictBuilder<'a, 'b, N> {
-//     fn new(table: &[ODEntry<'a>; N]) -> Self {
-//         let table_int = core::array::from_fn(|i|
-//             InternalEntry {
-//                 entry: &table[i],
-//                 callbacks: Default::default()
-//             }
-//         );
-//         Self {
-//             table: table_int,
-//         }
-//     }
-
-//     fn get_entry_mut(&mut self, index: u16) -> Option<&mut InternalEntry> {
-//         for item in &mut self.table {
-//             if item.entry.index == index {
-//                 return Some(item)
-//             }
-//         }
-//         return None
-//     }
-
-//     pub fn register_hook(
-//         &mut self,
-//         index: u16,
-//         ctx: Option<&'a mut dyn Context>,
-//         read_callback: Option<ReadHookFn>,
-//         write_callback: Option<WriteHookFn>,
-
-//     ) {
-//         let entry = self.get_entry_mut(index).expect("Invalid index used in register hook");
-//         entry.callbacks.context = ctx;
-//         entry.callbacks.read = read_callback;
-//         entry.callbacks.write = write_callback;
-//     }
-
-//     pub fn build(self) -> ObjectDict<'a> {
-//         todo!()
-//     }
-// }
-
-
-    // pub fn find_entry<'c>(&self, index: u16) -> Option<&'c ODEntry<'a>> {
-    //     for i in 0..self.table.len() {
-    //         if self.table[i].index == index {
-    //             return Some(&self.table[i]);
-    //         }
-    //     }
-    //     None
-    // }
-
-    // pub fn find_sub<'c>(&'b self, index: u16, sub: u8) -> Option<SubObject<'c, 'a>> {
-    //     let entry = self.find_entry(index)?;
-    //     entry.data.get_sub(sub)
-    // }
 
 pub fn find_object<'a, 'b>(table: &'b[ODEntry<'a>], index: u16) -> Option<&'b ObjectData<'a>> {
     // TODO: Table is sorted, so we could use binary search
@@ -613,9 +306,6 @@ pub fn find_object<'a, 'b>(table: &'b[ODEntry<'a>], index: u16) -> Option<&'b Ob
 
 #[cfg(test)]
 mod tests {
-    
-
-
     // #[test]
     // fn test_object_var() {
     //     let dict = ObjectDict::new(&OD_TABLE);

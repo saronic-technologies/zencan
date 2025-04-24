@@ -46,14 +46,14 @@ impl Default for CanFdMessage {
 
 impl CanFdMessage {
     pub fn new(id: CanId, data: &[u8]) -> Self {
-        let mut msg = Self::default();
-        msg.id = id;
-        msg.dlc = data.len() as u8;
-        if msg.dlc > 64 {
+        let dlc = data.len() as u8;
+        if dlc > 64 {
             panic!("Data length exceeds maximum size of 64 bytes");
         }
-        msg.data[0..msg.dlc as usize].copy_from_slice(data);
-        msg
+        let mut buf = [0u8; 64];
+        buf[0..dlc as usize].copy_from_slice(data);
+
+        Self { id, dlc, data: buf }
     }
 
     pub fn id(&self) -> CanId {

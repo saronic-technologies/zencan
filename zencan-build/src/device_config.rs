@@ -255,6 +255,22 @@ impl DeviceConfig {
 
         Ok(config)
     }
+
+    pub fn load_from_str(config_str: &str) -> Result<Self, CompileError> {
+        let mut config: DeviceConfig = toml::from_str(config_str).context(ParseTomlSnafu {
+            message: "Error parsing device config string".to_string(),
+        })?;
+
+        // Add mandatory objects to the config
+        config.objects.extend(mandatory_objects());
+
+        config.objects.extend(pdo_objects(
+            config.num_rpdo as usize,
+            config.num_tpdo as usize,
+        ));
+
+        Ok(config)
+    }
 }
 
 /// A newtype for ObjectCode to implement deserialization so we can use it in toml files
@@ -340,10 +356,7 @@ pub enum DataType {
 
 impl DataType {
     pub fn is_str(&self) -> bool {
-        match self {
-            DataType::VisibleString(_) | DataType::OctetString(_) | DataType::UnicodeString(_) => true,
-            _ => false,
-        }
+        matches!(self, DataType::VisibleString(_) | DataType::OctetString(_) | DataType::UnicodeString(_))
     }
 
     pub fn size(&self) -> usize {

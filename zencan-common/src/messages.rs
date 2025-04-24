@@ -55,9 +55,11 @@ impl TryFrom<CanFdMessage> for NmtCommand {
 
 impl From<NmtCommand> for CanFdMessage {
     fn from(cmd: NmtCommand) -> Self {
-        let mut msg = CanFdMessage::default();
-        msg.id = NMT_CMD_ID;
-        msg.dlc = 2;
+        let mut msg = CanFdMessage {
+            id: NMT_CMD_ID,
+            dlc: 2,
+            ..Default::default()
+        };
         msg.data[0] = cmd.cmd as u8;
         msg.data[1] = cmd.node;
         msg
@@ -102,14 +104,15 @@ pub struct Heartbeat {
 
 impl From<Heartbeat> for CanFdMessage {
     fn from(value: Heartbeat) -> Self {
-        let mut msg = CanFdMessage::default();
-        msg.id = CanId::Std(HEARTBEAT_ID | value.node as u16);
-        msg.dlc = 1;
+        let mut msg = CanFdMessage {
+            id: CanId::Std(HEARTBEAT_ID | value.node as u16),
+            dlc: 1,
+            ..Default::default()
+        };
         msg.data[0] = value.state as u8;
         if value.toggle {
             msg.data[0] |= 1<<7;
         }
-
         msg
     }
 }
@@ -140,9 +143,11 @@ impl Default for SyncObject {
 
 impl From<SyncObject> for CanFdMessage {
     fn from(value: SyncObject) -> Self {
-        let mut msg = CanFdMessage::default();
-        msg.id = SYNC_ID;
-        msg.dlc = 1;
+        let mut msg = CanFdMessage {
+            id: SYNC_ID,
+            dlc: 1,
+            data: [0; 64],
+        };
         msg.data[0] = value.count;
         msg
     }
@@ -216,7 +221,7 @@ impl TryFrom<CanFdMessage> for ZencanMessage {
             let req: SdoRequest = msg.data().try_into().map_err(|_| MessageError::MalformedMsg(id))?;
             Ok(ZencanMessage::SdoRequest(req))
         } else if id == SYNC_ID {
-            Ok(ZencanMessage::Sync(msg.try_into().map_err(|_| MessageError::MalformedMsg(id))?))
+            Ok(ZencanMessage::Sync(msg.into()))
         }else {
             Err(MessageError::UnrecognizedId(id))
         }

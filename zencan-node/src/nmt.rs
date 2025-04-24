@@ -23,20 +23,18 @@ impl NmtSlave {
 
     pub fn update(&mut self, msg: Option<&ZencanMessage>) {
         let prev_state = self.state;
-        if let Some(msg) = msg {
-            if let ZencanMessage::NmtCommand(cmd) = msg {
-                match cmd.cmd {
-                    NmtCommandCmd::Start => self.state = NmtState::Operational,
-                    NmtCommandCmd::Stop => self.state = NmtState::Stopped,
-                    NmtCommandCmd::EnterPreOp => self.state = NmtState::PreOperational,
-                    NmtCommandCmd::ResetApp => {
-                        if let Some(cb) = self.app_reset_callback.as_mut() {
-                            cb();
-                        }
-                        self.state = NmtState::PreOperational;
-                    },
-                    NmtCommandCmd::ResetComm => self.state = NmtState::PreOperational,
-                }
+        if let Some(ZencanMessage::NmtCommand(cmd)) = msg {
+            match cmd.cmd {
+                NmtCommandCmd::Start => self.state = NmtState::Operational,
+                NmtCommandCmd::Stop => self.state = NmtState::Stopped,
+                NmtCommandCmd::EnterPreOp => self.state = NmtState::PreOperational,
+                NmtCommandCmd::ResetApp => {
+                    if let Some(cb) = self.app_reset_callback.as_mut() {
+                        cb();
+                    }
+                    self.state = NmtState::PreOperational;
+                },
+                NmtCommandCmd::ResetComm => self.state = NmtState::PreOperational,
             }
         }
 

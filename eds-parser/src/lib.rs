@@ -363,6 +363,7 @@ impl ElectronicDataSheet {
         })
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str<S: Into<String>>(eds_file: S) -> Result<ElectronicDataSheet, LoadError> {
         let s = eds_file.into();
         let mut config = Ini::new();
