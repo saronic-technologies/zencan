@@ -45,7 +45,7 @@ impl Pdo {
     }
 }
 
-pub trait NodeStateAccess {
+pub trait NodeStateAccess : Sync + Send {
     fn num_rpdos(&self) -> usize;
     fn get_rpdos(&self) -> &[Pdo];
     fn num_tpdos(&self) -> usize;

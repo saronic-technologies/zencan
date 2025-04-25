@@ -5,7 +5,7 @@ use zencan_common::{
 use crate::{node_mbox::NodeMboxRead, node_state::Pdo};
 use crate::{node_state::NodeStateAccess, sdo_server::SdoServer};
 
-use defmt_or_log::warn;
+use defmt_or_log::{debug, warn};
 
 fn pdo_comm_write_callback(
     ctx: &Option<&dyn Context>,
@@ -294,6 +294,7 @@ impl<'table> Node<'table> {
 
 
     pub fn set_node_id(&mut self, node_id: u8) {
+        debug!("Setting node id to {}", node_id);
         self.node_id = Some(node_id);
         self.mbox.set_sdo_cob_id(Some(self.sdo_rx_cob_id()));
     }
@@ -317,6 +318,7 @@ impl<'table> Node<'table> {
                 // We cannot respond to NMT commands if we do not have a valid node ID
                 if let Some(node_id) = self.node_id {
                     if cmd.node == 0 || cmd.node == node_id {
+                        debug!("Received NMT command: {:?}", cmd.cmd);
                         self.handle_nmt_command(cmd.cmd, send_cb);
                     }
                 }
@@ -349,6 +351,8 @@ impl<'table> Node<'table> {
         if prev_state != NmtState::PreOperational && self.node_state == NmtState::PreOperational {
             self.boot_up(sender);
         }
+
+        debug!("NMT state changed from {:?} to {:?}", prev_state, self.node_state);
         // if self.node_id.is_some() && self.node_state == NmtState::Bootup {
         //     if let Some(cb) = self.app_reset_callback.as_mut() {
         //         cb();

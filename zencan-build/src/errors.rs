@@ -31,7 +31,7 @@ pub enum CompileError {
         message: String,
         source: std::num::ParseFloatError,
     },
-#[snafu(display("Error parsing toml: {}. Toml error: {}", message, source.to_string()))]
+    #[snafu(display("Error parsing toml: {}. Toml error: {}", message, source.to_string()))]
     ParseToml {
         message: String,
         source: toml::de::Error,

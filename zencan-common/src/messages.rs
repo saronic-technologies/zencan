@@ -1,4 +1,8 @@
-use crate::{sdo::{SdoRequest, SdoResponse}, traits::{CanFdMessage, CanId}};
+use crate::{
+    lss::{LssRequest, LssResponse},
+    sdo::{SdoRequest, SdoResponse},
+    traits::{CanFdMessage, CanId},
+};
 
 #[derive(Copy, Clone, Debug)]
 #[repr(u8)]
@@ -18,12 +22,15 @@ impl NmtCommandCmd {
             128 => Ok(Self::EnterPreOp),
             129 => Ok(Self::ResetApp),
             130 => Ok(Self::ResetComm),
-            _ => Err(MessageError::InvalidField)
+            _ => Err(MessageError::InvalidField),
         }
     }
 }
 
 pub const NMT_CMD_ID: CanId = CanId::Std(0);
+pub const SYNC_ID: CanId = CanId::Std(0x80);
+pub const LSS_RESP_ID: CanId = CanId::Std(0x7E4);
+pub const LSS_REQ_ID: CanId = CanId::Std(0x7E5);
 pub const HEARTBEAT_ID: u16 = 0x700;
 /// The default base ID for sending SDO requests (server node ID is added)
 pub const SDO_REQ_BASE: u16 = 0x600;
@@ -111,14 +118,11 @@ impl From<Heartbeat> for CanFdMessage {
         };
         msg.data[0] = value.state as u8;
         if value.toggle {
-            msg.data[0] |= 1<<7;
+            msg.data[0] |= 1 << 7;
         }
         msg
     }
 }
-
-pub const SYNC_ID: CanId = CanId::std(0x80);
-
 /// Represents a SYNC object/message
 ///
 /// A single CAN node can serve as the SYNC provider, sending a periodic sync object to all other
@@ -126,7 +130,7 @@ pub const SYNC_ID: CanId = CanId::std(0x80);
 /// 1.
 #[derive(Debug, Clone, Copy)]
 pub struct SyncObject {
-    count: u8
+    count: u8,
 }
 
 impl SyncObject {
@@ -163,8 +167,6 @@ impl From<CanFdMessage> for SyncObject {
         }
     }
 }
-
-
 
 // pub struct SdoRequest {
 //     pub ccs: ClientCommand,
@@ -207,22 +209,41 @@ impl TryFrom<CanFdMessage> for ZencanMessage {
             Ok(ZencanMessage::NmtCommand(msg.try_into()?))
         } else if id.raw() & !0x7f == HEARTBEAT_ID as u32 {
             let node = (id.raw() & 0x7f) as u8;
-            let toggle = (msg.data[0] & (1<<7)) != 0;
+            let toggle = (msg.data[0] & (1 << 7)) != 0;
             let state: NmtState = (msg.data[0] & 0x7f)
                 .try_into()
                 .map_err(|e: InvalidNmtStateError| MessageError::InvalidNmtState(e.0))?;
-            Ok(ZencanMessage::Heartbeat(Heartbeat { node, toggle, state }))
+            Ok(ZencanMessage::Heartbeat(Heartbeat {
+                node,
+                toggle,
+                state,
+            }))
         } else if id.raw() & 0xff80 == 0x580 {
             // SDO response
             let resp: SdoResponse = msg.try_into().map_err(|_| MessageError::MalformedMsg(id))?;
             Ok(ZencanMessage::SdoResponse(resp))
-        } else if id.raw() >= 0x580 && id.raw() <= 0x580+256 {
+        } else if id.raw() >= 0x580 && id.raw() <= 0x580 + 256 {
             // SDO request
-            let req: SdoRequest = msg.data().try_into().map_err(|_| MessageError::MalformedMsg(id))?;
+            let req: SdoRequest = msg
+                .data()
+                .try_into()
+                .map_err(|_| MessageError::MalformedMsg(id))?;
             Ok(ZencanMessage::SdoRequest(req))
         } else if id == SYNC_ID {
             Ok(ZencanMessage::Sync(msg.into()))
-        }else {
+        } else if id == LSS_REQ_ID {
+            let req: LssRequest = msg
+                .data()
+                .try_into()
+                .map_err(|_| MessageError::MalformedMsg(id))?;
+            Ok(ZencanMessage::LssRequest(req))
+        } else if id == LSS_RESP_ID {
+            let resp: LssResponse = msg
+                .data()
+                .try_into()
+                .map_err(|_| MessageError::MalformedMsg(id))?;
+            Ok(ZencanMessage::LssResponse(resp))
+        } else {
             Err(MessageError::UnrecognizedId(id))
         }
     }
@@ -235,8 +256,11 @@ pub enum ZencanMessage {
     Heartbeat(Heartbeat),
     SdoRequest(SdoRequest),
     SdoResponse(SdoResponse),
+    LssRequest(LssRequest),
+    LssResponse(LssResponse),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MessageError {
     MessageTooShort,
     MalformedMsg(CanId),
@@ -244,4 +268,5 @@ pub enum MessageError {
     InvalidField,
     UnrecognizedId(CanId),
     InvalidNmtState(u8),
+    UnexpectedLssCommand(u8),
 }
