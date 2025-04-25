@@ -45,42 +45,42 @@ fn get_rust_type_and_size(data_type: DCDataType) -> (syn::Type, usize) {
 #[allow(dead_code)]
 fn object_code_to_tokens(obj_code: ObjectCode) -> TokenStream {
     match obj_code {
-        ObjectCode::Null => quote!(zencan_common::objects::ObjectCode::Null),
-        ObjectCode::Record => quote!(zencan_common::objects::ObjectCode::Record),
-        ObjectCode::Array => quote!(zencan_common::objects::ObjectCode::Array),
-        ObjectCode::Var => quote!(zencan_common::objects::ObjectCode::Var),
-        ObjectCode::Domain => quote!(zencan_common::objects::ObjectCode::Domain),
-        ObjectCode::DefType => quote!(zencan_common::objects::ObjectCode::DefType),
-        ObjectCode::DefStruct => quote!(zencan_common::objects::ObjectCode::DefStruct),
+        ObjectCode::Null => quote!(zencan_node::common::objects::ObjectCode::Null),
+        ObjectCode::Record => quote!(zencan_node::common::objects::ObjectCode::Record),
+        ObjectCode::Array => quote!(zencan_node::common::objects::ObjectCode::Array),
+        ObjectCode::Var => quote!(zencan_node::common::objects::ObjectCode::Var),
+        ObjectCode::Domain => quote!(zencan_node::common::objects::ObjectCode::Domain),
+        ObjectCode::DefType => quote!(zencan_node::common::objects::ObjectCode::DefType),
+        ObjectCode::DefStruct => quote!(zencan_node::common::objects::ObjectCode::DefStruct),
     }
 }
 
 /// Convert an AccessType enum to a tokenstream expressing the variant
 fn access_type_to_tokens(at: AccessType) -> TokenStream {
     match at {
-        AccessType::Ro => quote!(zencan_common::objects::AccessType::Ro),
-        AccessType::Wo => quote!(zencan_common::objects::AccessType::Wo),
-        AccessType::Rw => quote!(zencan_common::objects::AccessType::Rw),
-        AccessType::Const => quote!(zencan_common::objects::AccessType::Const),
+        AccessType::Ro => quote!(zencan_node::common::objects::AccessType::Ro),
+        AccessType::Wo => quote!(zencan_node::common::objects::AccessType::Wo),
+        AccessType::Rw => quote!(zencan_node::common::objects::AccessType::Rw),
+        AccessType::Const => quote!(zencan_node::common::objects::AccessType::Const),
     }
 }
 
 fn data_type_to_tokens(dt: DCDataType) -> TokenStream {
     match dt {
-        DCDataType::Boolean => quote!(zencan_common::objects::DataType::Boolean),
-        DCDataType::Int8 => quote!(zencan_common::objects::DataType::Int8),
-        DCDataType::Int16 => quote!(zencan_common::objects::DataType::Int16),
-        DCDataType::Int32 => quote!(zencan_common::objects::DataType::Int32),
-        DCDataType::UInt8 => quote!(zencan_common::objects::DataType::UInt8),
-        DCDataType::UInt16 => quote!(zencan_common::objects::DataType::UInt16),
-        DCDataType::UInt32 => quote!(zencan_common::objects::DataType::UInt32),
-        DCDataType::Real32 => quote!(zencan_common::objects::DataType::Real32),
-        DCDataType::VisibleString(_) => quote!(zencan_common::objects::DataType::VisibleString),
-        DCDataType::UnicodeString(_) => quote!(zencan_common::objects::DataType::UnicodeString),
-        DCDataType::OctetString(_) => quote!(zencan_common::objects::DataType::OctetString),
-        DCDataType::TimeOfDay => quote!(zencan_common::objects::DataType::TimeOfDay),
-        DCDataType::TimeDifference => quote!(zencan_common::objects::DataType::TimeDifference),
-        DCDataType::Domain => quote!(zencan_common::objects::DataType::Domain),
+        DCDataType::Boolean => quote!(zencan_node::common::objects::DataType::Boolean),
+        DCDataType::Int8 => quote!(zencan_node::common::objects::DataType::Int8),
+        DCDataType::Int16 => quote!(zencan_node::common::objects::DataType::Int16),
+        DCDataType::Int32 => quote!(zencan_node::common::objects::DataType::Int32),
+        DCDataType::UInt8 => quote!(zencan_node::common::objects::DataType::UInt8),
+        DCDataType::UInt16 => quote!(zencan_node::common::objects::DataType::UInt16),
+        DCDataType::UInt32 => quote!(zencan_node::common::objects::DataType::UInt32),
+        DCDataType::Real32 => quote!(zencan_node::common::objects::DataType::Real32),
+        DCDataType::VisibleString(_) => quote!(zencan_node::common::objects::DataType::VisibleString),
+        DCDataType::UnicodeString(_) => quote!(zencan_node::common::objects::DataType::UnicodeString),
+        DCDataType::OctetString(_) => quote!(zencan_node::common::objects::DataType::OctetString),
+        DCDataType::TimeOfDay => quote!(zencan_node::common::objects::DataType::TimeOfDay),
+        DCDataType::TimeDifference => quote!(zencan_node::common::objects::DataType::TimeDifference),
+        DCDataType::Domain => quote!(zencan_node::common::objects::DataType::Domain),
     }
 }
 
@@ -485,8 +485,8 @@ fn get_object_impls(
                     fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
                         if sub == 0 {
                             return Ok(SubInfo {
-                                access_type: zencan_common::objects::AccessType::Ro,
-                                data_type: zencan_common::objects::DataType::UInt8,
+                                access_type: zencan_node::common::objects::AccessType::Ro,
+                                data_type: zencan_node::common::objects::DataType::UInt8,
                                 size: 1,
                             });
                         }
@@ -536,8 +536,8 @@ fn get_object_impls(
             sub_info_match_statements.extend(quote! {
                 0 => {
                     Ok(SubInfo {
-                        access_type: zencan_common::objects::AccessType::Ro,
-                        data_type: zencan_common::objects::DataType::UInt8,
+                        access_type: zencan_node::common::objects::AccessType::Ro,
+                        data_type: zencan_node::common::objects::DataType::UInt8,
                         size: 1,
                     })
                 }
@@ -703,15 +703,15 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
     let table_len = dev.objects.len();
     Ok(quote! {
         #[allow(unused_imports)]
-        use crossbeam::atomic::AtomicCell;
+        use zencan_node::crossbeam::atomic::AtomicCell;
         #[allow(unused_imports)]
         use core::cell::RefCell;
         #[allow(unused_imports)]
-        use critical_section::Mutex;
+        use zencan_node::critical_section::Mutex;
         #[allow(unused_imports)]
-        use zencan_common::objects::{CallbackObject, ODEntry, ObjectData, ObjectRawAccess, SubInfo};
+        use zencan_node::common::objects::{CallbackObject, ODEntry, ObjectData, ObjectRawAccess, SubInfo};
         #[allow(unused_imports)]
-        use zencan_common::sdo::AbortCode;
+        use zencan_node::common::sdo::AbortCode;
         #[allow(unused_imports)]
         use zencan_node::node_mbox::NodeMbox;
         #[allow(unused_imports)]
