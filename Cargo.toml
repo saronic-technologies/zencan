@@ -1,8 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
+    "eds-parser",
+    "examples/socketcan_node",
+    "integration_tests",
     "zencan-build",
     "zencan-client",
     "zencan-common",
+    "zencan-macro",
     "zencan-node",
 ]

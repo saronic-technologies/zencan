@@ -1,0 +1,10 @@
+vendor_name = "Example 1"
+num_rpdo = 4
+num_tpdo = 4
+
+[[objects]]
+index = 0x2000
+parameter_name = "Measurement"
+object_type = "var"
+access_type = "ro"
+data_type = "uint16"
