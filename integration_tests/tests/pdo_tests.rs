@@ -7,14 +7,15 @@ use zencan_client::sdo_client::SdoClient;
 use zencan_common::{
     messages::SyncObject, objects::ODEntry, traits::{AsyncCanReceiver, AsyncCanSender, CanFdMessage, CanId}
 };
-use zencan_node::{node::Node, node_state::NodeStateAccess};
+use zencan_node::{node::{Node, NodeId}, node_state::NodeStateAccess};
 use zencan_node::node_mbox::{NodeMboxRead, NodeMboxWrite};
 use integration_tests::{object_dict1, sim_bus::{SimBus, SimBusReceiver, SimBusSender}};
 use futures::executor::block_on;
 
 mod bus_logger;
 use bus_logger::BusLogger;
-
+mod utils;
+use utils::test_with_background_process;
 
 fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(od: &'static [ODEntry], mbox: &'static M, state: &'static S) -> (
     Node<'static>,
@@ -23,8 +24,7 @@ fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(od: &'static [
 ) {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let mut node = Node::new(mbox, state, od);
-    node.set_node_id(SLAVE_NODE_ID);
+    let node = Node::new(NodeId::new(SLAVE_NODE_ID).unwrap(), mbox, state, od);
 
     let mut bus = SimBus::new(vec![mbox]);
 
@@ -48,16 +48,9 @@ async fn test_rpdo_assignment() {
     let rx = bus.new_receiver();
 
     let _bus_logger = BusLogger::new(rx);
-    node.enter_preop(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
 
-    let node_process_task = async move {
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
-            node.process(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
-        }
-    };
 
-    let mut sender = bus.new_sender();
+    let mut pdo_sender = bus.new_sender();
 
     let test_task = async move {
         // Readback the largest sub index
@@ -78,7 +71,7 @@ async fn test_rpdo_assignment() {
         client.download_u32(0x1600, 1, mapping_entry).await.unwrap();
 
         // Now send a PDO message and it should update the mapped object
-        sender.send(CanFdMessage::new(CanId::Std(0x201), &500u32.to_le_bytes())).await.unwrap();
+        pdo_sender.send(CanFdMessage::new(CanId::Std(0x201), &500u32.to_le_bytes())).await.unwrap();
 
         // Delay a bit, because node process() method has to be called for PDO to apply
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -87,56 +80,83 @@ async fn test_rpdo_assignment() {
     };
 
 
-    let _ = tokio::select! {
-        _ = node_process_task => {}
-        _ = test_task => {}
-    };
+    test_with_background_process(&mut node, &mut sender, test_task).await;
 }
 
 #[tokio::test]
 #[serial_test::serial]
 async fn test_tpdo_asignment() {
-    let od = &integration_tests::object_dict2::OD_TABLE;
-    let state = &integration_tests::object_dict2::NODE_STATE;
-    let mbox = &integration_tests::object_dict2::NODE_MBOX;
+    let od = &integration_tests::object_dict1::OD_TABLE;
+    let state = &integration_tests::object_dict1::NODE_STATE;
+    let mbox = &integration_tests::object_dict1::NODE_MBOX;
     let (mut node, mut client, mut bus) = setup(od, mbox, state);
 
-    let mut sender = bus.new_sender();
+    let logger = BusLogger::new(bus.new_receiver());
+
     let mut rx = bus.new_receiver();
-    node.enter_preop(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
 
     // Set COB-ID
     const TPDO_COMM1_ID: u16 = 0x1800;
     const PDO_COMM_COB_SUBID: u8 = 1;
     const PDO_COMM_TRANSMISSION_TYPE_SUBID: u8 = 2;
 
-    // Set the TPDO COB ID
-    client
-        .download(TPDO_COMM1_ID, PDO_COMM_COB_SUBID, &0x181u32.to_le_bytes()).await
-        .unwrap();
-    // Set to sync driven
-    client
-        .download(
-            TPDO_COMM1_ID,
-            PDO_COMM_TRANSMISSION_TYPE_SUBID,
-            &0u8.to_le_bytes(),
-        ).await
-        .unwrap();
-
-    rx.flush();
-
     let mut sender = bus.new_sender();
-    let sync_msg = SyncObject::new(1).into();
-    sender.send(sync_msg).await.unwrap();
+    let test_task = async move {
+        // Set the TPDO COB ID
+        client
+            .download(TPDO_COMM1_ID, PDO_COMM_COB_SUBID, &0x181u32.to_le_bytes()).await
+            .unwrap();
+        // Set to sync driven
+        client
+            .download(
+                TPDO_COMM1_ID,
+                PDO_COMM_TRANSMISSION_TYPE_SUBID,
+                &0u8.to_le_bytes(),
+            ).await
+            .unwrap();
 
-    // We expect to receive the sync message just recieved first
-    let rx_sync_msg = rx
-        .recv(Duration::from_millis(50)).await
-        .expect("Expected SYNC message, no CAN message received");
-    assert_eq!(sync_msg.id, rx_sync_msg.id);
-    // Then expect a PDO message
-    let msg = rx
-        .recv(Duration::from_millis(50)).await
-        .expect("Expected PDO, no CAN message received");
-    assert_eq!(CanId::std(0x181), msg.id);
+        client.download_u32(0x2000, 1, 222).await.unwrap();
+        client.download_u32(0x2001, 1, 333).await.unwrap();
+
+        // Set the TPDO mapping to 0x2000, subindex 1, length 32 bits
+        let mapping_entry: u32 = (0x2000 << 16) | (1 << 8) | 32;
+        client
+            .download(0x1A00, 1, &mapping_entry.to_le_bytes())
+            .await
+            .unwrap();
+        // Set the second TPDO mapping entry to 0x2001, subindex 1, length 32 bits
+        let mapping_entry: u32 = (0x2001 << 16) | (1 << 8) | 32;
+        client
+            .download(0x1A00, 2, &mapping_entry.to_le_bytes())
+            .await
+            .unwrap();
+
+        rx.flush();
+
+
+        let sync_msg = SyncObject::new(1).into();
+        sender.send(sync_msg).await.unwrap();
+
+        // We expect to receive the sync message just sent first
+        let rx_sync_msg = rx
+            .recv(Duration::from_millis(50)).await
+            .expect("Expected SYNC message, no CAN message received");
+        assert_eq!(sync_msg.id, rx_sync_msg.id);
+        // Then expect a PDO message
+        let msg = rx
+            .recv(Duration::from_millis(50)).await
+            .expect("Expected PDO, no CAN message received");
+        assert_eq!(CanId::std(0x181), msg.id);
+        let field1 = u32::from_le_bytes(msg.data[0..4].try_into().unwrap());
+        let field2 = u32::from_le_bytes(msg.data[4..8].try_into().unwrap());
+        assert_eq!(222, field1);
+        assert_eq!(333, field2);
+
+    };
+
+    // Create a second sender to pass to the test processer since the previous got moved into
+    // test_task
+    let mut sender = bus.new_sender();
+
+    test_with_background_process(&mut node, &mut sender, test_task).await;
 }

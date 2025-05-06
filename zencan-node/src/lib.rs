@@ -1,7 +1,7 @@
 #![no_std]
 #![allow(clippy::comparison_chain)]
 
-pub mod lss;
+pub mod lss_slave;
 pub mod nmt;
 pub mod node;
 pub mod node_mbox;

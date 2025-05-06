@@ -6,7 +6,14 @@ pub struct Pdo {
     pub cob_id: AtomicCell<CanId>,
     pub valid: AtomicCell<bool>,
     pub rtr_disabled: AtomicCell<bool>,
+    /// Transmission type field (subindex 0x2)
+    /// Determines when the PDO is sent/received
+    ///
+    /// 0 (unused): PDO is sent on receipt of SYNC, but only if the event has been triggered
+    /// 1 - 240: PDO is sent on receipt of every Nth SYNC message
+    /// 254: PDO is sent asynchronously on application request
     pub transmission_type: AtomicCell<u8>,
+    pub sync_counter: AtomicCell<u8>,
     pub inhibit_time: AtomicCell<u16>,
     pub event_timer: AtomicCell<u16>,
     pub sync_start: AtomicCell<u8>,
@@ -26,6 +33,7 @@ impl Pdo {
         let valid = AtomicCell::new(false);
         let rtr_disabled = AtomicCell::new(false);
         let transmission_type = AtomicCell::new(0);
+        let sync_counter = AtomicCell::new(0);
         let inhibit_time = AtomicCell::new(0);
         let event_timer = AtomicCell::new(0);
         let sync_start = AtomicCell::new(0);
@@ -36,6 +44,7 @@ impl Pdo {
             valid,
             rtr_disabled,
             transmission_type,
+            sync_counter,
             inhibit_time,
             event_timer,
             sync_start,
@@ -43,6 +52,24 @@ impl Pdo {
             mapping_params,
         }
     }
+
+    /// This function should be called when a SYNC event occurs
+    ///
+    /// It will return true if the PDO should be sent in response to the SYNC event
+    pub fn sync_update(&self) -> bool {
+        let transmission_type = self.transmission_type.load();
+        if transmission_type == 0 {
+            // TODO: Figure out how to determine application "event" which triggers the PDO
+            // For now, send every sync
+            true
+        } else if transmission_type <= 240 {
+            let cnt = self.sync_counter.fetch_add(1) + 1;
+            cnt == transmission_type
+        } else {
+            false
+        }
+    }
+
 }
 
 pub trait NodeStateAccess : Sync + Send {

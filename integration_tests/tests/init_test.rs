@@ -2,23 +2,14 @@
 use zencan_common::messages::NmtState;
 use zencan_common::traits::AsyncCanSender;
 
-use zencan_node::node::Node;
+use zencan_node::node::{Node, NodeId};
 use zencan_client::nmt_master::Master;
 use integration_tests::sim_bus::SimBus;
-//type SimNode<'a> = Node<SimCanSender, SimCanReceiver>;
 
-// fn get_2_devices() -> (SimStack, SimStack) {
-//     const MASTER_NODE_ID: u8 = 0;
-//     const SLAVE_NODE_ID: u8 = 1;
-
-//     let mut bus = SimBus::new();
-//     let (sender, receiver) = bus.new_pair();
-//     let master = Stack::new(Some(MASTER_NODE_ID), sender, receiver);
-//     let (sender, receiver) = bus.new_pair();
-//     let slave = Stack::new(Some(SLAVE_NODE_ID), sender, receiver);
-//     (master, slave)
-// }
-
+mod bus_logger;
+use bus_logger::BusLogger;
+mod utils;
+use utils::test_with_background_process;
 
 #[tokio::test]
 async fn test_nmt_init() {
@@ -27,10 +18,10 @@ async fn test_nmt_init() {
     let od = &integration_tests::object_dict1::OD_TABLE;
     let state = &integration_tests::object_dict1::NODE_STATE;
     let mbox = &integration_tests::object_dict1::NODE_MBOX;
-    let mut node = Node::new(mbox, state, od);
-    node.set_node_id(SLAVE_NODE_ID);
+    let mut node = Node::new(NodeId::new(SLAVE_NODE_ID).unwrap(), mbox, state, od);
     let mut bus = SimBus::new(vec![mbox]);
 
+    let _logger = BusLogger::new(bus.new_receiver());
     let sender = bus.new_sender();
     let receiver = bus.new_receiver();
     let mut master = Master::new(sender, receiver);
@@ -38,9 +29,11 @@ async fn test_nmt_init() {
 
     assert_eq!(NmtState::Bootup, node.nmt_state());
 
+    let mut sender_fn = |tx_msg| {
+        futures::executor::block_on(sender.send(tx_msg)).unwrap();
+    };
 
-    node.enter_preop(&mut |tx_msg| { futures::executor::block_on(sender.send(tx_msg)).unwrap() });
-
+    node.process(&mut sender_fn);
 
     assert_eq!(NmtState::PreOperational, node.nmt_state());
 
@@ -63,7 +56,7 @@ async fn test_nmt_init() {
     // Run a node process call
     bus.process([&mut node].as_mut_slice());
 
-
     assert_eq!(NmtState::Stopped, node.nmt_state());
     assert_eq!(2, node.rx_message_count());
+
 }

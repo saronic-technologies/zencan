@@ -653,11 +653,11 @@ pub fn generate_object_code(
 
 pub fn generate_state_inst(dev: &DeviceConfig) -> Result<TokenStream, CompileError> {
     let n_rpdo = dev.num_rpdo as usize;
-    let _n_tpdo = dev.num_tpdo as usize;
+    let n_tpdo = dev.num_tpdo as usize;
     Ok(quote! {
         //pub static RPDOS: [Pdo; #n_rpdo] = [const { Pdo::new() } ; #n_rpdo];
 
-        pub static NODE_STATE: NodeState<#n_rpdo, 0> = NodeState::new();
+        pub static NODE_STATE: NodeState<#n_rpdo, #n_tpdo> = NodeState::new();
         pub static NODE_MBOX: NodeMbox = NodeMbox::new(NODE_STATE.rpdos());
     })
 }
@@ -687,7 +687,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
             });
         } else {
             object_instantiations.extend(quote! {
-                pub static #inst_name: CallbackObject = CallbackObject::new();
+                pub static #inst_name: CallbackObject = CallbackObject::new(&OD_TABLE);
             });
             table_entries.extend(quote! {
                 ODEntry {

@@ -4,7 +4,7 @@ use crate::{
     traits::{CanFdMessage, CanId},
 };
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum NmtCommandCmd {
     Start = 1,

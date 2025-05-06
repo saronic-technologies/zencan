@@ -1,7 +1,8 @@
 use crossbeam::atomic::AtomicCell;
-use zencan_common::traits::{CanFdMessage, CanId};
+use defmt_or_log::warn;
+use zencan_common::{lss::{self, LssRequest}, sdo::SdoRequest, traits::{CanFdMessage, CanId}};
 
-use crate::node_state::Pdo;
+use crate::{lss_slave::LssReceiver, node_state::Pdo};
 
 /// A trait for the (typically auto-generated) shared data struct to implement for reading data from mailboxes
 pub trait NodeMboxRead : Sync + Send {
@@ -10,9 +11,16 @@ pub trait NodeMboxRead : Sync + Send {
     /// Set the receive COB ID for the SDO server
     /// Read a pending message for the main SDO mailbox. Will return None if there is no message.
     fn set_sdo_cob_id(&self, cob_id: Option<CanId>);
-    fn read_sdo_mbox(&self) -> Option<CanFdMessage>;
+    /// Read a pending message for the main SDO mailbox. Will return None if there is no message.
+    fn read_sdo_mbox(&self) -> Option<SdoRequest>;
     /// Read a pending NMT command
     fn read_nmt_mbox(&self) -> Option<CanFdMessage>;
+    /// Borrow the LSS receiver object
+    fn lss_receiver(&self) -> &LssReceiver;
+    /// Read the sync flag
+    ///
+    /// The flag is set when a SYNC message is received, and cleared when this function is called.
+    fn read_sync_flag(&self) -> bool;
 }
 
 /// A trait for the (typically auto-generated) shared data struct to implement for storing recieved messages
@@ -45,8 +53,10 @@ impl RxPdoMbox {
 pub struct NodeMbox {
     rx_pdos: &'static [Pdo],
     sdo_cob_id: AtomicCell<Option<CanId>>,
-    sdo_mbox: AtomicCell<Option<CanFdMessage>>,
+    sdo_mbox: AtomicCell<Option<SdoRequest>>,
     nmt_mbox: AtomicCell<Option<CanFdMessage>>,
+    lss_receiver: LssReceiver,
+    sync_flag: AtomicCell<bool>,
 }
 
 impl NodeMbox {
@@ -54,11 +64,15 @@ impl NodeMbox {
         let sdo_cob_id = AtomicCell::new(None);
         let sdo_mbox = AtomicCell::new(None);
         let nmt_mbox = AtomicCell::new(None);
+        let lss_receiver = LssReceiver::new();
+        let sync_flag = AtomicCell::new(false);
         Self {
             rx_pdos,
             sdo_cob_id,
             sdo_mbox,
             nmt_mbox,
+            lss_receiver,
+            sync_flag,
         }
     }
 }
@@ -71,13 +85,21 @@ impl NodeMboxRead for NodeMbox {
     fn set_sdo_cob_id(&self, cob_id: Option<CanId>) {
         self.sdo_cob_id.store(cob_id);
     }
-    /// Read a pending message for the main SDO mailbox. Will return None if there is no message.
-    fn read_sdo_mbox(&self) -> Option<CanFdMessage> {
+
+    fn read_sdo_mbox(&self) -> Option<SdoRequest> {
         self.sdo_mbox.take()
     }
 
     fn read_nmt_mbox(&self) -> Option<CanFdMessage> {
         self.nmt_mbox.take()
+    }
+
+    fn lss_receiver(&self) -> &LssReceiver {
+        &self.lss_receiver
+    }
+
+    fn read_sync_flag(&self) -> bool {
+        self.sync_flag.take()
     }
 }
 
@@ -86,6 +108,21 @@ impl NodeMboxWrite for NodeMbox {
         let id = msg.id();
         if id == zencan_common::messages::NMT_CMD_ID {
             self.nmt_mbox.store(Some(msg));
+            return Ok(())
+        }
+
+        if id == zencan_common::messages::SYNC_ID {
+            self.sync_flag.store(true);
+            return Ok(())
+        }
+
+        if id == zencan_common::messages::LSS_REQ_ID {
+            if let Ok(lss_req) = msg.data().try_into() {
+                self.lss_receiver.handle_req(lss_req);
+            } else {
+                warn!("Invalid LSS request");
+                return Err(msg);
+            }
             return Ok(())
         }
 
@@ -103,10 +140,16 @@ impl NodeMboxWrite for NodeMbox {
 
         if let Some(cob_id) = self.sdo_cob_id.load() {
             if id == cob_id {
-                self.sdo_mbox.store(Some(msg));
-                return Ok(());
+                if let Ok(sdo_req) = msg.data().try_into() {
+                    self.sdo_mbox.store(Some(sdo_req));
+                    return Ok(());
+                } else {
+                    warn!("Invalid SDO request");
+                    return Err(msg);
+                }
             }
         }
+
 
         Err(msg)
 

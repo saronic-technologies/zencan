@@ -10,11 +10,13 @@ use zencan_common::{
     sdo::AbortCode,
     traits::{AsyncCanReceiver, AsyncCanSender},
 };
-use zencan_node::node_mbox::{NodeMboxRead, NodeMboxWrite};
+use zencan_node::{node::NodeId, node_mbox::{NodeMboxRead, NodeMboxWrite}};
 use zencan_node::{node::Node, node_state::NodeStateAccess};
 
 mod bus_logger;
 use bus_logger::BusLogger;
+mod utils;
+use utils::test_with_background_process;
 
 fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
     od: &'static [ODEntry],
@@ -27,8 +29,7 @@ fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
 ) {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let mut node = Node::new(mbox, state, od);
-    node.set_node_id(SLAVE_NODE_ID);
+    let node = Node::new(NodeId::new(SLAVE_NODE_ID).unwrap(), mbox, state, od);
 
     let mut bus = SimBus::new(vec![mbox]);
 
@@ -38,6 +39,7 @@ fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
 
     (node, client, bus)
 }
+
 
 
 #[tokio::test]
@@ -50,15 +52,6 @@ async fn test_string_write() {
     );
     let mut sender = bus.new_sender();
     let _logger = BusLogger::new(bus.new_receiver());
-
-    node.enter_preop(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
-
-    let node_process_task = async move {
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
-            node.process(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
-        }
-    };
 
     let test_task = async move {
         // Transfer a string short enough to be done expedited
@@ -88,10 +81,12 @@ async fn test_string_write() {
         assert_eq!("Testers1234".as_bytes(), readback);
     };
 
-    let _ = tokio::select! {
-        _ = node_process_task => {}
-        _ = test_task => {}
-    };
+    test_with_background_process(
+        &mut node,
+        &mut sender,
+        test_task,
+    ).await;
+
 }
 
 #[tokio::test]
@@ -103,16 +98,11 @@ async fn test_record_access() {
     let state = &object_dict1::NODE_STATE;
     let mbox = &object_dict1::NODE_MBOX;
     let (mut node, mut client, mut bus) = setup(od, mbox, state);
+
+    // Create a logger to display messages on the bus on test failure for debugging
+    let _logger = BusLogger::new(bus.new_receiver());
+
     let mut sender = bus.new_sender();
-
-    node.enter_preop(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
-
-    let node_process_task = async move {
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
-            node.process(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
-        }
-    };
 
     let test_task = async move {
         let size_data = client.upload(OBJECT_ID, 0).await.unwrap();
@@ -148,10 +138,7 @@ async fn test_record_access() {
         );
     };
 
-    let _ = tokio::select! {
-        _ = node_process_task => {}
-        _ = test_task => {}
-    };
+    test_with_background_process(&mut node, &mut sender, test_task).await;
 }
 
 #[tokio::test]
@@ -166,15 +153,7 @@ async fn test_array_access() {
     );
     let mut sender = bus.new_sender();
 
-    let mut send_cb = |tx_msg| block_on(sender.send(tx_msg)).unwrap();
-    node.enter_preop(&mut send_cb);
-
-    let node_process_task = async move {
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
-            node.process(&mut send_cb);
-        }
-    };
+    let _logger = BusLogger::new(bus.new_receiver());
 
     let test_task = async move {
         let size_data = client.upload(OBJECT_ID, 0).await.unwrap();
@@ -206,8 +185,5 @@ async fn test_array_access() {
         assert_eq!(99, i32::from_le_bytes(data.try_into().unwrap()));
     };
 
-    let _ = tokio::select! {
-        _ = node_process_task => {}
-        _ = test_task => {}
-    };
+    test_with_background_process(&mut node, &mut sender, test_task).await;
 }

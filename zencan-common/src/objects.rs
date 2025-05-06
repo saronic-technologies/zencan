@@ -165,15 +165,17 @@ pub struct CallbackObject {
     write_cb: AtomicCell<Option<WriteHookFn>>,
     read_cb: AtomicCell<Option<ReadHookFn>>,
     info_cb: AtomicCell<Option<InfoHookFn>>,
+    od: &'static [ODEntry<'static>],
     context: AtomicCell<Option<&'static dyn Context>>,
 }
 
 impl CallbackObject {
-    pub const fn new() -> Self {
+    pub const fn new(od: &'static [ODEntry<'static>]) -> Self {
         Self {
             write_cb: AtomicCell::new(None),
             read_cb: AtomicCell::new(None),
             info_cb: AtomicCell::new(None),
+            od,
             context: AtomicCell::new(None),
         }
     }
@@ -196,7 +198,7 @@ impl CallbackObject {
 impl ObjectRawAccess for CallbackObject {
     fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
         if let Some(read) = self.read_cb.load() {
-            (read)(&self.context.load(), sub, offset, buf)
+            (read)(&self.context.load(), self.od, sub, offset, buf)
         } else {
             Err(AbortCode::ResourceNotAvailable)
         }
@@ -204,7 +206,7 @@ impl ObjectRawAccess for CallbackObject {
 
     fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
         if let Some(write) = self.write_cb.load() {
-            (write)(&self.context.load(), sub, offset, data)
+            (write)(&self.context.load(), self.od, sub, offset, data)
         } else {
             Err(AbortCode::ResourceNotAvailable)
         }
@@ -233,6 +235,7 @@ impl<T: Any + Sync + Send + 'static> Context for T {
 /// Object read/write callback function signature
 type ReadHookFn = fn(
     ctx: &Option<&dyn Context>,
+    od: &[ODEntry],
     sub: u8,
     offset: usize,
     buf: &mut [u8]
@@ -240,6 +243,7 @@ type ReadHookFn = fn(
 
 type WriteHookFn = fn(
     ctx: &Option<&dyn Context>,
+    od: &[ODEntry],
     sub: u8,
     offset: usize,
     buf: &[u8]

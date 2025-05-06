@@ -1,0 +1,353 @@
+use crossbeam::atomic::AtomicCell;
+use defmt_or_log::info;
+use zencan_common::{
+    lss::{
+        LssConfigureError, LssIdentity, LssRequest, LssResponse, LssState, LSS_FASTSCAN_CONFIRM,
+    },
+    messages::MessageError,
+};
+
+use crate::node::NodeId;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LssEvent {
+    StoreConfiguration,
+    ActivateBitTiming { table: u8, index: u8, delay: u16 },
+    ConfigureNodeId { node_id: NodeId },
+}
+
+/// A Sync structure providing message handling for message receive thread
+pub struct LssReceiver {
+    pub selected_identity: AtomicCell<LssIdentity>,
+    pub rx_req: AtomicCell<Option<LssRequest>>,
+}
+
+impl LssReceiver {
+    pub const fn new() -> Self {
+        Self {
+            selected_identity: AtomicCell::new(LssIdentity {
+                vendor_id: 0,
+                product_code: 0,
+                revision: 0,
+                serial_number: 0,
+            }),
+            rx_req: AtomicCell::new(None),
+        }
+    }
+
+    pub fn handle_req(&self, req: LssRequest) {
+        info!("LSS request: {:?}", req);
+        // Certain messages we store here for fast handling. Others, are stored to be handled during
+        // process call
+        match req {
+            LssRequest::SwitchStateProduct { product_code } => {
+                let mut selected_identity = self.selected_identity.load();
+                selected_identity.product_code = product_code;
+                self.selected_identity.store(selected_identity);
+            }
+            LssRequest::SwitchStateVendor { vendor_id } => {
+                let mut selected_identity = self.selected_identity.load();
+                selected_identity.vendor_id = vendor_id;
+                self.selected_identity.store(selected_identity);
+            }
+            LssRequest::SwitchStateRevision { revision } => {
+                let mut selected_identity = self.selected_identity.load();
+                selected_identity.revision = revision;
+                self.selected_identity.store(selected_identity);
+            }
+            _ => self.rx_req.store(Some(req)),
+        }
+    }
+}
+
+pub struct LssSlave {
+    state: LssState,
+    /// The identity of this device
+    identity: LssIdentity,
+    /// The current subindex for fast scan
+    fast_scan_sub: u8,
+    /// The identity selected by LSS master for configuration
+    pending_node_id: NodeId,
+    active_node_id: NodeId,
+}
+
+impl LssSlave {
+    pub fn new(identity: LssIdentity, node_id: NodeId) -> Self {
+        Self {
+            state: LssState::Waiting,
+            identity,
+            fast_scan_sub: 0,
+            pending_node_id: node_id,
+            active_node_id: node_id,
+        }
+    }
+
+    pub fn pending_event(&self) -> Option<LssEvent> {
+        if self.pending_node_id != self.active_node_id {
+            Some(LssEvent::ConfigureNodeId {
+                node_id: self.pending_node_id,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Process an LSS request, updating the state of the slave
+    ///
+    /// When a response is generated, it will be returned and should be transmitted to the CAN bus
+    pub fn process(&mut self, receiver: &LssReceiver) -> Result<Option<LssResponse>, MessageError> {
+        let request = match receiver.rx_req.take() {
+            Some(req) => req,
+            None => return Ok(None),
+        };
+
+        match request {
+            LssRequest::SwitchModeGlobal { mode } => {
+                // TODO: Device should enter NMT reset communication state when node ID is configured
+                self.state = LssState::from_byte(mode)?;
+                Ok(None)
+            }
+
+            LssRequest::ConfigureNodeId { node_id } => {
+                if self.state == LssState::Configuring {
+                    let mut error = 0;
+                    if let Ok(node_id) = NodeId::try_from(node_id) {
+                        self.pending_node_id = node_id;
+                    } else {
+                        error = LssConfigureError::NodeIdOutOfRange as u8;
+                    }
+                    Ok(Some(LssResponse::ConfigureNodeIdAck {
+                        error,
+                        spec_error: 0,
+                    }))
+                } else {
+                    Ok(None)
+                }
+            }
+
+            LssRequest::ConfigureBitTiming { table: _, index: _ } => {
+                // Configuring bit timing is not supported
+                if self.state == LssState::Configuring {
+                    Ok(Some(LssResponse::ConfigureBitTimingAck {
+                        error: LssConfigureError::Manufacturer as u8,
+                        spec_error: 0,
+                    }))
+                } else {
+                    Ok(None)
+                }
+            }
+
+            // Other switch state commands (vendor, product, revision) are handled directly in the
+            // receiver
+            LssRequest::SwitchStateSerial { serial } => {
+                if self.state == LssState::Waiting {
+                    let mut selected_identity = receiver.selected_identity.load();
+                    selected_identity.serial_number = serial;
+                    if self.identity == selected_identity {
+                        // If the identity matches, we are selected and enter the configuration state
+                        self.state = LssState::Configuring;
+                        Ok(Some(LssResponse::SwitchStateResponse))
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+
+            LssRequest::InquireVendor => {
+                if self.state == LssState::Configuring {
+                    Ok(Some(LssResponse::InquireVendorAck {
+                        vendor_id: self.identity.vendor_id,
+                    }))
+                } else {
+                    Ok(None)
+                }
+            }
+            LssRequest::InquireProduct => {
+                if self.state == LssState::Configuring {
+                    Ok(Some(LssResponse::InquireProductAck {
+                        product_code: self.identity.product_code,
+                    }))
+                } else {
+                    Ok(None)
+                }
+            }
+            LssRequest::InquireRev => {
+                if self.state == LssState::Configuring {
+                    Ok(Some(LssResponse::InquireRevAck {
+                        revision: self.identity.revision,
+                    }))
+                } else {
+                    Ok(None)
+                }
+            }
+            LssRequest::InquireSerial => {
+                if self.state == LssState::Configuring {
+                    Ok(Some(LssResponse::InquireSerialAck {
+                        serial_number: self.identity.serial_number,
+                    }))
+                } else {
+                    Ok(None)
+                }
+            }
+            LssRequest::InquireNodeId => {
+                if self.state == LssState::Configuring {
+                    Ok(Some(LssResponse::InquireNodeIdAck {
+                        node_id: self.active_node_id.into(),
+                    }))
+                } else {
+                    Ok(None)
+                }
+            }
+
+            LssRequest::FastScan {
+                id,
+                bit_check,
+                sub,
+                next,
+            } => {
+                if self.state == LssState::Waiting {
+                    if bit_check == LSS_FASTSCAN_CONFIRM {
+                        // Reset state machine and confirm
+                        self.fast_scan_sub = 0;
+                        Ok(Some(LssResponse::IdentifySlave))
+                    } else if self.fast_scan_sub == sub {
+                        let mask = 0xFFFFFFFFu32 << bit_check;
+                        if self.identity.by_addr(sub) & mask == (id & mask) {
+                            self.fast_scan_sub = next;
+                            if bit_check == 0 && next < sub {
+                                // All bits matched, enter configuration state
+                                info!("Fast scan complete, entering configuration state");
+                                self.state = LssState::Configuring;
+                            }
+                            Ok(Some(LssResponse::IdentifySlave))
+                        } else {
+                            Ok(None)
+                        }
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            _ => todo!(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fast_scan_simple() {
+        const VENDOR_ID: u32 = 0x0;
+        const PRODUCT_CODE: u32 = 0x1;
+        const REVISION: u32 = 0x2;
+        const SERIAL_NUMBER: u32 = 0x3;
+        const IDENTITY: LssIdentity = LssIdentity {
+            vendor_id: VENDOR_ID,
+            product_code: PRODUCT_CODE,
+            revision: REVISION,
+            serial_number: SERIAL_NUMBER,
+        };
+
+        // Create new LSS slave with unconfigured node_id
+        let mut slave = LssSlave::new(IDENTITY, NodeId::Unconfigured);
+
+        let rx = LssReceiver::new();
+
+        // Send confirmation message, and it should always ACK
+        rx.rx_req.store(Some(LssRequest::FastScan {
+            id: 0x00000000,
+            bit_check: LSS_FASTSCAN_CONFIRM,
+            sub: 0,
+            next: 1,
+        }));
+        assert_eq!(slave.process(&rx), Ok(Some(LssResponse::IdentifySlave)));
+
+        // 0 Matches
+        rx.rx_req.store(Some(LssRequest::FastScan {
+            id: 0x00000000,
+            bit_check: 31,
+            sub: 0,
+            next: 1,
+        }));
+        assert_eq!(slave.process(&rx), Ok(Some(LssResponse::IdentifySlave)));
+
+        // 1 does not match
+        rx.rx_req.store(Some(LssRequest::FastScan {
+            id: 0x00000001,
+            bit_check: 31,
+            sub: 0,
+            next: 1,
+        }));
+        assert_eq!(slave.process(&rx), Ok(None));
+    }
+
+    /// Make sure that the slave goes into the configuration state after a complete scan
+    #[test]
+    fn test_fast_scan_configure() {
+        const VENDOR_ID: u32 = 0x0;
+        const PRODUCT_CODE: u32 = 0x1;
+        const REVISION: u32 = 0x2;
+        const SERIAL_NUMBER: u32 = 0x3;
+        const IDENTITY: LssIdentity = LssIdentity {
+            vendor_id: VENDOR_ID,
+            product_code: PRODUCT_CODE,
+            revision: REVISION,
+            serial_number: SERIAL_NUMBER,
+        };
+
+        let mut slave = LssSlave::new(IDENTITY, NodeId::Unconfigured);
+
+        let mut id = [0, 0, 0, 0];
+        let mut sub = 0;
+        let mut next = 0;
+        let mut bit_check;
+
+        fn send_fs(slave: &mut LssSlave, id: &[u32; 4], bit_check: u8, sub: u8, next: u8) -> bool {
+            let rx = LssReceiver::new();
+            rx.rx_req.store(Some(LssRequest::FastScan {
+                id: id[sub as usize],
+                bit_check,
+                sub,
+                next,
+            }));
+            let resp = slave.process(&rx).unwrap();
+
+            matches!(resp, Some(LssResponse::IdentifySlave))
+        }
+
+        // The first message resets the LSS state machines, and a response confirms that there is at
+        // least one unconfigured slave to discover
+        assert!(
+            send_fs(&mut slave, &id, LSS_FASTSCAN_CONFIRM, sub, next),
+            "No confirmation response"
+        );
+
+        while sub < 4 {
+            bit_check = 32;
+            while bit_check > 0 {
+                bit_check -= 1;
+                if !send_fs(&mut slave, &id, bit_check, sub, next) {
+                    id[sub as usize] |= 1 << bit_check;
+                }
+            }
+            next = (sub + 1) % 4;
+            assert!(
+                send_fs(&mut slave, &id, bit_check, sub, next),
+                "No ack after completing sub {}, id: {:?}",
+                sub,
+                id
+            );
+
+            sub += 1;
+        }
+
+        assert_eq!(id, [0x0, 0x1, 0x2, 0x3]);
+        assert_eq!(slave.state, LssState::Configuring);
+    }
+}
