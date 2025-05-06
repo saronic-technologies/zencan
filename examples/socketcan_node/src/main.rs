@@ -1,6 +1,6 @@
 use clap::Parser;
 use zencan_node::common::traits::{CanFdMessage, CanId};
-use zencan_node::node::Node;
+use zencan_node::node::{Node, NodeId, NodeIdNum};
 
 use socketcan::tokio::CanSocket;
 use socketcan::{CanFrame, EmbeddedFrame, Frame};
@@ -14,14 +14,20 @@ mod zencan {
 #[derive(Parser, Debug)]
 struct Args {
     socket: String,
+    #[clap(long, short, default_value = "255")]
+    node_id: u8,
 }
 
 #[tokio::main]
 async fn main() {
+
+    // Initialize the logger
+    env_logger::init();
     let args = Args::parse();
 
-    let mut node = Node::new(&zencan::NODE_MBOX, &zencan::NODE_STATE, &zencan::OD_TABLE);
-    node.set_node_id(1);
+    log::info!("Logging is working...");
+    let node_id = NodeId::try_from(args.node_id).unwrap();
+    let mut node = Node::new(node_id, &zencan::NODE_MBOX, &zencan::NODE_STATE, &zencan::OD_TABLE);
 
     // Spawn a message receive background task
     let socket_name = args.socket.clone();

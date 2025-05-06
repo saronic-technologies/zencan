@@ -6,9 +6,11 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.5.37", features = ["derive"] }
 critical-section = { version = "1.2", features = ["std"] }
+env_logger = "0.11.8"
+log = "0.4.27"
 socketcan = { version = "3.5.0", features = ["tokio"] }
 tokio = { version = "1.44.2", features = ["macros", "rt-multi-thread", "time"] }
-zencan-node = { path = "../../zencan-node" }
+zencan-node = { path = "../../zencan-node", features = ["log"] }
 
 [build-dependencies]
 zencan-build = { path = "../../zencan-build" }
