@@ -14,12 +14,15 @@ impl BusLogger {
     }
 
     pub fn print(&mut self) {
+        println!("Bus message history");
+        println!("-------------------");
         while let Some(msg) = block_on(self.rx.try_recv()) {
             let parsed_msg: Result<ZencanMessage, _> = msg.try_into();
+
             if let Ok(msg) = parsed_msg {
-                println!("Received message: {:?}", msg);
+                println!("{:?}", msg);
             } else {
-                println!("Received message: {:?}", msg);
+                println!("{:?}", msg);
             }
         }
     }
