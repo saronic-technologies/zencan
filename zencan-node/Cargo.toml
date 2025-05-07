@@ -6,11 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-zencan-common = { path = "../zencan-common" }
-critical-section = "1.1"
-crossbeam = { version = "0.8", default-features=false }
+zencan-common = { path = "../zencan-common", default-features = false }
+critical-section.workspace = true
+crossbeam.workspace = true
 defmt-or-log = "0.2.0"
-futures = "*"
+futures.workspace = true
 log = { version = "0.4" }
 zencan-macro = { path = "../zencan-macro" }
 

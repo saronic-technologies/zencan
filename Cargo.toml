@@ -10,3 +10,8 @@ members = [
     "zencan-macro",
     "zencan-node",
 ]
+
+[workspace.dependencies]
+critical-section = { version = "1.2.0", default-features = false }
+crossbeam = { version = "0.8.4", git = "https://github.com/crossbeam-rs/crossbeam", default-features = false }
+futures = { version = "0.3.31", default-features = false, features = ["async-await"] }

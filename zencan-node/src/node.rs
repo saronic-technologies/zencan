@@ -1,11 +1,14 @@
 use zencan_common::{
-    lss::{self, LssIdentity}, messages::{Heartbeat, NmtCommandCmd, NmtState, ZencanMessage, LSS_RESP_ID}, objects::{find_object, AccessType, Context, DataType, ODEntry, ObjectRawAccess, SubInfo}, sdo::AbortCode, traits::{CanFdMessage, CanId}
+    lss::LssIdentity,
+    messages::{CanMessage, CanId, Heartbeat, NmtCommandCmd, NmtState, ZencanMessage, LSS_RESP_ID},
+    objects::{find_object, AccessType, Context, DataType, ODEntry, ObjectRawAccess, SubInfo},
+    sdo::AbortCode,
 };
 
 use crate::{lss_slave::LssSlave, node_mbox::NodeMboxRead, node_state::Pdo};
 use crate::{node_state::NodeStateAccess, sdo_server::SdoServer};
 
-use defmt_or_log::{debug, info, warn};
+use defmt_or_log::{debug, info};
 
 fn pdo_comm_write_callback(
     ctx: &Option<&dyn Context>,
@@ -259,7 +262,7 @@ fn store_pdo_data(data: &[u8], pdo: &Pdo, od: &[ODEntry]) {
     }
 }
 
-fn read_pdo_data(data: &mut[u8], pdo: &Pdo, od: &[ODEntry]) {
+fn read_pdo_data(data: &mut [u8], pdo: &Pdo, od: &[ODEntry]) {
     let mut offset = 0;
     for i in 0..pdo.mapping_params.len() {
         let param = pdo.mapping_params[i].load();
@@ -277,7 +280,9 @@ fn read_pdo_data(data: &mut[u8], pdo: &Pdo, od: &[ODEntry]) {
         // There's no mechanism to report an error here, so we just ignore it if it fails. We can
         // check that the PDO mapping is valid when it is written to the object dictionary, to make
         // it impossible to fail.
-        entry.read(sub_index, 0, &mut data[offset..offset + length]).ok();
+        entry
+            .read(sub_index, 0, &mut data[offset..offset + length])
+            .ok();
         offset += length;
     }
 }
@@ -459,7 +464,7 @@ impl<'table> Node<'table> {
         self.reassigned_node_id = Some(node_id);
     }
 
-    pub fn process(&mut self, send_cb: &mut dyn FnMut(CanFdMessage)) {
+    pub fn process(&mut self, send_cb: &mut dyn FnMut(CanMessage)) {
         if let Some(new_node_id) = self.reassigned_node_id.take() {
             self.node_id = new_node_id;
             self.nmt_state = NmtState::Bootup;
@@ -470,8 +475,6 @@ impl<'table> Node<'table> {
             self.nmt_state = NmtState::PreOperational;
             self.boot_up(send_cb);
         }
-
-
 
         if let Some(req) = self.mbox.read_sdo_mbox() {
             self.message_count += 1;
@@ -498,13 +501,13 @@ impl<'table> Node<'table> {
             send_cb(resp.to_can_message(LSS_RESP_ID));
         }
 
-                // check if a sync has been received
+        // check if a sync has been received
         if self.mbox.read_sync_flag() {
             for pdo in self.state.get_tpdos() {
                 if pdo.sync_update() {
                     let mut data = [0u8; 8];
                     read_pdo_data(&mut data, pdo, self.od);
-                    let msg = CanFdMessage::new(pdo.cob_id.load(), &data);
+                    let msg = CanMessage::new(pdo.cob_id.load(), &data);
                     send_cb(msg);
                 }
             }
@@ -520,8 +523,14 @@ impl<'table> Node<'table> {
             info!("LSS Slave Event: {:?}", event);
             match event {
                 crate::lss_slave::LssEvent::StoreConfiguration => todo!(),
-                crate::lss_slave::LssEvent::ActivateBitTiming { table: _, index: _, delay: _ } => todo!(),
-                crate::lss_slave::LssEvent::ConfigureNodeId { node_id } => self.set_node_id(node_id),
+                crate::lss_slave::LssEvent::ActivateBitTiming {
+                    table: _,
+                    index: _,
+                    delay: _,
+                } => todo!(),
+                crate::lss_slave::LssEvent::ConfigureNodeId { node_id } => {
+                    self.set_node_id(node_id)
+                }
             }
         }
     }
@@ -582,16 +591,15 @@ impl<'table> Node<'table> {
         CanId::Std(0x600 + node_id as u16)
     }
 
-    fn boot_up(&mut self, sender: &mut dyn FnMut(CanFdMessage)) {
+    fn boot_up(&mut self, sender: &mut dyn FnMut(CanMessage)) {
         //self.sdo_server = Some(SdoServer::new());
         let mut i = 0;
         if let NodeId::Configured(node_id) = self.node_id {
             info!("Booting node with ID {}", node_id.0);
             for pdo in self.state.get_rpdos() {
                 if i < 4 {
-                    pdo.cob_id.store(CanId::Std(
-                        0x200 + i * 0x100 + node_id.0 as u16,
-                    ));
+                    pdo.cob_id
+                        .store(CanId::Std(0x200 + i * 0x100 + node_id.0 as u16));
                 } else {
                     pdo.cob_id.store(CanId::Std(0x0));
                 }
@@ -607,9 +615,8 @@ impl<'table> Node<'table> {
 
             for pdo in self.state.get_tpdos() {
                 if i < 4 {
-                    pdo.cob_id.store(CanId::Std(
-                        0x180 + i * 0x100 + node_id.0 as u16,
-                    ));
+                    pdo.cob_id
+                        .store(CanId::Std(0x180 + i * 0x100 + node_id.0 as u16));
                 } else {
                     pdo.cob_id.store(CanId::Std(0x0));
                 }
@@ -625,10 +632,7 @@ impl<'table> Node<'table> {
 
             self.mbox.set_sdo_cob_id(Some(self.sdo_rx_cob_id()));
 
-            self.lss_slave = LssSlave::new(
-                LssIdentity::new(10, 20, 30, 40),
-                self.node_id,
-            );
+            self.lss_slave = LssSlave::new(LssIdentity::new(10, 20, 30, 40), self.node_id);
 
             sender(
                 Heartbeat {
@@ -639,7 +643,6 @@ impl<'table> Node<'table> {
                 .into(),
             );
         }
-
     }
 }
 

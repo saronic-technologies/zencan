@@ -132,18 +132,47 @@ pub fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
     objects
 }
 
+fn default_num_rpdo() -> u8 { 4 }
+fn default_num_tpdo() -> u8 { 4 }
+
+#[derive(Deserialize, Debug, Clone, Copy)]
+pub struct PdoConfig {
+    #[serde(default = "default_num_rpdo")]
+    /// The number of TX PDO slots available in the device
+    pub num_tpdo: u8,
+    #[serde(default = "default_num_tpdo")]
+    /// The number of RX PDO slots available in the device
+    pub num_rpdo: u8,
+}
+
+impl Default for PdoConfig {
+    fn default() -> Self {
+        Self {
+            num_tpdo: default_num_tpdo(),
+            num_rpdo: default_num_rpdo(),
+        }
+    }
+}
+
+#[derive(Deserialize, Debug, Default, Clone, Copy)]
+#[serde(deny_unknown_fields)]
+pub struct IdentityConfig {
+    vendor_id: u32,
+    product_code: u32,
+    revision_number: u32,
+}
+
 #[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 /// Device configuration structure
 pub struct DeviceConfig {
     #[serde(default)]
     pub vendor_name: String,
+
+    pub identity: IdentityConfig,
+
     #[serde(default)]
-    pub vendor_number: u16,
-    /// The number of RX PDO slots available in the device
-    pub num_rpdo: u8,
-    /// The number of TX PDO slots available in the device
-    pub num_tpdo: u8,
+    pub pdos: PdoConfig,
 
     #[serde(default)]
     pub objects: Vec<ObjectDefinition>,
@@ -249,8 +278,8 @@ impl DeviceConfig {
         config.objects.extend(mandatory_objects());
 
         config.objects.extend(pdo_objects(
-            config.num_rpdo as usize,
-            config.num_tpdo as usize,
+            config.pdos.num_rpdo as usize,
+            config.pdos.num_tpdo as usize,
         ));
 
         Ok(config)
@@ -265,8 +294,8 @@ impl DeviceConfig {
         config.objects.extend(mandatory_objects());
 
         config.objects.extend(pdo_objects(
-            config.num_rpdo as usize,
-            config.num_tpdo as usize,
+            config.pdos.num_rpdo as usize,
+            config.pdos.num_tpdo as usize,
         ));
 
         Ok(config)

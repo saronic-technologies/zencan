@@ -1,8 +1,8 @@
 use std::time::Instant;
 
 use zencan_common::{
-    messages::{ZencanMessage, NmtCommand, NmtCommandCmd, NmtState},
-    traits::{CanFdMessage, AsyncCanReceiver, AsyncCanSender},
+    messages::{CanMessage, ZencanMessage, NmtCommand, NmtCommandCmd, NmtState},
+    traits::{AsyncCanReceiver, AsyncCanSender},
 };
 
 type Result<T> = std::result::Result<T, ()>;
@@ -50,7 +50,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> Master<S, R> {
         }
     }
 
-    fn handle_message(&mut self, msg: CanFdMessage) {
+    fn handle_message(&mut self, msg: CanMessage) {
         // Attempt to convert the raw message into a zencanMessage. This may fail, e.g. if
         // non zencan messages are received, and that's OK; those are ignored.
         let open_msg: ZencanMessage = match msg.try_into() {

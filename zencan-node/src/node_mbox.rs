@@ -1,11 +1,14 @@
 use crossbeam::atomic::AtomicCell;
 use defmt_or_log::warn;
-use zencan_common::{lss::{self, LssRequest}, sdo::SdoRequest, traits::{CanFdMessage, CanId}};
+use zencan_common::{
+    messages::{CanId, CanMessage},
+    sdo::SdoRequest,
+};
 
 use crate::{lss_slave::LssReceiver, node_state::Pdo};
 
 /// A trait for the (typically auto-generated) shared data struct to implement for reading data from mailboxes
-pub trait NodeMboxRead : Sync + Send {
+pub trait NodeMboxRead: Sync + Send {
     /// Get the number of RX PDO mailboxes available
     fn num_rx_pdos(&self) -> usize;
     /// Set the receive COB ID for the SDO server
@@ -14,7 +17,7 @@ pub trait NodeMboxRead : Sync + Send {
     /// Read a pending message for the main SDO mailbox. Will return None if there is no message.
     fn read_sdo_mbox(&self) -> Option<SdoRequest>;
     /// Read a pending NMT command
-    fn read_nmt_mbox(&self) -> Option<CanFdMessage>;
+    fn read_nmt_mbox(&self) -> Option<CanMessage>;
     /// Borrow the LSS receiver object
     fn lss_receiver(&self) -> &LssReceiver;
     /// Read the sync flag
@@ -24,12 +27,12 @@ pub trait NodeMboxRead : Sync + Send {
 }
 
 /// A trait for the (typically auto-generated) shared data struct to implement for storing recieved messages
-pub trait NodeMboxWrite : Sync + Send {
+pub trait NodeMboxWrite: Sync + Send {
     /// Attempt to store a message to the node
     ///
     /// If the message ID is a valid CanOpen message handled by the node, returns `OK(())`,
     /// otherwise the unhandled message is returned wrapped in an Err.
-    fn store_message(&self, msg: CanFdMessage) -> Result<(), CanFdMessage>;
+    fn store_message(&self, msg: CanMessage) -> Result<(), CanMessage>;
 }
 
 /// A mailbox for communication of RX PDO messages between a message receiving thread and the main thread
@@ -54,9 +57,10 @@ pub struct NodeMbox {
     rx_pdos: &'static [Pdo],
     sdo_cob_id: AtomicCell<Option<CanId>>,
     sdo_mbox: AtomicCell<Option<SdoRequest>>,
-    nmt_mbox: AtomicCell<Option<CanFdMessage>>,
+    nmt_mbox: AtomicCell<Option<CanMessage>>,
     lss_receiver: LssReceiver,
     sync_flag: AtomicCell<bool>,
+    notify_cb: AtomicCell<Option<&'static (dyn Fn() + Sync)>>,
 }
 
 impl NodeMbox {
@@ -66,6 +70,7 @@ impl NodeMbox {
         let nmt_mbox = AtomicCell::new(None);
         let lss_receiver = LssReceiver::new();
         let sync_flag = AtomicCell::new(false);
+        let notify_cb = AtomicCell::new(None);
         Self {
             rx_pdos,
             sdo_cob_id,
@@ -73,6 +78,22 @@ impl NodeMbox {
             nmt_mbox,
             lss_receiver,
             sync_flag,
+            notify_cb,
+        }
+    }
+
+    /// Set a callback to be called when a message is received which should trigger a call to the
+    /// node process method
+    ///
+    /// It must be static. Usually this will be a static fn, but in some circumstances, it may be
+    /// desirable to use Box::leak to pass a heap allocated closure instead.
+    pub fn set_process_notify_callback(&self, callback: &'static (dyn Fn() + Sync)) {
+        self.notify_cb.store(Some(callback));
+    }
+
+    fn notify(&self) {
+        if let Some(notify_cb) = self.notify_cb.load() {
+            notify_cb();
         }
     }
 }
@@ -90,7 +111,7 @@ impl NodeMboxRead for NodeMbox {
         self.sdo_mbox.take()
     }
 
-    fn read_nmt_mbox(&self) -> Option<CanFdMessage> {
+    fn read_nmt_mbox(&self) -> Option<CanMessage> {
         self.nmt_mbox.take()
     }
 
@@ -104,26 +125,30 @@ impl NodeMboxRead for NodeMbox {
 }
 
 impl NodeMboxWrite for NodeMbox {
-    fn store_message(&self, msg: CanFdMessage) -> Result<(), CanFdMessage> {
+    fn store_message(&self, msg: CanMessage) -> Result<(), CanMessage> {
         let id = msg.id();
         if id == zencan_common::messages::NMT_CMD_ID {
             self.nmt_mbox.store(Some(msg));
-            return Ok(())
+            self.notify();
+            return Ok(());
         }
 
         if id == zencan_common::messages::SYNC_ID {
             self.sync_flag.store(true);
-            return Ok(())
+            self.notify();
+            return Ok(());
         }
 
         if id == zencan_common::messages::LSS_REQ_ID {
             if let Ok(lss_req) = msg.data().try_into() {
-                self.lss_receiver.handle_req(lss_req);
+                if self.lss_receiver.handle_req(lss_req) {
+                    self.notify();
+                }
             } else {
                 warn!("Invalid LSS request");
                 return Err(msg);
             }
-            return Ok(())
+            return Ok(());
         }
 
         for rpdo in self.rx_pdos {
@@ -150,8 +175,6 @@ impl NodeMboxWrite for NodeMbox {
             }
         }
 
-
         Err(msg)
-
     }
 }

@@ -1,4 +1,4 @@
-use crate::{messages::MessageError, traits::{CanFdMessage, CanId}};
+use crate::messages::{MessageError, CanMessage, CanId};
 
 #[derive(Debug, Clone, Copy)]
 pub enum LssCommandSpecifier {
@@ -340,9 +340,9 @@ impl TryFrom<&[u8]> for LssResponse {
 }
 
 impl LssResponse {
-    pub fn to_can_message(self: &LssResponse, id: CanId) -> CanFdMessage {
+    pub fn to_can_message(self: &LssResponse, id: CanId) -> CanMessage {
         // LSS messages are required to always be 8 bytes long. For...some reason.
-        let mut msg = CanFdMessage::new(id, &[0; 8]);
+        let mut msg = CanMessage::new(id, &[0; 8]);
         match self {
             LssResponse::IdentifySlave => {
                 msg.data[0] = LssCommandSpecifier::IdentifySlave as u8;

@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 use snafu::Snafu;
 use zencan_common::{
     sdo::{AbortCode, SdoRequest, SdoResponse},
-    traits::{AsyncCanReceiver, AsyncCanSender, CanId},
+    traits::{AsyncCanReceiver, AsyncCanSender},
+    messages::CanId,
 };
 
 const RESPONSE_TIMEOUT: Duration = Duration::from_millis(100);

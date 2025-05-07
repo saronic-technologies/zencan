@@ -1,5 +1,5 @@
 use crossbeam::atomic::AtomicCell;
-use zencan_common::traits::CanId;
+use zencan_common::messages::CanId;
 
 #[derive(Debug)]
 pub struct Pdo {

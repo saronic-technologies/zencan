@@ -1,4 +1,4 @@
-use crate::traits::{CanFdMessage, CanId};
+use crate::messages::{CanMessage, CanId};
 
 pub enum SdoError {
     Abort(AbortCode),
@@ -228,8 +228,8 @@ impl SdoRequest {
         SdoRequest::ReqUploadSegment { t: toggle }
     }
 
-    pub fn to_can_message(self, id: CanId) -> CanFdMessage {
-        let mut payload = [0; 64];
+    pub fn to_can_message(self, id: CanId) -> CanMessage {
+        let mut payload = [0; 8];
 
         match self {
             SdoRequest::InitiateDownload {
@@ -276,11 +276,7 @@ impl SdoRequest {
             SdoRequest::InitiateBlockUpload {  } => todo!(),
         }
 
-        CanFdMessage {
-            data: payload,
-            dlc: 8,
-            id,
-        }
+        CanMessage::new(id, &payload)
     }
 }
 
@@ -380,9 +376,9 @@ pub enum SdoResponse {
 }
 
 
-impl TryFrom<CanFdMessage> for SdoResponse {
+impl TryFrom<CanMessage> for SdoResponse {
     type Error = ();
-    fn try_from(msg: CanFdMessage) -> Result<Self, Self::Error> {
+    fn try_from(msg: CanMessage) -> Result<Self, Self::Error> {
 
         let scs = msg.data[0] >> 5;
         let command: ServerCommand = scs.try_into()?;
@@ -472,8 +468,8 @@ impl SdoResponse {
         SdoResponse::Abort { index, sub, abort_code }
     }
 
-    pub fn to_can_message(self, id: CanId) -> CanFdMessage {
-        let mut payload = [0; 64];
+    pub fn to_can_message(self, id: CanId) -> CanMessage {
+        let mut payload = [0; 8];
 
         match self {
             SdoResponse::ConfirmUpload {
@@ -517,10 +513,6 @@ impl SdoResponse {
             },
 
         }
-        CanFdMessage {
-            data: payload,
-            dlc: 8,
-            id,
-        }
+        CanMessage::new(id, &payload)
     }
 }

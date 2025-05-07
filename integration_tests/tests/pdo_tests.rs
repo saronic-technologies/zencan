@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use zencan_client::sdo_client::SdoClient;
 use zencan_common::{
-    messages::SyncObject, objects::ODEntry, traits::{AsyncCanReceiver, AsyncCanSender, CanFdMessage, CanId}
+    messages::{CanMessage, CanId, SyncObject}, objects::ODEntry, traits::{AsyncCanReceiver, AsyncCanSender},
 };
 use zencan_node::{node::{Node, NodeId}, node_state::NodeStateAccess};
 use zencan_node::node_mbox::{NodeMboxRead, NodeMboxWrite};
@@ -71,7 +71,7 @@ async fn test_rpdo_assignment() {
         client.download_u32(0x1600, 1, mapping_entry).await.unwrap();
 
         // Now send a PDO message and it should update the mapped object
-        pdo_sender.send(CanFdMessage::new(CanId::Std(0x201), &500u32.to_le_bytes())).await.unwrap();
+        pdo_sender.send(CanMessage::new(CanId::Std(0x201), &500u32.to_le_bytes())).await.unwrap();
 
         // Delay a bit, because node process() method has to be called for PDO to apply
         tokio::time::sleep(Duration::from_millis(10)).await;

@@ -35,7 +35,10 @@ impl LssReceiver {
         }
     }
 
-    pub fn handle_req(&self, req: LssRequest) {
+    /// Handle a received LSS request
+    ///
+    /// Returns true if the request requires further processing in the node 'process' thread
+    pub fn handle_req(&self, req: LssRequest) -> bool {
         info!("LSS request: {:?}", req);
         // Certain messages we store here for fast handling. Others, are stored to be handled during
         // process call
@@ -44,18 +47,24 @@ impl LssReceiver {
                 let mut selected_identity = self.selected_identity.load();
                 selected_identity.product_code = product_code;
                 self.selected_identity.store(selected_identity);
+                false
             }
             LssRequest::SwitchStateVendor { vendor_id } => {
                 let mut selected_identity = self.selected_identity.load();
                 selected_identity.vendor_id = vendor_id;
                 self.selected_identity.store(selected_identity);
+                false
             }
             LssRequest::SwitchStateRevision { revision } => {
                 let mut selected_identity = self.selected_identity.load();
                 selected_identity.revision = revision;
                 self.selected_identity.store(selected_identity);
+                false
             }
-            _ => self.rx_req.store(Some(req)),
+            _ => {
+                self.rx_req.store(Some(req));
+                true
+            }
         }
     }
 }

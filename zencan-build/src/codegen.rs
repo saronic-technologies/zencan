@@ -384,7 +384,7 @@ fn get_object_impls(
                     if offset + data.len() > #storage_size {
                         return Err(AbortCode::DataTypeMismatchLengthHigh);
                     }
-                    critical_section::with(|cs| {
+                    zencan_node::critical_section::with(|cs| {
                         let mut array = self.array.borrow_ref_mut(cs);
                         array[(sub - 1) as usize][offset..offset + data.len()].copy_from_slice(data)
                     });
@@ -393,7 +393,7 @@ fn get_object_impls(
                     if offset + data.len() > #storage_size {
                         return Err(AbortCode::DataTypeMismatchLengthHigh);
                     }
-                    critical_section::with(|cs| {
+                    zencan_node::critical_section::with(|cs| {
                         let mut array = self.array.borrow_ref(cs);
                         buf.copy_from_slice(&array[(sub - 1) as usize][offset..offset + data.len()]);
                     })
@@ -432,7 +432,7 @@ fn get_object_impls(
                         if idx >= #array_size {
                             return Err(AbortCode::NoSuchSubIndex)
                         }
-                        critical_section::with(|cs| {
+                        zencan_node::critical_section::with(|cs| {
                             let mut array = self.array.borrow_ref_mut(cs);
                             array[idx] = value;
                         });
@@ -443,7 +443,7 @@ fn get_object_impls(
                         if idx >= #array_size {
                             return Err(AbortCode::NoSuchSubIndex)
                         }
-                        let value = critical_section::with(|cs| {
+                        let value = zencan_node::critical_section::with(|cs| {
                             let array = self.array.borrow_ref(cs);
                             array[idx]
                         });
@@ -652,8 +652,8 @@ pub fn generate_object_code(
 }
 
 pub fn generate_state_inst(dev: &DeviceConfig) -> Result<TokenStream, CompileError> {
-    let n_rpdo = dev.num_rpdo as usize;
-    let n_tpdo = dev.num_tpdo as usize;
+    let n_rpdo = dev.pdos.num_rpdo as usize;
+    let n_tpdo = dev.pdos.num_tpdo as usize;
     Ok(quote! {
         //pub static RPDOS: [Pdo; #n_rpdo] = [const { Pdo::new() } ; #n_rpdo];
 

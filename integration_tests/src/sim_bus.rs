@@ -1,6 +1,7 @@
 use std::{cell::RefCell, sync::Arc, time::Duration};
 
-use zencan_common::traits::{CanFdMessage, AsyncCanReceiver, AsyncCanSender};
+use zencan_common::traits::{AsyncCanReceiver, AsyncCanSender};
+use zencan_common::messages::CanMessage;
 use zencan_node::node::Node;
 use zencan_node::node_mbox::NodeMboxWrite;
 
@@ -9,7 +10,7 @@ use tokio::{sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
 pub struct SimBus<'a> {
     node_states: Arc<RefCell<Vec<&'a dyn NodeMboxWrite>>>,
     /// List of all the open channels for sending recieved messages to
-    receiver_channels: Arc<RefCell<Vec<UnboundedSender<CanFdMessage>>>>,
+    receiver_channels: Arc<RefCell<Vec<UnboundedSender<CanMessage>>>>,
 }
 
 impl<'a> SimBus<'a> {
@@ -53,11 +54,11 @@ impl<'a> SimBus<'a> {
 
 pub struct SimBusSender<'a> {
     node_states: Arc<RefCell<Vec<&'a dyn NodeMboxWrite>>>,
-    external_channels: Arc<RefCell<Vec<UnboundedSender<CanFdMessage>>>>,
+    external_channels: Arc<RefCell<Vec<UnboundedSender<CanMessage>>>>,
 }
 
 impl<'a> AsyncCanSender for SimBusSender<'a> {
-    async fn send(&mut self, msg: CanFdMessage) -> Result<(), CanFdMessage> {
+    async fn send(&mut self, msg: CanMessage) -> Result<(), CanMessage> {
         // Send to nodes on the bus
         for ns in self.node_states.borrow().iter() {
             // It doesn't matter if store message fails; that just means the node did not
@@ -74,7 +75,7 @@ impl<'a> AsyncCanSender for SimBusSender<'a> {
 }
 
 pub struct SimBusReceiver {
-    channel_rx: UnboundedReceiver<CanFdMessage>,
+    channel_rx: UnboundedReceiver<CanMessage>,
 }
 
 impl SimBusReceiver {
@@ -84,14 +85,14 @@ impl SimBusReceiver {
 }
 
 impl AsyncCanReceiver for SimBusReceiver {
-    async fn recv(&mut self, timeout: Duration) -> Result<CanFdMessage, ()> {
+    async fn recv(&mut self, timeout: Duration) -> Result<CanMessage, ()> {
         timeout_at(tokio::time::Instant::now() + timeout.into(), self.channel_rx.recv()).await.map_err(|_| {
             println!("Timeout receiving message");
             ()
         }).map(|msg| msg.expect("Receive channel closed"))
     }
 
-    async fn try_recv(&mut self) -> Option<CanFdMessage> {
+    async fn try_recv(&mut self) -> Option<CanMessage> {
         match self.channel_rx.try_recv() {
             Ok(msg) => Some(msg),
             Err(_) => None,

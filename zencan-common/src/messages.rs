@@ -1,8 +1,73 @@
 use crate::{
     lss::{LssRequest, LssResponse},
     sdo::{SdoRequest, SdoResponse},
-    traits::{CanFdMessage, CanId},
 };
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CanId {
+    Extended(u32),
+    Std(u16),
+}
+
+impl CanId {
+    pub const fn extended(id: u32) -> CanId {
+        CanId::Extended(id)
+    }
+
+    pub const fn std(id: u16) -> CanId {
+        CanId::Std(id)
+    }
+
+    pub fn raw(&self) -> u32 {
+        match self {
+            CanId::Extended(id) => *id,
+            CanId::Std(id) => *id as u32,
+        }
+    }
+
+    pub fn is_extended(&self) -> bool {
+        match self {
+            CanId::Extended(_) => true,
+            CanId::Std(_) => false,
+        }
+    }
+}
+
+const MAX_DATA_LENGTH: usize = 8;
+
+#[derive(Clone, Copy, Debug)]
+pub struct CanMessage {
+    pub data: [u8; MAX_DATA_LENGTH],
+    pub dlc: u8,
+    pub id: CanId,
+}
+
+impl Default for CanMessage {
+    fn default() -> Self {
+        Self { data: [0; MAX_DATA_LENGTH], dlc: 0, id: CanId::Std(0) }
+    }
+}
+
+impl CanMessage {
+    pub fn new(id: CanId, data: &[u8]) -> Self {
+        let dlc = data.len() as u8;
+        if dlc > MAX_DATA_LENGTH as u8 {
+            panic!("Data length exceeds maximum size of {} bytes", MAX_DATA_LENGTH);
+        }
+        let mut buf = [0u8; MAX_DATA_LENGTH];
+        buf[0..dlc as usize].copy_from_slice(data);
+
+        Self { id, dlc, data: buf }
+    }
+
+    pub fn id(&self) -> CanId {
+        self.id
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.data[0..self.dlc as usize]
+    }
+}
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
@@ -43,10 +108,10 @@ pub struct NmtCommand {
     pub node: u8,
 }
 
-impl TryFrom<CanFdMessage> for NmtCommand {
+impl TryFrom<CanMessage> for NmtCommand {
     type Error = MessageError;
 
-    fn try_from(msg: CanFdMessage) -> Result<Self, Self::Error> {
+    fn try_from(msg: CanMessage) -> Result<Self, Self::Error> {
         let payload = msg.data();
         if msg.id() != NMT_CMD_ID {
             Err(MessageError::UnexpectedId(msg.id(), NMT_CMD_ID))
@@ -60,9 +125,9 @@ impl TryFrom<CanFdMessage> for NmtCommand {
     }
 }
 
-impl From<NmtCommand> for CanFdMessage {
+impl From<NmtCommand> for CanMessage {
     fn from(cmd: NmtCommand) -> Self {
-        let mut msg = CanFdMessage {
+        let mut msg = CanMessage {
             id: NMT_CMD_ID,
             dlc: 2,
             ..Default::default()
@@ -109,9 +174,9 @@ pub struct Heartbeat {
     pub state: NmtState,
 }
 
-impl From<Heartbeat> for CanFdMessage {
+impl From<Heartbeat> for CanMessage {
     fn from(value: Heartbeat) -> Self {
-        let mut msg = CanFdMessage {
+        let mut msg = CanMessage {
             id: CanId::Std(HEARTBEAT_ID | value.node as u16),
             dlc: 1,
             ..Default::default()
@@ -145,20 +210,20 @@ impl Default for SyncObject {
     }
 }
 
-impl From<SyncObject> for CanFdMessage {
+impl From<SyncObject> for CanMessage {
     fn from(value: SyncObject) -> Self {
-        let mut msg = CanFdMessage {
+        let mut msg = CanMessage {
             id: SYNC_ID,
             dlc: 1,
-            data: [0; 64],
+            data: [0; MAX_DATA_LENGTH],
         };
         msg.data[0] = value.count;
         msg
     }
 }
 
-impl From<CanFdMessage> for SyncObject {
-    fn from(msg: CanFdMessage) -> Self {
+impl From<CanMessage> for SyncObject {
+    fn from(msg: CanMessage) -> Self {
         if msg.id() == SYNC_ID {
             let count = msg.data()[0];
             Self { count }
@@ -200,10 +265,10 @@ pub fn is_std_sdo_request(can_id: CanId, node_id: u8) -> bool {
     false
 }
 
-impl TryFrom<CanFdMessage> for ZencanMessage {
+impl TryFrom<CanMessage> for ZencanMessage {
     type Error = MessageError;
 
-    fn try_from(msg: CanFdMessage) -> Result<Self, Self::Error> {
+    fn try_from(msg: CanMessage) -> Result<Self, Self::Error> {
         let id = msg.id();
         if id == NMT_CMD_ID {
             Ok(ZencanMessage::NmtCommand(msg.try_into()?))

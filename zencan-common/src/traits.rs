@@ -1,96 +1,23 @@
 use core::time::Duration;
 
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum CanId {
-    Extended(u32),
-    Std(u16),
-}
-
-impl CanId {
-    pub const fn extended(id: u32) -> CanId {
-        CanId::Extended(id)
-    }
-
-    pub const fn std(id: u16) -> CanId {
-        CanId::Std(id)
-    }
-
-    pub fn raw(&self) -> u32 {
-        match self {
-            CanId::Extended(id) => *id,
-            CanId::Std(id) => *id as u32,
-        }
-    }
-
-    pub fn is_extended(&self) -> bool {
-        match self {
-            CanId::Extended(_) => true,
-            CanId::Std(_) => false,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct CanFdMessage {
-    pub data: [u8; 64],
-    pub dlc: u8,
-    pub id: CanId,
-}
-
-impl Default for CanFdMessage {
-    fn default() -> Self {
-        Self { data: [0; 64], dlc: 0, id: CanId::Std(0) }
-    }
-}
-
-impl CanFdMessage {
-    pub fn new(id: CanId, data: &[u8]) -> Self {
-        let dlc = data.len() as u8;
-        if dlc > 64 {
-            panic!("Data length exceeds maximum size of 64 bytes");
-        }
-        let mut buf = [0u8; 64];
-        buf[0..dlc as usize].copy_from_slice(data);
-
-        Self { id, dlc, data: buf }
-    }
-
-    pub fn id(&self) -> CanId {
-        self.id
-    }
-
-    pub fn data(&self) -> &[u8] {
-        &self.data[0..self.dlc as usize]
-    }
-}
+use crate::messages::CanMessage;
 
 pub trait CanSender {
-    fn send(&mut self, msg: CanFdMessage) -> Result<(), CanFdMessage>;
+    fn send(&mut self, msg: CanMessage) -> Result<(), CanMessage>;
 }
 
 pub trait CanReceiver {
-    fn try_recv(&mut self) -> Option<CanFdMessage>;
+    fn try_recv(&mut self) -> Option<CanMessage>;
     /// A blocking receive
-    fn recv(&mut self, timeout: Duration) -> Result<CanFdMessage, ()>;
+    fn recv(&mut self, timeout: Duration) -> Result<CanMessage, ()>;
 }
 
 pub trait AsyncCanSender {
-    fn send(&mut self, msg: CanFdMessage) -> impl core::future::Future<Output = Result<(), CanFdMessage>>;
+    fn send(&mut self, msg: CanMessage) -> impl core::future::Future<Output = Result<(), CanMessage>>;
 }
 
 pub trait AsyncCanReceiver {
-    fn try_recv(&mut self) -> impl core::future::Future<Output = Option<CanFdMessage>>;
+    fn try_recv(&mut self) -> impl core::future::Future<Output = Option<CanMessage>>;
     /// A blocking receive
-    fn recv(&mut self, timeout: Duration) ->  impl core::future::Future<Output = Result<CanFdMessage, ()>>;
+    fn recv(&mut self, timeout: Duration) ->  impl core::future::Future<Output = Result<CanMessage, ()>>;
 }
-
-// pub(crate) trait MessageHandler {
-//     fn wants_id(can_id: CanId) -> bool;
-
-//     async fn handle(msg: &CanFdMessage);
-// }
-
-// pub trait ClientManager {
-//     fn register_sdo_client()
-// }
