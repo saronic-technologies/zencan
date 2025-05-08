@@ -40,7 +40,50 @@ fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
     (node, client, bus)
 }
 
+#[tokio::test]
+#[serial_test::serial]
+async fn test_identity_readback() {
+    const IDENTITY_OBJECT_ID: u16 = 0x1018;
+    const VENDOR_SUB_ID: u8 = 1;
+    const PRODUCT_SUB_ID: u8 = 2;
+    const REVISION_SUB_ID: u8 = 3;
+    const SERIAL_SUB_ID: u8 = 4;
 
+    let (mut node, mut client, mut bus) = setup(
+        &object_dict1::OD_TABLE,
+        &object_dict1::NODE_MBOX,
+        &object_dict1::NODE_STATE,
+    );
+
+    let _logger = BusLogger::new(bus.new_receiver());
+
+    let test_task = async move {
+        // Check that the identity matches the values defined in the example1.toml device config
+        assert_eq!(
+            client.read_u32(IDENTITY_OBJECT_ID, VENDOR_SUB_ID).await.unwrap(),
+            1234,
+        );
+        assert_eq!(
+            client.read_u32(IDENTITY_OBJECT_ID, PRODUCT_SUB_ID).await.unwrap(),
+            12000,
+        );
+        assert_eq!(
+            client.read_u32(IDENTITY_OBJECT_ID, REVISION_SUB_ID).await.unwrap(),
+            1,
+        );
+        assert_eq!(
+            client.read_u32(IDENTITY_OBJECT_ID, SERIAL_SUB_ID).await.unwrap(),
+            0,
+        );
+    };
+
+    let mut sender = bus.new_sender();
+    test_with_background_process(
+        &mut node,
+        &mut sender,
+        test_task,
+    ).await;
+}
 
 #[tokio::test]
 #[serial_test::serial]
