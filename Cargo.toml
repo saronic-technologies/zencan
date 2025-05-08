@@ -5,6 +5,7 @@ members = [
     "examples/socketcan_node",
     "integration_tests",
     "zencan-build",
+    "zencan-cli",
     "zencan-client",
     "zencan-common",
     "zencan-macro",
@@ -12,6 +13,15 @@ members = [
 ]
 
 [workspace.dependencies]
+# Local
+zencan-build = { path = "zencan-build" }
+zencan-common = { path = "zencan-common", default-features = false }
+zencan-node = { path = "zencan-node" }
+zencan-client = { path = "zencan-client" }
+
+# External
 critical-section = { version = "1.2.0", default-features = false }
 crossbeam = { version = "0.8.4", git = "https://github.com/crossbeam-rs/crossbeam", default-features = false }
 futures = { version = "0.3.31", default-features = false, features = ["async-await"] }
+log = "0.4.27"
+snafu = "0.8.5"

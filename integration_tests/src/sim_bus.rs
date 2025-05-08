@@ -92,10 +92,14 @@ impl AsyncCanReceiver for SimBusReceiver {
         }).map(|msg| msg.expect("Receive channel closed"))
     }
 
-    async fn try_recv(&mut self) -> Option<CanMessage> {
+    fn try_recv(&mut self) -> Option<CanMessage> {
         match self.channel_rx.try_recv() {
             Ok(msg) => Some(msg),
             Err(_) => None,
         }
+    }
+
+    fn flush(&mut self) {
+        while let Ok(_) = self.channel_rx.try_recv() {}
     }
 }

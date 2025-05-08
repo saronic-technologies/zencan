@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 critical-section.workspace = true
 crossbeam.workspace = true
+snafu.workspace = true
 
 [features]
 default = ["std"]

@@ -17,7 +17,9 @@ pub trait AsyncCanSender {
 }
 
 pub trait AsyncCanReceiver {
-    fn try_recv(&mut self) -> impl core::future::Future<Output = Option<CanMessage>>;
+    fn try_recv(&mut self) -> Option<CanMessage>;
     /// A blocking receive
     fn recv(&mut self, timeout: Duration) ->  impl core::future::Future<Output = Result<CanMessage, ()>>;
+    /// Remove any pending messages from the receiver
+    fn flush(&mut self);
 }

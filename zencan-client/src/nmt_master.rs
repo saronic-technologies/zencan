@@ -45,7 +45,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> Master<S, R> {
     }
 
     pub async fn process_rx(&mut self) {
-        while let Some(msg) = self.receiver.try_recv().await {
+        while let Some(msg) = self.receiver.try_recv() {
             self.handle_message(msg);
         }
     }

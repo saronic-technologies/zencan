@@ -6,7 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# Internal
 zencan-common = { path = "../zencan-common" }
 eds-parser = { path = "../eds-parser" }
-futures = "*"
-snafu = "*"
+
+# External
+log.workspace = true
+futures.workspace = true
+snafu.workspace = true
+tokio = { version = "1.45.0", features = ["net", "time"] }
