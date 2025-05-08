@@ -1,6 +1,6 @@
 use clap::Parser;
-use zencan_node::common::traits::{CanFdMessage, CanId};
-use zencan_node::node::{Node, NodeId, NodeIdNum};
+use zencan_node::common::messages::{CanMessage, CanId};
+use zencan_node::node::{Node, NodeId};
 
 use socketcan::tokio::CanSocket;
 use socketcan::{CanFrame, EmbeddedFrame, Frame};
@@ -41,7 +41,7 @@ async fn main() {
                 socketcan::CanId::Extended(id) => CanId::Extended(id.as_raw()),
             };
 
-            let msg = CanFdMessage::new(can_id, frame.data());
+            let msg = CanMessage::new(can_id, frame.data());
 
             if let Err(msg) = zencan::NODE_MBOX.store_message(msg) {
                 println!("Unhandled message received: {:?}", msg);
@@ -55,7 +55,7 @@ async fn main() {
         let mut tx_messages = Vec::new();
 
         // Run node processing, collecting messages to send
-        node.process(&mut |msg: CanFdMessage| {
+        node.process(&mut |msg: CanMessage| {
             tx_messages.push(msg);
         });
 

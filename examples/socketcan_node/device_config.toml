@@ -1,4 +1,11 @@
 vendor_name = "Example 1"
+
+[identity]
+vendor_id = 123
+product_code = 8000
+revision_number = 1
+
+[pdos]
 num_rpdo = 4
 num_tpdo = 4
 
