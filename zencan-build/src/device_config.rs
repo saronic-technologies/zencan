@@ -4,7 +4,7 @@ use zencan_common::objects::{AccessType, ObjectCode};
 use crate::errors::*;
 use snafu::ResultExt as _;
 
-pub fn mandatory_objects() -> Vec<ObjectDefinition> {
+pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
     vec![
         ObjectDefinition {
             index: 0x1000,
@@ -38,7 +38,7 @@ pub fn mandatory_objects() -> Vec<ObjectDefinition> {
                         field_name: None,
                         data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
-                        default_value: None,
+                        default_value: Some(DefaultValue::Integer(identity.vendor_id as i64)),
                     },
                     SubDefinition {
                         sub_index: 2,
@@ -46,7 +46,7 @@ pub fn mandatory_objects() -> Vec<ObjectDefinition> {
                         field_name: None,
                         data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
-                        default_value: None,
+                        default_value: Some(DefaultValue::Integer(identity.product_code as i64)),
                     },
                     SubDefinition {
                         sub_index: 3,
@@ -54,7 +54,7 @@ pub fn mandatory_objects() -> Vec<ObjectDefinition> {
                         field_name: None,
                         data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
-                        default_value: None,
+                        default_value: Some(DefaultValue::Integer(identity.revision_number as i64)),
                     },
                     SubDefinition {
                         sub_index: 4,
@@ -62,7 +62,7 @@ pub fn mandatory_objects() -> Vec<ObjectDefinition> {
                         field_name: None,
                         data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
-                        default_value: None,
+                        default_value: Some(DefaultValue::Integer(0)),
                     },
                 ],
             }),
@@ -275,7 +275,7 @@ impl DeviceConfig {
             message: format!("Error parsing {}", config_path.as_ref().display())})?;
 
         // Add mandatory objects to the config
-        config.objects.extend(mandatory_objects());
+        config.objects.extend(mandatory_objects(&config.identity));
 
         config.objects.extend(pdo_objects(
             config.pdos.num_rpdo as usize,
@@ -291,7 +291,7 @@ impl DeviceConfig {
         })?;
 
         // Add mandatory objects to the config
-        config.objects.extend(mandatory_objects());
+        config.objects.extend(mandatory_objects(&config.identity));
 
         config.objects.extend(pdo_objects(
             config.pdos.num_rpdo as usize,
