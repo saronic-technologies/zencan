@@ -1,3 +1,5 @@
+use snafu::Snafu;
+
 use crate::{
     lss::{LssRequest, LssResponse},
     sdo::{SdoRequest, SdoResponse},
@@ -114,7 +116,7 @@ impl TryFrom<CanMessage> for NmtCommand {
     fn try_from(msg: CanMessage) -> Result<Self, Self::Error> {
         let payload = msg.data();
         if msg.id() != NMT_CMD_ID {
-            Err(MessageError::UnexpectedId(msg.id(), NMT_CMD_ID))
+            Err(MessageError::UnexpectedId { cob_id: msg.id(), expected: NMT_CMD_ID })
         } else if payload.len() >= 2 {
             let cmd = NmtCommandCmd::from_byte(payload[0])?;
             let node = payload[1];
@@ -269,47 +271,47 @@ impl TryFrom<CanMessage> for ZencanMessage {
     type Error = MessageError;
 
     fn try_from(msg: CanMessage) -> Result<Self, Self::Error> {
-        let id = msg.id();
-        if id == NMT_CMD_ID {
+        let cob_id = msg.id();
+        if cob_id == NMT_CMD_ID {
             Ok(ZencanMessage::NmtCommand(msg.try_into()?))
-        } else if id.raw() & !0x7f == HEARTBEAT_ID as u32 {
-            let node = (id.raw() & 0x7f) as u8;
+        } else if cob_id.raw() & !0x7f == HEARTBEAT_ID as u32 {
+            let node = (cob_id.raw() & 0x7f) as u8;
             let toggle = (msg.data[0] & (1 << 7)) != 0;
             let state: NmtState = (msg.data[0] & 0x7f)
                 .try_into()
-                .map_err(|e: InvalidNmtStateError| MessageError::InvalidNmtState(e.0))?;
+                .map_err(|e: InvalidNmtStateError| MessageError::InvalidNmtState { value: e.0 })?;
             Ok(ZencanMessage::Heartbeat(Heartbeat {
                 node,
                 toggle,
                 state,
             }))
-        } else if id.raw() & 0xff80 == 0x580 {
+        } else if cob_id.raw() & 0xff80 == 0x580 {
             // SDO response
-            let resp: SdoResponse = msg.try_into().map_err(|_| MessageError::MalformedMsg(id))?;
+            let resp: SdoResponse = msg.try_into().map_err(|_| MessageError::MalformedMsg { cob_id })?;
             Ok(ZencanMessage::SdoResponse(resp))
-        } else if id.raw() >= 0x580 && id.raw() <= 0x580 + 256 {
+        } else if cob_id.raw() >= 0x580 && cob_id.raw() <= 0x580 + 256 {
             // SDO request
             let req: SdoRequest = msg
                 .data()
                 .try_into()
-                .map_err(|_| MessageError::MalformedMsg(id))?;
+                .map_err(|_| MessageError::MalformedMsg { cob_id })?;
             Ok(ZencanMessage::SdoRequest(req))
-        } else if id == SYNC_ID {
+        } else if cob_id == SYNC_ID {
             Ok(ZencanMessage::Sync(msg.into()))
-        } else if id == LSS_REQ_ID {
+        } else if cob_id == LSS_REQ_ID {
             let req: LssRequest = msg
                 .data()
                 .try_into()
-                .map_err(|_| MessageError::MalformedMsg(id))?;
+                .map_err(|_| MessageError::MalformedMsg { cob_id })?;
             Ok(ZencanMessage::LssRequest(req))
-        } else if id == LSS_RESP_ID {
+        } else if cob_id == LSS_RESP_ID {
             let resp: LssResponse = msg
                 .data()
                 .try_into()
-                .map_err(|_| MessageError::MalformedMsg(id))?;
+                .map_err(|_| MessageError::MalformedMsg { cob_id })?;
             Ok(ZencanMessage::LssResponse(resp))
         } else {
-            Err(MessageError::UnrecognizedId(id))
+            Err(MessageError::UnrecognizedId { cob_id })
         }
     }
 }
@@ -325,13 +327,18 @@ pub enum ZencanMessage {
     LssResponse(LssResponse),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Snafu)]
 pub enum MessageError {
     MessageTooShort,
-    MalformedMsg(CanId),
-    UnexpectedId(CanId, CanId),
+    MalformedMsg{ cob_id: CanId },
+    /// The message ID was not the expected value
+    #[snafu(display("Unexpected message ID found: {cob_id:?}, expected: {expected:?}"))]
+    UnexpectedId{ cob_id: CanId, expected: CanId },
     InvalidField,
-    UnrecognizedId(CanId),
-    InvalidNmtState(u8),
-    UnexpectedLssCommand(u8),
+    UnrecognizedId{ cob_id: CanId },
+    /// The NMT state integer in the message is not a valid NMT state
+    InvalidNmtState { value: u8 },
+    /// An invalid LSS command specifier was found in the message
+    #[snafu(display("Unexpected LSS command: {value}"))]
+    UnexpectedLssCommand { value: u8 },
 }

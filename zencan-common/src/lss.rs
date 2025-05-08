@@ -1,4 +1,4 @@
-use crate::messages::{MessageError, CanMessage, CanId};
+use crate::messages::{CanId, CanMessage, MessageError, LSS_REQ_ID, LSS_RESP_ID};
 
 #[derive(Debug, Clone, Copy)]
 pub enum LssCommandSpecifier {
@@ -52,7 +52,7 @@ impl LssCommandSpecifier {
             0x5C => Ok(Self::InquireRev),
             0x5D => Ok(Self::InquireSerial),
             0x5E => Ok(Self::InquireNodeId),
-            _ => Err(MessageError::UnexpectedLssCommand(b)),
+            _ => Err(MessageError::UnexpectedLssCommand { value: b }),
         }
     }
 }
@@ -150,10 +150,8 @@ impl TryFrom<&[u8]> for LssRequest {
                 if value.len() < 2 {
                     return Err(MessageError::MessageTooShort);
                 }
-                Ok(Self::ConfigureNodeId {
-                    node_id: value[1],
-                })
-            },
+                Ok(Self::ConfigureNodeId { node_id: value[1] })
+            }
             LssCommandSpecifier::ConfigureBitTiming => {
                 if value.len() < 3 {
                     return Err(MessageError::MessageTooShort);
@@ -162,7 +160,7 @@ impl TryFrom<&[u8]> for LssRequest {
                     table: value[1],
                     index: value[2],
                 })
-            },
+            }
             LssCommandSpecifier::ActivateBitTiming => {
                 if value.len() < 3 {
                     return Err(MessageError::MessageTooShort);
@@ -170,7 +168,7 @@ impl TryFrom<&[u8]> for LssRequest {
                 Ok(Self::ActivateBitTiming {
                     delay: u16::from_le_bytes([value[1], value[2]]),
                 })
-            },
+            }
             LssCommandSpecifier::StoreConfiguration => todo!(),
             LssCommandSpecifier::SwitchStateVendor => {
                 if value.len() < 5 {
@@ -179,7 +177,7 @@ impl TryFrom<&[u8]> for LssRequest {
                 Ok(Self::SwitchStateVendor {
                     vendor_id: u32::from_le_bytes(value[1..5].try_into().unwrap()),
                 })
-            },
+            }
             LssCommandSpecifier::SwitchStateProduct => {
                 if value.len() < 5 {
                     return Err(MessageError::MessageTooShort);
@@ -187,7 +185,7 @@ impl TryFrom<&[u8]> for LssRequest {
                 Ok(Self::SwitchStateProduct {
                     product_code: u32::from_le_bytes(value[1..5].try_into().unwrap()),
                 })
-            },
+            }
             LssCommandSpecifier::SwitchStateRev => {
                 if value.len() < 5 {
                     return Err(MessageError::MessageTooShort);
@@ -195,7 +193,7 @@ impl TryFrom<&[u8]> for LssRequest {
                 Ok(Self::SwitchStateRevision {
                     revision: u32::from_le_bytes(value[1..5].try_into().unwrap()),
                 })
-            },
+            }
             LssCommandSpecifier::SwitchStateSerial => {
                 if value.len() < 5 {
                     return Err(MessageError::MessageTooShort);
@@ -203,7 +201,7 @@ impl TryFrom<&[u8]> for LssRequest {
                 Ok(Self::SwitchStateSerial {
                     serial: u32::from_le_bytes(value[1..5].try_into().unwrap()),
                 })
-            },
+            }
             LssCommandSpecifier::SwitchStateResponse => {
                 if value.len() < 5 {
                     return Err(MessageError::MessageTooShort);
@@ -211,9 +209,11 @@ impl TryFrom<&[u8]> for LssRequest {
                 Ok(Self::SwitchStateVendor {
                     vendor_id: u32::from_le_bytes(value[1..5].try_into().unwrap()),
                 })
-            },
+            }
             // IdentifySlave is only used in a response
-            LssCommandSpecifier::IdentifySlave => Err(MessageError::UnexpectedLssCommand(value[0])),
+            LssCommandSpecifier::IdentifySlave => {
+                Err(MessageError::UnexpectedLssCommand { value: value[0] })
+            }
             LssCommandSpecifier::FastScan => {
                 if value.len() < 8 {
                     return Err(MessageError::MessageTooShort);
@@ -230,8 +230,73 @@ impl TryFrom<&[u8]> for LssRequest {
             LssCommandSpecifier::InquireRev => Ok(LssRequest::InquireRev),
             LssCommandSpecifier::InquireSerial => Ok(LssRequest::InquireSerial),
             LssCommandSpecifier::InquireNodeId => Ok(LssRequest::InquireNodeId),
-
         }
+    }
+}
+
+impl From<LssRequest> for CanMessage {
+    fn from(value: LssRequest) -> Self {
+        let mut data = [0u8; 8];
+        match value {
+            LssRequest::SwitchModeGlobal { mode } => {
+            data[0] = LssCommandSpecifier::SwitchModeGlobal as u8;
+            data[1] = mode;
+            },
+            LssRequest::ConfigureNodeId { node_id } => {
+            data[0] = LssCommandSpecifier::ConfigureNodeId as u8;
+            data[1] = node_id;
+            },
+            LssRequest::ConfigureBitTiming { table, index } => {
+            data[0] = LssCommandSpecifier::ConfigureBitTiming as u8;
+            data[1] = table;
+            data[2] = index;
+            },
+            LssRequest::ActivateBitTiming { delay } => {
+            data[0] = LssCommandSpecifier::ActivateBitTiming as u8;
+            let delay_bytes = delay.to_le_bytes();
+            data[1] = delay_bytes[0];
+            data[2] = delay_bytes[1];
+            },
+            LssRequest::SwitchStateVendor { vendor_id } => {
+            data[0] = LssCommandSpecifier::SwitchStateVendor as u8;
+            data[1..5].copy_from_slice(&vendor_id.to_le_bytes());
+            },
+            LssRequest::SwitchStateProduct { product_code } => {
+            data[0] = LssCommandSpecifier::SwitchStateProduct as u8;
+            data[1..5].copy_from_slice(&product_code.to_le_bytes());
+            },
+            LssRequest::SwitchStateRevision { revision } => {
+            data[0] = LssCommandSpecifier::SwitchStateRev as u8;
+            data[1..5].copy_from_slice(&revision.to_le_bytes());
+            },
+            LssRequest::SwitchStateSerial { serial } => {
+            data[0] = LssCommandSpecifier::SwitchStateSerial as u8;
+            data[1..5].copy_from_slice(&serial.to_le_bytes());
+            },
+            LssRequest::InquireVendor => {
+            data[0] = LssCommandSpecifier::InquireVendor as u8;
+            },
+            LssRequest::InquireProduct => {
+            data[0] = LssCommandSpecifier::InquireProduct as u8;
+            },
+            LssRequest::InquireRev => {
+            data[0] = LssCommandSpecifier::InquireRev as u8;
+            },
+            LssRequest::InquireSerial => {
+            data[0] = LssCommandSpecifier::InquireSerial as u8;
+            },
+            LssRequest::InquireNodeId => {
+            data[0] = LssCommandSpecifier::InquireNodeId as u8;
+            },
+            LssRequest::FastScan { id, bit_check, sub, next } => {
+            data[0] = LssCommandSpecifier::FastScan as u8;
+            data[1..5].copy_from_slice(&id.to_le_bytes());
+            data[5] = bit_check;
+            data[6] = sub;
+            data[7] = next;
+            },
+        }
+        CanMessage::new(LSS_REQ_ID, &data)
     }
 }
 
@@ -239,30 +304,13 @@ impl TryFrom<&[u8]> for LssRequest {
 pub enum LssResponse {
     IdentifySlave,
     SwitchStateResponse,
-    ConfigureNodeIdAck {
-        error: u8,
-        spec_error: u8,
-    },
-    ConfigureBitTimingAck {
-        error: u8,
-        spec_error: u8,
-    },
-    InquireVendorAck {
-        vendor_id: u32,
-    },
-    InquireProductAck {
-        product_code: u32,
-    },
-    InquireRevAck {
-        revision: u32,
-    },
-    InquireSerialAck {
-        serial_number: u32,
-    },
-    InquireNodeIdAck {
-        node_id: u8,
-    },
-
+    ConfigureNodeIdAck { error: u8, spec_error: u8 },
+    ConfigureBitTimingAck { error: u8, spec_error: u8 },
+    InquireVendorAck { vendor_id: u32 },
+    InquireProductAck { product_code: u32 },
+    InquireRevAck { revision: u32 },
+    InquireSerialAck { serial_number: u32 },
+    InquireNodeIdAck { node_id: u8 },
 }
 
 impl TryFrom<&[u8]> for LssResponse {
@@ -330,12 +378,24 @@ impl TryFrom<&[u8]> for LssResponse {
                 if value.len() < 2 {
                     return Err(MessageError::MessageTooShort);
                 }
-                Ok(Self::InquireNodeIdAck {
-                    node_id: value[1],
-                })
+                Ok(Self::InquireNodeIdAck { node_id: value[1] })
             }
-            _ => Err(MessageError::UnexpectedLssCommand(value[0])),
+            _ => Err(MessageError::UnexpectedLssCommand { value: value[0] }),
         }
+    }
+}
+
+impl TryFrom<CanMessage> for LssResponse {
+    type Error = MessageError;
+
+    fn try_from(value: CanMessage) -> Result<Self, Self::Error> {
+        if value.id != LSS_RESP_ID {
+            return Err(MessageError::UnexpectedId {
+                cob_id: value.id,
+                expected: LSS_RESP_ID,
+            });
+        }
+        LssResponse::try_from(&value.data[..])
     }
 }
 
@@ -430,4 +490,3 @@ impl LssIdentity {
         }
     }
 }
-
