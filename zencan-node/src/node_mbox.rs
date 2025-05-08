@@ -1,8 +1,8 @@
-use crossbeam::atomic::AtomicCell;
+
 use defmt_or_log::warn;
 use zencan_common::{
     messages::{CanId, CanMessage},
-    sdo::SdoRequest,
+    sdo::SdoRequest, AtomicCell,
 };
 
 use crate::{lss_slave::LssReceiver, node_state::Pdo};

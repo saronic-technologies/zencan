@@ -1,5 +1,7 @@
 #![no_std]
 
+mod atomic_cell;
+pub use atomic_cell::AtomicCell;
 pub mod lss;
 pub mod messages;
 pub mod objects;

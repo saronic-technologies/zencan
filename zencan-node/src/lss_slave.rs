@@ -1,4 +1,4 @@
-use crossbeam::atomic::AtomicCell;
+use zencan_common::AtomicCell;
 use defmt_or_log::info;
 use zencan_common::{
     lss::{

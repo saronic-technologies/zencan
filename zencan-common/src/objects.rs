@@ -2,10 +2,8 @@
 
 // }
 
-use core::any::Any
-;
-use crossbeam::atomic::AtomicCell;
-
+use core::any::Any;
+use crate::AtomicCell;
 use crate::sdo::AbortCode;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -160,7 +158,6 @@ pub trait ObjectRawAccess: Sync + Send {
     }
 }
 
-#[derive(Default)]
 pub struct CallbackObject {
     write_cb: AtomicCell<Option<WriteHookFn>>,
     read_cb: AtomicCell<Option<ReadHookFn>>,

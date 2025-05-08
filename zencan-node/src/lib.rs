@@ -14,7 +14,6 @@ pub use zencan_macro::build_object_dict;
 
 // Re-export types used by generated code
 pub use zencan_common as common;
-pub use crossbeam;
 pub use critical_section;
 
 /// Include the code generated for the object dict in the buils script.

@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 zencan-common = { path = "../zencan-common", default-features = false }
 critical-section.workspace = true
-crossbeam.workspace = true
 defmt-or-log = "0.2.0"
 futures.workspace = true
 log = { version = "0.4" }

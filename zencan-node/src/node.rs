@@ -372,7 +372,7 @@ impl<'table> Node<'table> {
         // TODO: Lookup identity. Should node actually be created with a node id?
         let lss_slave = LssSlave::new(LssIdentity::new(10, 20, 30, 40), node_id);
         let nmt_state = NmtState::Bootup;
-        let node_id = node_id.try_into().unwrap_or(NodeId::Unconfigured);
+        let node_id = node_id;
         let reassigned_node_id = None;
 
         // register RPDO handlers

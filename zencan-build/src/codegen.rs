@@ -703,7 +703,9 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
     let table_len = dev.objects.len();
     Ok(quote! {
         #[allow(unused_imports)]
-        use zencan_node::crossbeam::atomic::AtomicCell;
+        use zencan_node::common::AtomicCell;
+        #[allow(unused_imports)]
+        use core::cell::Cell;
         #[allow(unused_imports)]
         use core::cell::RefCell;
         #[allow(unused_imports)]

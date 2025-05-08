@@ -1,4 +1,4 @@
-use crossbeam::atomic::AtomicCell;
+use zencan_common::AtomicCell;
 use zencan_common::messages::CanId;
 
 #[derive(Debug)]

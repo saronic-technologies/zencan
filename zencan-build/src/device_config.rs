@@ -157,9 +157,9 @@ impl Default for PdoConfig {
 #[derive(Deserialize, Debug, Default, Clone, Copy)]
 #[serde(deny_unknown_fields)]
 pub struct IdentityConfig {
-    vendor_id: u32,
-    product_code: u32,
-    revision_number: u32,
+    pub vendor_id: u32,
+    pub product_code: u32,
+    pub revision_number: u32,
 }
 
 #[derive(Deserialize, Debug, Clone)]
