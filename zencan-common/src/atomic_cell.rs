@@ -31,6 +31,18 @@ impl<T: Send + Copy> AtomicCell<T> {
             self.inner.borrow(cs).set(value)
         });
     }
+
+    pub fn fetch_update(&self, mut f: impl FnMut(T) -> Option<T>) -> Result<T, T> {
+        critical_section::with(|cs| {
+            let old_value = self.inner.borrow(cs).get();
+            if let Some(new_value) = f(old_value) {
+                self.inner.borrow(cs).set(new_value);
+                Ok(old_value)
+            } else {
+                Err(old_value)
+            }
+        })
+    }
 }
 
 impl<T: Send + Copy + Default> AtomicCell<T> {
