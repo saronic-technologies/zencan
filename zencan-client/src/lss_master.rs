@@ -9,8 +9,6 @@ use zencan_common::{
 
 use snafu::Snafu;
 
-use crate::nmt_master::Node;
-
 pub struct LssMaster<S, R> {
     sender: S,
     receiver: R,

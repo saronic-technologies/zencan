@@ -41,12 +41,13 @@ const MAX_DATA_LENGTH: usize = 8;
 pub struct CanMessage {
     pub data: [u8; MAX_DATA_LENGTH],
     pub dlc: u8,
+    pub rtr: bool,
     pub id: CanId,
 }
 
 impl Default for CanMessage {
     fn default() -> Self {
-        Self { data: [0; MAX_DATA_LENGTH], dlc: 0, id: CanId::Std(0) }
+        Self { data: [0; MAX_DATA_LENGTH], dlc: 0, id: CanId::Std(0), rtr: false }
     }
 }
 
@@ -58,8 +59,17 @@ impl CanMessage {
         }
         let mut buf = [0u8; MAX_DATA_LENGTH];
         buf[0..dlc as usize].copy_from_slice(data);
+        let rtr = false;
 
-        Self { id, dlc, data: buf }
+        Self { id, dlc, data: buf, rtr }
+    }
+
+    pub fn new_rtr(id: CanId) -> Self {
+        Self {
+            id,
+            rtr: true,
+            ..Default::default()
+        }
     }
 
     pub fn id(&self) -> CanId {
@@ -68,6 +78,42 @@ impl CanMessage {
 
     pub fn data(&self) -> &[u8] {
         &self.data[0..self.dlc as usize]
+    }
+}
+
+/// The error codes which can be delivered in a CAN frame
+///
+/// These are set by a receiver when it detects an error in a received frame, and received globally
+/// by all nodes on the bus
+#[derive(Debug, Snafu)]
+#[repr(u8)]
+pub enum CanError {
+    /// The transmitter detected a different value on the bus than the value is was transmitting at
+    /// a point in the message after the arbitration process (sending of the ID)
+    Bit = 1,
+    /// A receiver detected a sequence of 6 bits of the same level, indicating a failure in bit
+    /// stuffing
+    Stuff = 2,
+    /// A reveiver detected a malformed can frame (e.g. the SOF bit was not dominant, etc)
+    Form = 3,
+    /// The transmitter did not detect an ACK from any receivers
+    Ack = 4,
+    /// A receiver detected a mismatch in CRC value for the message
+    Crc = 5,
+    /// There are other bit patterns possible for the error field, but they have no defined meaning
+    Other,
+}
+
+impl CanError {
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            1 => Self::Bit,
+            2 => Self::Stuff,
+            3 => Self::Form,
+            4 => Self::Ack,
+            5 => Self::Crc,
+            _ => Self::Other,
+        }
     }
 }
 
@@ -214,13 +260,7 @@ impl Default for SyncObject {
 
 impl From<SyncObject> for CanMessage {
     fn from(value: SyncObject) -> Self {
-        let mut msg = CanMessage {
-            id: SYNC_ID,
-            dlc: 1,
-            data: [0; MAX_DATA_LENGTH],
-        };
-        msg.data[0] = value.count;
-        msg
+        CanMessage::new(SYNC_ID, &[value.count])
     }
 }
 

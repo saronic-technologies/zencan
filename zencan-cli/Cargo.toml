@@ -5,5 +5,13 @@ edition = "2021"
 authors = ["Jeff McBride <jeff@jeffmcbride.net>"]
 license = "MPL-2.0"
 
+[[bin]]
+name = "zencandump"
+path = "src/zencandump.rs"
+
 [dependencies]
 zencan-client.workspace = true
+socketcan = { version = "3.5.0", features = ["tokio"] }
+clap = { version = "4.5.37", features = ["derive"] }
+tokio = { version = "1.45.0", features = ["net", "macros", "rt-multi-thread"] }
+chrono = "0.4.41"
