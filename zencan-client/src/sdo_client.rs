@@ -1,10 +1,10 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use snafu::Snafu;
 use zencan_common::{
+    messages::CanId,
     sdo::{AbortCode, SdoRequest, SdoResponse},
     traits::{AsyncCanReceiver, AsyncCanSender},
-    messages::CanId,
 };
 
 const RESPONSE_TIMEOUT: Duration = Duration::from_millis(100);
@@ -21,6 +21,8 @@ pub enum SdoClientError {
     },
     ToggleNotAlternated,
     UnexpectedSize,
+    /// An error occured reading from the socket
+    SocketError,
 }
 
 type Result<T> = std::result::Result<T, SdoClientError>;
@@ -53,20 +55,18 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
             let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
             match resp {
                 SdoResponse::ConfirmDownload { index: _, sub: _ } => {
-                    Ok(())// Success!
+                    Ok(()) // Success!
                 }
                 SdoResponse::Abort {
                     index,
                     sub,
                     abort_code,
-                } => {
-                    ServerAbortSnafu {
-                        index,
-                        sub,
-                        abort_code,
-                    }
-                    .fail()
+                } => ServerAbortSnafu {
+                    index,
+                    sub,
+                    abort_code,
                 }
+                .fail(),
                 _ => UnexpectedResponseSnafu.fail(),
             }
         } else {
@@ -87,7 +87,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                         sub,
                         abort_code,
                     }
-                    .fail()
+                    .fail();
                 }
                 _ => return UnexpectedResponseSnafu.fail(),
             }
@@ -134,7 +134,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                             sub,
                             abort_code,
                         }
-                        .fail()
+                        .fail();
                     }
                     _ => {
                         // Any other message from the SDO server is unexpected
@@ -174,7 +174,14 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                 index,
                 sub,
                 abort_code,
-            } => return ServerAbortSnafu { index, sub, abort_code }.fail(),
+            } => {
+                return ServerAbortSnafu {
+                    index,
+                    sub,
+                    abort_code,
+                }
+                .fail();
+            }
             _ => return UnexpectedResponseSnafu.fail(),
         };
 
@@ -210,7 +217,14 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                         index,
                         sub,
                         abort_code,
-                    } => return ServerAbortSnafu { index, sub, abort_code }.fail(),
+                    } => {
+                        return ServerAbortSnafu {
+                            index,
+                            sub,
+                            abort_code,
+                        }
+                        .fail();
+                    }
                     _ => return UnexpectedResponseSnafu.fail(),
                 }
                 toggle = !toggle;
@@ -392,20 +406,23 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         self.upload_i32(index, sub).await
     }
 
-    async fn wait_for_response(&mut self, mut timeout: Duration) -> Result<SdoResponse> {
-        let wait_until = Instant::now() + timeout;
+    async fn wait_for_response(&mut self, timeout: Duration) -> Result<SdoResponse> {
+        let wait_until = tokio::time::Instant::now() + timeout;
         loop {
-            let msg = self
-                .receiver
-                .recv(timeout)
-                .await
-                .map_err(|_| NoResponseSnafu.build())?;
-            if msg.id == self.resp_cob_id {
-                return msg.try_into().map_err(|_| MalformedResponseSnafu.build());
-            }
-            timeout = wait_until.saturating_duration_since(Instant::now());
-            if timeout.is_zero() {
-                return NoResponseSnafu.fail();
+            match tokio::time::timeout_at(wait_until, self.receiver.recv()).await {
+                // Err indicates the timeout elapsed, so return
+                Err(_) => return NoResponseSnafu.fail(),
+                // Message was recieved. If it is the resp, return. Otherwise, keep waiting
+                Ok(Ok(msg)) => {
+                    if msg.id == self.resp_cob_id {
+                        return msg.try_into().map_err(|_| MalformedResponseSnafu.build());
+                    }
+                }
+                // Recv returned an error
+                Ok(Err(e)) => {
+                    log::error!("Error reading from socket: {e:?}");
+                    return NoResponseSnafu.fail()
+                }
             }
         }
     }

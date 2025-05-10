@@ -1,17 +1,18 @@
-use futures::executor::block_on;
 use integration_tests::{
     object_dict1,
     sim_bus::{SimBus, SimBusReceiver, SimBusSender},
 };
 use zencan_client::sdo_client::{SdoClient, SdoClientError};
 use zencan_common::{
-    messages::ZencanMessage,
     objects::ODEntry,
     sdo::AbortCode,
-    traits::{AsyncCanReceiver, AsyncCanSender},
+    NodeId,
 };
-use zencan_node::{node::NodeId, node_mbox::{NodeMboxRead, NodeMboxWrite}};
-use zencan_node::{node::Node, node_state::NodeStateAccess};
+use zencan_node::{
+    node_mbox::{NodeMboxRead, NodeMboxWrite},
+    node::Node,
+    node_state::NodeStateAccess,
+};
 
 mod bus_logger;
 use bus_logger::BusLogger;

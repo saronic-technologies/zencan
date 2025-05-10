@@ -79,6 +79,10 @@ impl CanMessage {
     pub fn data(&self) -> &[u8] {
         &self.data[0..self.dlc as usize]
     }
+
+    pub fn is_rtr(&self) -> bool {
+        self.rtr
+    }
 }
 
 /// The error codes which can be delivered in a CAN frame

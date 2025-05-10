@@ -1,6 +1,9 @@
 use clap::Parser;
-use zencan_node::common::messages::{CanMessage, CanId};
-use zencan_node::node::{Node, NodeId};
+use zencan_node::common::{
+    messages::{CanMessage, CanId},
+    NodeId,
+};
+use zencan_node::node::Node;
 
 use socketcan::tokio::CanSocket;
 use socketcan::{CanFrame, EmbeddedFrame, Frame};

@@ -85,11 +85,10 @@ impl SimBusReceiver {
 }
 
 impl AsyncCanReceiver for SimBusReceiver {
-    async fn recv(&mut self, timeout: Duration) -> Result<CanMessage, ()> {
-        timeout_at(tokio::time::Instant::now() + timeout.into(), self.channel_rx.recv()).await.map_err(|_| {
-            println!("Timeout receiving message");
-            ()
-        }).map(|msg| msg.expect("Receive channel closed"))
+    type Error = ();
+
+    async fn recv(&mut self) -> Result<CanMessage, Self::Error> {
+        self.channel_rx.recv().await.ok_or(())
     }
 
     fn try_recv(&mut self) -> Option<CanMessage> {

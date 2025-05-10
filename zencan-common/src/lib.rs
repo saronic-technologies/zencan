@@ -10,3 +10,5 @@ pub mod sdo;
 pub mod traits;
 
 pub use node_id::NodeId;
+
+pub use messages::{CanMessage, CanId, CanError};

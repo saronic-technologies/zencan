@@ -5,9 +5,9 @@ use zencan_common::{
         LssConfigureError, LssIdentity, LssRequest, LssResponse, LssState, LSS_FASTSCAN_CONFIRM,
     },
     messages::MessageError,
+    NodeId,
 };
 
-use crate::node::NodeId;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LssEvent {

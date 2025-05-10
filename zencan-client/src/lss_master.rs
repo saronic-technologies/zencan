@@ -1,10 +1,10 @@
 use core::time::Duration;
-use std::time::Instant;
 
+use tokio::time::timeout_at;
 use zencan_common::{
-    lss::{LssIdentity, LssRequest, LssResponse, LSS_FASTSCAN_CONFIRM},
-    traits::{AsyncCanReceiver, AsyncCanSender},
     NodeId,
+    lss::{LSS_FASTSCAN_CONFIRM, LssIdentity, LssRequest, LssResponse},
+    traits::{AsyncCanReceiver, AsyncCanSender},
 };
 
 use snafu::Snafu;
@@ -23,19 +23,13 @@ pub enum LssError {
         error,
         spec_error
     ))]
-    BitTimingConfigError {
-        error: u8,
-        spec_error: u8,
-    },
+    BitTimingConfigError { error: u8, spec_error: u8 },
     #[snafu(display(
         "LSS slave returned an error in response to ConfigNodeId command. error: {}, Spec error: {}",
         error,
         spec_error
     ))]
-    NodeIdConfigError {
-        error: u8,
-        spec_error: u8,
-    }
+    NodeIdConfigError { error: u8, spec_error: u8 },
 }
 
 // /// Send a sequence of messages to put a single node into configuration mode based on its identity
@@ -120,7 +114,8 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
         baud_rate_index: u8,
     ) -> Result<(), LssError> {
         // Put the specified node into configuration mode
-        self.enter_config_by_identity(vendor_id, product_code, revision, serial).await?;
+        self.enter_config_by_identity(vendor_id, product_code, revision, serial)
+            .await?;
         // set the node ID
         self.set_node_id(node_id).await?;
         // Set the bit rate
@@ -173,11 +168,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
     /// * `table` - The index of the table of baud rate settings to use (0 for the default CANOpen
     ///   table)
     /// * `index` - The index into the table of the baud rate setting to use
-    pub async fn set_baud_rate(
-        &mut self,
-        table: u8,
-        index: u8,
-    ) -> Result<(), LssError> {
+    pub async fn set_baud_rate(&mut self, table: u8, index: u8) -> Result<(), LssError> {
         const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
         match self
             .send_and_receive(
@@ -190,10 +181,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
                 if error == 0 {
                     Ok(())
                 } else {
-                    Err(LssError::BitTimingConfigError {
-                        error,
-                        spec_error,
-                    })
+                    Err(LssError::BitTimingConfigError { error, spec_error })
                 }
             }
             _ => Err(LssError::Timeout),
@@ -221,10 +209,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
                 if error == 0 {
                     Ok(())
                 } else {
-                    Err(LssError::NodeIdConfigError {
-                        error,
-                        spec_error,
-                    })
+                    Err(LssError::NodeIdConfigError { error, spec_error })
                 }
             }
             _ => Err(LssError::Timeout),
@@ -240,15 +225,18 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
         let mut bit_check;
 
         let mut send_fs = async |id: &[u32; 4], bit_check: u8, sub: u8, next: u8| -> bool {
-            match self.send_and_receive(
-                LssRequest::FastScan {
-                    id: id[sub as usize],
-                    bit_check,
-                    sub,
-                    next,
-                },
-                TIMEOUT,
-            ).await {
+            match self
+                .send_and_receive(
+                    LssRequest::FastScan {
+                        id: id[sub as usize],
+                        bit_check,
+                        sub,
+                        next,
+                    },
+                    TIMEOUT,
+                )
+                .await
+            {
                 Some(LssResponse::IdentifySlave) => true,
                 _ => false,
             }
@@ -289,17 +277,24 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
     ) -> Option<LssResponse> {
         self.sender.send(msg.into()).await.ok()?;
 
-        let wait_until = Instant::now() + timeout;
+        let wait_until = tokio::time::Instant::now() + timeout;
         loop {
-            let timeout = wait_until.saturating_duration_since(Instant::now());
-            if timeout.is_zero() {
-                return None;
-            }
-            if let Ok(msg) = self.receiver.recv(timeout).await {
-                let resp: Result<LssResponse, _> = msg.try_into();
-                if let Ok(resp) = resp {
-                    return Some(resp);
+            match timeout_at(wait_until, self.receiver.recv()).await {
+                // Got a message
+                Ok(Ok(msg)) => {
+                    match msg.try_into() {
+                        Ok(lss_resp) => return Some(lss_resp),
+                        // Failed to convert message into LSS response. Skip it.
+                        Err(_) => {}
+                    }
                 }
+                // `recv` returned without a message. Keep waiting.
+                Ok(Err(e)) => {
+                    log::error!("Error reading can socket: {e:?}");
+                    return None;
+                }
+                // Timeout waiting
+                Err(_) => return None,
             }
         }
     }

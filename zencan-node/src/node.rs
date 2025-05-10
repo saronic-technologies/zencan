@@ -1,4 +1,5 @@
 use zencan_common::{
+    NodeId,
     lss::LssIdentity,
     messages::{CanMessage, CanId, Heartbeat, NmtCommandCmd, NmtState, ZencanMessage, LSS_RESP_ID},
     objects::{find_object, AccessType, Context, DataType, ODEntry, ObjectRawAccess, SubInfo},
@@ -429,7 +430,7 @@ impl<'table> Node<'table> {
                 // We cannot respond to NMT commands if we do not have a valid node ID
 
                 if let NodeId::Configured(node_id) = self.node_id {
-                    if cmd.node == 0 || cmd.node == node_id.0 {
+                    if cmd.node == 0 || cmd.node == node_id.raw() {
                         debug!("Received NMT command: {:?}", cmd.cmd);
                         self.handle_nmt_command(cmd.cmd);
                     }
@@ -535,11 +536,11 @@ impl<'table> Node<'table> {
         //self.sdo_server = Some(SdoServer::new());
         let mut i = 0;
         if let NodeId::Configured(node_id) = self.node_id {
-            info!("Booting node with ID {}", node_id.0);
+            info!("Booting node with ID {}", node_id.raw());
             for pdo in self.state.get_rpdos() {
                 if i < 4 {
                     pdo.cob_id
-                        .store(CanId::Std(0x200 + i * 0x100 + node_id.0 as u16));
+                        .store(CanId::Std(0x200 + i * 0x100 + node_id.raw() as u16));
                 } else {
                     pdo.cob_id.store(CanId::Std(0x0));
                 }
@@ -556,7 +557,7 @@ impl<'table> Node<'table> {
             for pdo in self.state.get_tpdos() {
                 if i < 4 {
                     pdo.cob_id
-                        .store(CanId::Std(0x180 + i * 0x100 + node_id.0 as u16));
+                        .store(CanId::Std(0x180 + i * 0x100 + node_id.raw() as u16));
                 } else {
                     pdo.cob_id.store(CanId::Std(0x0));
                 }
@@ -576,7 +577,7 @@ impl<'table> Node<'table> {
 
             sender(
                 Heartbeat {
-                    node: node_id.0,
+                    node: node_id.raw(),
                     toggle: false,
                     state: self.nmt_state,
                 }

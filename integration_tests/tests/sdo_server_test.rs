@@ -1,8 +1,10 @@
-use zencan_client::sdo_client::SdoClient;
-use zencan_common::{sdo::{SdoRequest, SdoResponse}, traits::AsyncCanSender};
-use zencan_node::{node::{Node, NodeId}, sdo_server::SdoServer};
 use integration_tests::sim_bus::SimBus;
-use futures::executor::block_on;
+use zencan_client::sdo_client::SdoClient;
+use zencan_common::{
+    sdo::{SdoRequest, SdoResponse},
+    NodeId,
+};
+use zencan_node::{node::Node, sdo_server::SdoServer};
 
 mod utils;
 use utils::test_with_background_process;
@@ -35,22 +37,26 @@ fn test_sdo_server() {
 
     //let mut sender = MockSender { last_message: None };
 
-    let resp = server.handle_request(
-        &SdoRequest::expedited_download(0x3000, 0, &32u32.to_le_bytes()),
-        od,
-    ).expect("No response to expedited download");
+    let resp = server
+        .handle_request(
+            &SdoRequest::expedited_download(0x3000, 0, &32u32.to_le_bytes()),
+            od,
+        )
+        .expect("No response to expedited download");
 
     assert_eq!(
         resp,
-        SdoResponse::ConfirmDownload { index: 0x3000, sub: 0 }
+        SdoResponse::ConfirmDownload {
+            index: 0x3000,
+            sub: 0
+        }
     );
 
     // TODO: Check value is written to object dict
 
-    let resp = server.handle_request(
-        &SdoRequest::initiate_upload(0x3000, 0),
-        od,
-    ).expect("No response to initiate upload");
+    let resp = server
+        .handle_request(&SdoRequest::initiate_upload(0x3000, 0), od)
+        .expect("No response to initiate upload");
     assert_eq!(
         resp,
         SdoResponse::ConfirmUpload {
@@ -80,10 +86,13 @@ async fn test_sdo_read() {
         let receiver = bus.new_receiver();
         let mut client = SdoClient::new_std(SLAVE_NODE_ID, sender, receiver);
 
-        client.download(0x3000, 0, &[0xa, 0xb, 0xc, 0xd]).await.unwrap();
+        client
+            .download(0x3000, 0, &[0xa, 0xb, 0xc, 0xd])
+            .await
+            .unwrap();
         let read = client.upload(0x3000, 0).await.unwrap();
 
         assert_eq!(vec![0xa, 0xb, 0xc, 0xd], read);
-    }).await;
-
+    })
+    .await;
 }

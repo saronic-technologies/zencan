@@ -1,5 +1,8 @@
-use socketcan::{tokio::CanSocket, Frame, EmbeddedFrame};
-use zencan_client::common::messages::{CanError, CanId, CanMessage, ZencanMessage};
+use socketcan::{Frame, EmbeddedFrame};
+use zencan_client::common::{
+    messages::{CanError, CanId, CanMessage, ZencanMessage},
+    traits::AsyncCanReceiver,
+};
 use clap::Parser;
 
 #[derive(Parser)]
@@ -46,15 +49,13 @@ impl TryFrom<socketcan::CanFrame> for Message {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let socket = CanSocket::open(&args.socket).unwrap();
+    let (_tx, mut rx) = zencan_client::socketcan::open_socketcan(&args.socket);
+
     loop {
-        while let Ok(frame) = socket.read_frame().await {
+        if let Ok(msg) = rx.recv().await {
             let time = chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, false);
-            match frame.try_into() {
-                Ok(Message::Recognized(msg)) => println!("{time}: {:?}", msg),
-                Ok(Message::Unrecognized(msg)) => println!("{time}: {:?}", msg),
-                Err(e) => println!("{time}: Bus Err: {:?}", e),
-            }
+            println!("{time}: {msg:?}");
         }
     }
+
 }
