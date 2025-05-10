@@ -1,14 +1,16 @@
+use std::time::Duration;
+
 use clap::Parser;
+use tokio::time::timeout;
 use zencan_node::common::{
-    messages::{CanMessage, CanId},
+    CanMessage,
+    traits::{AsyncCanReceiver, AsyncCanSender},
     NodeId,
 };
 use zencan_node::node::Node;
 
-use socketcan::tokio::CanSocket;
-use socketcan::{CanFrame, EmbeddedFrame, Frame};
 use zencan_node::node_mbox::NodeMboxWrite;
-
+use zencan_node::open_socketcan;
 
 mod zencan {
     zencan_node::include_modules!(DEVICE);
@@ -32,28 +34,32 @@ async fn main() {
     let node_id = NodeId::try_from(args.node_id).unwrap();
     let mut node = Node::new(node_id, &zencan::NODE_MBOX, &zencan::NODE_STATE, &zencan::OD_TABLE);
 
-    // Spawn a message receive background task
-    let socket_name = args.socket.clone();
+    let (mut tx, mut rx) = open_socketcan(&args.socket).unwrap();
 
+    // Node requires callbacks be static, so use Box::leak to make static ref from closure on heap
+    let process_notify = Box::leak(Box::new(tokio::sync::Notify::new()));
+    let notify_cb = Box::leak(Box::new(|| {
+        process_notify.notify_one();
+    }));
+    zencan::NODE_MBOX.set_process_notify_callback(notify_cb);
+
+    // Spawn a task to receive messages
     tokio::spawn(async move {
-        let socket = CanSocket::open(&socket_name).unwrap();
         loop {
-            let frame: CanFrame = socket.read_frame().await.unwrap();
-            let can_id = match frame.can_id() {
-                socketcan::CanId::Standard(id) => CanId::Std(id.as_raw()),
-                socketcan::CanId::Extended(id) => CanId::Extended(id.as_raw()),
+            let msg = match rx.recv().await {
+                Ok(msg) => msg,
+                Err(e) => {
+                    log::error!("Error receiving message: {e:?}");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
             };
-
-            let msg = CanMessage::new(can_id, frame.data());
-
             if let Err(msg) = zencan::NODE_MBOX.store_message(msg) {
-                println!("Unhandled message received: {:?}", msg);
+                log::warn!("Unhandled RX message: {:?}", msg);
             }
         }
     });
 
-
-    let socket = CanSocket::open(&args.socket).unwrap();
     loop {
         let mut tx_messages = Vec::new();
 
@@ -62,21 +68,14 @@ async fn main() {
             tx_messages.push(msg);
         });
 
-        // Now push the collected messages out to the socket
+        // push the collected messages out to the socket
         for msg in tx_messages {
-            let can_id = match msg.id() {
-                CanId::Std(id) => {
-                    socketcan::CanId::Standard(socketcan::StandardId::new(id).unwrap())
-                }
-                CanId::Extended(id) => {
-                    socketcan::CanId::Extended(socketcan::ExtendedId::new(id).unwrap())
-                }
-            };
-            let frame = CanFrame::new(can_id, msg.data()).unwrap();
-            socket.write_frame(frame).await.unwrap();
+            if let Err(e) = tx.send(msg).await {
+                log::error!("Error sending CAN message to socket: {e:?}");
+            }
         }
-        tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+
+        // Wait for notification to run, or a timeout
+        timeout(Duration::from_millis(1), process_notify.notified()).await.ok();
     }
-
-
 }

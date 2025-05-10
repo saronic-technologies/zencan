@@ -4,14 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# Local
+zencan-node = { workspace = true, features = ["log", "socketcan"] }
+
+# External
 clap = { version = "4.5.37", features = ["derive"] }
-critical-section = { version = "1.2", features = ["std"] }
+critical-section = { workspace = true, features = ["std"] }
 env_logger = "0.11.8"
-log = "0.4.27"
-socketcan = { version = "3.5.0", features = ["tokio"] }
-tokio = { version = "1.44.2", features = ["macros", "rt-multi-thread", "time"] }
-zencan-node = { path = "../../zencan-node", features = ["log"] }
+log.workspace = true
+tokio = { version = "1.44.2", features = ["macros", "rt-multi-thread", "time", "sync"] }
 
 [build-dependencies]
-zencan-build = { path = "../../zencan-build" }
+zencan-build.workspace = true
 

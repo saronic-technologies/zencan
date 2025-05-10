@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 # Local
 zencan-common.workspace = true
-zencan-macro = { path = "../zencan-macro" }
+zencan-macro.workspace = true
 
 # External
 critical-section.workspace = true
@@ -21,3 +21,4 @@ default = ["log"]
 std = ["critical-section/std", "zencan-common/std"]
 log = ["defmt-or-log/log"]
 defmt = ["defmt-or-log/defmt"]
+socketcan = ["zencan-common/socketcan", "std"]

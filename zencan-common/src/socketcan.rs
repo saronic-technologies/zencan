@@ -1,26 +1,23 @@
 use std::sync::Arc;
 
-use futures::FutureExt as _;
-use snafu::{ResultExt, Snafu};
-use socketcan::{tokio::CanSocket, CanFrame, EmbeddedFrame, Frame, ShouldRetry};
-use zencan_common::{
-    messages::{CanError, CanMessage},
+use crate::{
+    messages::{CanError, CanId, CanMessage},
     traits::{AsyncCanReceiver, AsyncCanSender},
 };
+use snafu::{ResultExt, Snafu};
+use socketcan::{tokio::CanSocket, CanFrame, EmbeddedFrame, Frame, ShouldRetry};
 
-fn socketcan_id_to_zencan_id(id: socketcan::CanId) -> zencan_common::messages::CanId {
+fn socketcan_id_to_zencan_id(id: socketcan::CanId) -> CanId {
     match id {
-        socketcan::CanId::Standard(id) => zencan_common::messages::CanId::std(id.as_raw()),
-        socketcan::CanId::Extended(id) => zencan_common::messages::CanId::extended(id.as_raw()),
+        socketcan::CanId::Standard(id) => CanId::std(id.as_raw()),
+        socketcan::CanId::Extended(id) => CanId::extended(id.as_raw()),
     }
 }
 
-fn zencan_id_to_socketcan_id(id: zencan_common::messages::CanId) -> socketcan::CanId {
+fn zencan_id_to_socketcan_id(id: CanId) -> socketcan::CanId {
     match id {
-        zencan_common::messages::CanId::Extended(id) => {
-            socketcan::ExtendedId::new(id).unwrap().into()
-        }
-        zencan_common::messages::CanId::Std(id) => socketcan::StandardId::new(id).unwrap().into(),
+        CanId::Extended(id) => socketcan::ExtendedId::new(id).unwrap().into(),
+        CanId::Std(id) => socketcan::StandardId::new(id).unwrap().into(),
     }
 }
 
@@ -52,8 +49,7 @@ pub struct SocketCanReceiver {
 #[derive(Debug, Snafu)]
 pub enum ReceiveError {
     Io { source: socketcan::IoError },
-    Can { source: zencan_common::CanError }
-
+    Can { source: CanError },
 }
 
 impl AsyncCanReceiver for SocketCanReceiver {
@@ -84,9 +80,9 @@ impl AsyncCanReceiver for SocketCanReceiver {
                 Ok(frame) => return socketcan_frame_to_zencan_message(frame).context(CanSnafu),
                 Err(e) => {
                     if !e.should_retry() {
-                        return Err(ReceiveError::Io { source: e })
+                        return Err(ReceiveError::Io { source: e });
                     }
-                },
+                }
             }
         }
     }
@@ -102,7 +98,11 @@ impl AsyncCanSender for SocketCanSender {
         let socketcan_frame = zencan_message_to_socket_frame(msg);
 
         let result = self.socket.write_frame(socketcan_frame).await;
-        if result.is_err() { Err(msg) } else { Ok(()) }
+        if result.is_err() {
+            Err(msg)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -114,13 +114,15 @@ impl AsyncCanSender for SocketCanSender {
 ///
 /// A key benefit of this is that by creating both sender and receiver objects from a shared socket,
 /// the receiver will not receive messages sent by the sender.
-pub fn open_socketcan<S: AsRef<str>>(device: S) -> (SocketCanSender, SocketCanReceiver) {
+pub fn open_socketcan<S: AsRef<str>>(
+    device: S,
+) -> Result<(SocketCanSender, SocketCanReceiver), socketcan::IoError> {
     let device: &str = device.as_ref();
-    let socket = CanSocket::open(device).unwrap();
+    let socket = CanSocket::open(device)?;
     let socket = Arc::new(socket);
     let receiver = SocketCanReceiver {
         socket: socket.clone(),
     };
     let sender = SocketCanSender { socket };
-    (sender, receiver)
+    Ok((sender, receiver))
 }

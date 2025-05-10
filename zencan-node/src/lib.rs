@@ -16,6 +16,9 @@ pub use zencan_macro::build_object_dict;
 pub use zencan_common as common;
 pub use critical_section;
 
+#[cfg(feature = "socketcan")]
+pub use common::open_socketcan;
+
 /// Include the code generated for the object dict in the buils script.
 #[macro_export]
 macro_rules! include_modules {

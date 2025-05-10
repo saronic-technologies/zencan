@@ -1,11 +1,11 @@
-use std::{cell::RefCell, sync::Arc, time::Duration};
+use std::{cell::RefCell, sync::Arc};
 
 use zencan_common::traits::{AsyncCanReceiver, AsyncCanSender};
 use zencan_common::messages::CanMessage;
 use zencan_node::node::Node;
 use zencan_node::node_mbox::NodeMboxWrite;
 
-use tokio::{sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender}, time::timeout_at};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 pub struct SimBus<'a> {
     node_states: Arc<RefCell<Vec<&'a dyn NodeMboxWrite>>>,

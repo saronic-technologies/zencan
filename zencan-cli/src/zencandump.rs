@@ -49,7 +49,7 @@ impl TryFrom<socketcan::CanFrame> for Message {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let (_tx, mut rx) = zencan_client::socketcan::open_socketcan(&args.socket);
+    let (_tx, mut rx) = zencan_client::open_socketcan(&args.socket).unwrap();
 
     loop {
         if let Ok(msg) = rx.recv().await {
