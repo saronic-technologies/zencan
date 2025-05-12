@@ -467,16 +467,16 @@ pub struct LssIdentity {
     pub vendor_id: u32,
     pub product_code: u32,
     pub revision: u32,
-    pub serial_number: u32,
+    pub serial: u32,
 }
 
 impl LssIdentity {
-    pub fn new(vendor_id: u32, product_code: u32, revision: u32, serial_number: u32) -> Self {
+    pub fn new(vendor_id: u32, product_code: u32, revision: u32, serial: u32) -> Self {
         Self {
             vendor_id,
             product_code,
             revision,
-            serial_number,
+            serial,
         }
     }
 
@@ -485,7 +485,7 @@ impl LssIdentity {
             0 => self.vendor_id,
             1 => self.product_code,
             2 => self.revision,
-            3 => self.serial_number,
+            3 => self.serial,
             _ => panic!("Invalid LSS identity address"),
         }
     }

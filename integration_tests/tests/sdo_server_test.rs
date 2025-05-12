@@ -81,7 +81,7 @@ async fn test_sdo_read() {
     let mut bus = SimBus::new(vec![mbox]);
     let mut sender = bus.new_sender();
 
-    test_with_background_process(&mut node, &mut sender, async move {
+    test_with_background_process(&mut [&mut node], &mut sender, async move {
         let sender = bus.new_sender();
         let receiver = bus.new_receiver();
         let mut client = SdoClient::new_std(SLAVE_NODE_ID, sender, receiver);

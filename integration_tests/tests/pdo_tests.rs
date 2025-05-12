@@ -18,10 +18,8 @@ use zencan_common::{
 use zencan_node::node_mbox::{NodeMboxRead, NodeMboxWrite};
 use zencan_node::{node::Node, node_state::NodeStateAccess};
 
-mod bus_logger;
-use bus_logger::BusLogger;
 mod utils;
-use utils::test_with_background_process;
+use utils::{BusLogger, test_with_background_process};
 
 fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
     od: &'static [ODEntry],
@@ -90,7 +88,7 @@ async fn test_rpdo_assignment() {
         assert_eq!(500, client.upload_u32(0x2000, 1).await.unwrap());
     };
 
-    test_with_background_process(&mut node, &mut sender, test_task).await;
+    test_with_background_process(&mut [&mut node], &mut sender, test_task).await;
 }
 
 #[tokio::test]
@@ -171,5 +169,5 @@ async fn test_tpdo_asignment() {
     // test_task
     let mut sender = bus.new_sender();
 
-    test_with_background_process(&mut node, &mut sender, test_task).await;
+    test_with_background_process(&mut [&mut node], &mut sender, test_task).await;
 }

@@ -301,6 +301,20 @@ pub struct Node<'table> {
     reassigned_node_id: Option<NodeId>,
 }
 
+fn read_identity(od: &[ODEntry]) -> Option<LssIdentity> {
+    let obj = find_object(od, 0x1018)?;
+    let vendor_id = obj.read_u32(1).ok()?;
+    let product_code = obj.read_u32(2).ok()?;
+    let revision = obj.read_u32(3).ok()?;
+    let serial = obj.read_u32(4).ok()?;
+    Some(LssIdentity {
+        vendor_id,
+        product_code,
+        revision,
+        serial,
+    })
+}
+
 impl<'table> Node<'table> {
     pub fn new(
         node_id: NodeId,
@@ -310,8 +324,8 @@ impl<'table> Node<'table> {
     ) -> Self {
         let message_count = 0;
         let sdo_server = SdoServer::new();
-        // TODO: Lookup identity. Should node actually be created with a node id?
-        let lss_slave = LssSlave::new(LssIdentity::new(10, 20, 30, 40), node_id);
+
+        let lss_slave = LssSlave::new(read_identity(od).unwrap(), node_id);
         let nmt_state = NmtState::Bootup;
         let node_id = node_id;
         let reassigned_node_id = None;

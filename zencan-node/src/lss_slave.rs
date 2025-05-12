@@ -1,5 +1,5 @@
-use zencan_common::AtomicCell;
 use defmt_or_log::info;
+use zencan_common::AtomicCell;
 use zencan_common::{
     lss::{
         LssConfigureError, LssIdentity, LssRequest, LssResponse, LssState, LSS_FASTSCAN_CONFIRM,
@@ -7,7 +7,6 @@ use zencan_common::{
     messages::MessageError,
     NodeId,
 };
-
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LssEvent {
@@ -29,7 +28,7 @@ impl LssReceiver {
                 vendor_id: 0,
                 product_code: 0,
                 revision: 0,
-                serial_number: 0,
+                serial: 0,
             }),
             rx_req: AtomicCell::new(None),
         }
@@ -151,7 +150,7 @@ impl LssSlave {
             LssRequest::SwitchStateSerial { serial } => {
                 if self.state == LssState::Waiting {
                     let mut selected_identity = receiver.selected_identity.load();
-                    selected_identity.serial_number = serial;
+                    selected_identity.serial = serial;
                     if self.identity == selected_identity {
                         // If the identity matches, we are selected and enter the configuration state
                         self.state = LssState::Configuring;
@@ -194,7 +193,7 @@ impl LssSlave {
             LssRequest::InquireSerial => {
                 if self.state == LssState::Configuring {
                     Ok(Some(LssResponse::InquireSerialAck {
-                        serial_number: self.identity.serial_number,
+                        serial_number: self.identity.serial,
                     }))
                 } else {
                     Ok(None)
@@ -216,7 +215,7 @@ impl LssSlave {
                 sub,
                 next,
             } => {
-                if self.state == LssState::Waiting {
+                if self.active_node_id == NodeId::Unconfigured && self.state == LssState::Waiting {
                     if bit_check == LSS_FASTSCAN_CONFIRM {
                         // Reset state machine and confirm
                         self.fast_scan_sub = 0;
@@ -260,7 +259,7 @@ mod tests {
             vendor_id: VENDOR_ID,
             product_code: PRODUCT_CODE,
             revision: REVISION,
-            serial_number: SERIAL_NUMBER,
+            serial: SERIAL_NUMBER,
         };
 
         // Create new LSS slave with unconfigured node_id
@@ -307,7 +306,7 @@ mod tests {
             vendor_id: VENDOR_ID,
             product_code: PRODUCT_CODE,
             revision: REVISION,
-            serial_number: SERIAL_NUMBER,
+            serial: SERIAL_NUMBER,
         };
 
         let mut slave = LssSlave::new(IDENTITY, NodeId::Unconfigured);

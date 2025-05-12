@@ -35,7 +35,7 @@ pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
                     SubDefinition {
                         sub_index: 1,
                         parameter_name: "Vendor ID".to_string(),
-                        field_name: None,
+                        field_name: Some("vendor_id".into()),
                         data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
                         default_value: Some(DefaultValue::Integer(identity.vendor_id as i64)),
@@ -43,7 +43,7 @@ pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
                     SubDefinition {
                         sub_index: 2,
                         parameter_name: "Product Code".to_string(),
-                        field_name: None,
+                        field_name: Some("product_code".into()),
                         data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
                         default_value: Some(DefaultValue::Integer(identity.product_code as i64)),
@@ -51,7 +51,7 @@ pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
                     SubDefinition {
                         sub_index: 3,
                         parameter_name: "Revision Number".to_string(),
-                        field_name: None,
+                        field_name: Some("revision".into()),
                         data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
                         default_value: Some(DefaultValue::Integer(identity.revision_number as i64)),
@@ -59,7 +59,7 @@ pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
                     SubDefinition {
                         sub_index: 4,
                         parameter_name: "Serial Number".to_string(),
-                        field_name: None,
+                        field_name: Some("serial".into()),
                         data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
                         default_value: Some(DefaultValue::Integer(0)),

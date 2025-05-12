@@ -32,72 +32,6 @@ pub enum LssError {
     NodeIdConfigError { error: u8, spec_error: u8 },
 }
 
-// /// Send a sequence of messages to put a single node into configuration mode based on its identity
-// ///
-// /// Returns `Ok(())` if the node was successfully put into configuration mode, or an
-// /// `Err(LssError::Timeout)` if no node responded
-// pub async fn activate_configure_by_identity(
-//     vendor_id: u32,
-//     product_code: u32,
-//     revision: u32,
-//     serial: u32,
-//     mut send_fn: impl AsyncFnMut(LssRequest, Duration) -> Option<LssResponse>,
-// ) -> Result<(), LssError> {
-//     const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
-//     // Send global mode to put all nodes into waiting state. No response expected.
-//     send_fn(LssRequest::SwitchModeGlobal { mode: 0 }, Duration::ZERO).await;
-
-//     // Now send the identity messages. If a LSS slave node recognizes its identity, it will respond
-//     // to the serial setting message with a SwitchStateResponse message
-//     send_fn(LssRequest::SwitchStateVendor { vendor_id }, Duration::ZERO).await;
-//     send_fn(
-//         LssRequest::SwitchStateProduct { product_code },
-//         Duration::ZERO,
-//     )
-//     .await;
-//     send_fn(LssRequest::SwitchStateRevision { revision }, Duration::ZERO).await;
-//     match send_fn(LssRequest::SwitchStateSerial { serial }, RESPONSE_TIMEOUT).await {
-//         Some(LssResponse::SwitchStateResponse) => Ok(()),
-//         _ => Err(LssError::Timeout),
-//     }
-// }
-
-// /// Create a closure that sends a message and waits for a response which matches the filter
-// ///
-// /// # Arguments:
-// ///
-// /// * `receiver` - A AsyncCanReceiver implementation for reading messages
-// /// * `sender` - A AsyncCanSender implementation for sending messages
-// /// * `filter` - A closure that takes a CanMessage and returns an Option<T> when it is passed a
-// ///   matching message
-// async fn filtered_send_fn<'a, R: AsyncCanReceiver, S: AsyncCanSender, REQ: Into<CanMessage>, T>(
-//     receiver: &'a mut R,
-//     sender: &'a mut S,
-//     filter: &'a impl Fn(CanMessage) -> Option<T>,
-// ) -> impl AsyncFnMut(REQ, Duration) -> Option<T> + 'a {
-//     async |send_msg: REQ, timeout: Duration| {
-//         let send_msg = send_msg.into();
-//         receiver.flush();
-//         if let Err(e) = sender.send(send_msg).await {
-//             log::error!("Failed to send message: {:?}", send_msg);
-//             return None;
-//         }
-
-//         let wait_until = Instant::now() + timeout;
-//         loop {
-//             let timeout = wait_until.saturating_duration_since(Instant::now());
-//             if timeout.is_zero() {
-//                 return None;
-//             }
-//             if let Ok(msg) = receiver.recv(timeout).await {
-//                 if let Some(response) = filter(msg) {
-//                     return Some(response);
-//                 }
-//             }
-//         }
-//     }
-// }
-
 impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
     pub fn new(sender: S, receiver: R) -> Self {
         Self { sender, receiver }
@@ -217,29 +151,44 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
     }
 
     /// Perform a fast scan of the network to find unconfigured nodes
-    pub async fn fast_scan(&mut self) -> Option<LssIdentity> {
-        const TIMEOUT: Duration = Duration::from_millis(15);
+    ///
+    /// # Arguments
+    /// * `timeout` - The duration of time to wait for responses after each message.
+    ///   Duration::from_millis(20) is probably a pretty safe value, but this depends on the
+    ///   responsiveness of the slaves, and on the amount of bus traffic. If the timeout is set too
+    ///   short, the scan may fail to find existing nodes.
+    pub async fn fast_scan(&mut self, timeout: Duration) -> Option<LssIdentity> {
+
         let mut id = [0, 0, 0, 0];
         let mut sub = 0;
         let mut next = 0;
         let mut bit_check;
 
         let mut send_fs = async |id: &[u32; 4], bit_check: u8, sub: u8, next: u8| -> bool {
-            match self
-                .send_and_receive(
-                    LssRequest::FastScan {
-                        id: id[sub as usize],
-                        bit_check,
-                        sub,
-                        next,
-                    },
-                    TIMEOUT,
-                )
-                .await
-            {
-                Some(LssResponse::IdentifySlave) => true,
-                _ => false,
+            // Unlike send_and_receive, this function always waits the full timeout, because we don't know
+            // how many nodes will respond to us, so we need to give them time.
+            self.sender.send(LssRequest::FastScan {
+                id: id[sub as usize],
+                bit_check,
+                sub,
+                next,
+            }.into()).await.ok();
+
+            let wait_until = tokio::time::Instant::now() + timeout;
+            let mut resp_flag = false;
+            loop {
+                match timeout_at(wait_until, self.receiver.recv()).await {
+                    // timeout
+                    Err(_) => break,
+                    Ok(Ok(msg)) => {
+                        if let Ok(LssResponse::IdentifySlave) = LssResponse::try_from(msg) {
+                            resp_flag = true;
+                        }
+                    }
+                    _ => ()
+                }
             }
+            resp_flag
         };
 
         // The first message resets the LSS state machines, and a response confirms that there is at
@@ -266,7 +215,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
             vendor_id: id[0],
             product_code: id[1],
             revision: id[2],
-            serial_number: id[3],
+            serial: id[3],
         })
     }
 

@@ -9,9 +9,8 @@ use zencan_node::node::Node;
 use zencan_client::nmt_master::Master;
 use integration_tests::sim_bus::SimBus;
 
-mod bus_logger;
-use bus_logger::BusLogger;
 mod utils;
+use utils::BusLogger;
 
 #[tokio::test]
 async fn test_nmt_init() {

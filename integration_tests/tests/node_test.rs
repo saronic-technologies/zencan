@@ -3,21 +3,15 @@ use integration_tests::{
     sim_bus::{SimBus, SimBusReceiver, SimBusSender},
 };
 use zencan_client::sdo_client::{SdoClient, SdoClientError};
-use zencan_common::{
-    objects::ODEntry,
-    sdo::AbortCode,
-    NodeId,
-};
+use zencan_common::{objects::ODEntry, sdo::AbortCode, NodeId};
 use zencan_node::{
-    node_mbox::{NodeMboxRead, NodeMboxWrite},
     node::Node,
+    node_mbox::{NodeMboxRead, NodeMboxWrite},
     node_state::NodeStateAccess,
 };
 
-mod bus_logger;
-use bus_logger::BusLogger;
 mod utils;
-use utils::test_with_background_process;
+use utils::{BusLogger, test_with_background_process};
 
 fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
     od: &'static [ODEntry],
@@ -61,29 +55,37 @@ async fn test_identity_readback() {
     let test_task = async move {
         // Check that the identity matches the values defined in the example1.toml device config
         assert_eq!(
-            client.read_u32(IDENTITY_OBJECT_ID, VENDOR_SUB_ID).await.unwrap(),
+            client
+                .read_u32(IDENTITY_OBJECT_ID, VENDOR_SUB_ID)
+                .await
+                .unwrap(),
             1234,
         );
         assert_eq!(
-            client.read_u32(IDENTITY_OBJECT_ID, PRODUCT_SUB_ID).await.unwrap(),
+            client
+                .read_u32(IDENTITY_OBJECT_ID, PRODUCT_SUB_ID)
+                .await
+                .unwrap(),
             12000,
         );
         assert_eq!(
-            client.read_u32(IDENTITY_OBJECT_ID, REVISION_SUB_ID).await.unwrap(),
+            client
+                .read_u32(IDENTITY_OBJECT_ID, REVISION_SUB_ID)
+                .await
+                .unwrap(),
             1,
         );
         assert_eq!(
-            client.read_u32(IDENTITY_OBJECT_ID, SERIAL_SUB_ID).await.unwrap(),
+            client
+                .read_u32(IDENTITY_OBJECT_ID, SERIAL_SUB_ID)
+                .await
+                .unwrap(),
             0,
         );
     };
 
     let mut sender = bus.new_sender();
-    test_with_background_process(
-        &mut node,
-        &mut sender,
-        test_task,
-    ).await;
+    test_with_background_process(&mut [&mut node], &mut sender, test_task).await;
 }
 
 #[tokio::test]
@@ -125,12 +127,7 @@ async fn test_string_write() {
         assert_eq!("Testers1234".as_bytes(), readback);
     };
 
-    test_with_background_process(
-        &mut node,
-        &mut sender,
-        test_task,
-    ).await;
-
+    test_with_background_process(&mut [&mut node], &mut sender, test_task).await;
 }
 
 #[tokio::test]
@@ -182,7 +179,7 @@ async fn test_record_access() {
         );
     };
 
-    test_with_background_process(&mut node, &mut sender, test_task).await;
+    test_with_background_process(&mut [&mut node], &mut sender, test_task).await;
 }
 
 #[tokio::test]
@@ -229,5 +226,5 @@ async fn test_array_access() {
         assert_eq!(99, i32::from_le_bytes(data.try_into().unwrap()));
     };
 
-    test_with_background_process(&mut node, &mut sender, test_task).await;
+    test_with_background_process(&mut [&mut node], &mut sender, test_task).await;
 }

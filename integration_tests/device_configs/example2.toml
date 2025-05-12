@@ -5,6 +5,6 @@ num_rpdo = 4
 num_tpdo = 4
 
 [identity]
-vendor_id = 1234
-product_code = 12000
-revision_number = 1
+vendor_id = 5000
+product_code = 1002
+revision_number = 2

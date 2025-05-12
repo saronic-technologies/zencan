@@ -156,6 +156,42 @@ pub trait ObjectRawAccess: Sync + Send {
         // not a string type or no null-terminator was found
         Ok(size)
     }
+
+    fn read_u32(&self, sub: u8) -> Result<u32, AbortCode> {
+        let mut buf = [0; 4];
+        self.read(sub, 0, &mut buf)?;
+        Ok(u32::from_le_bytes(buf))
+    }
+
+    fn read_u16(&self, sub: u8) -> Result<u16, AbortCode> {
+        let mut buf = [0; 2];
+        self.read(sub, 0, &mut buf)?;
+        Ok(u16::from_le_bytes(buf))
+    }
+
+    fn read_u8(&self, sub: u8) -> Result<u8, AbortCode> {
+        let mut buf = [0; 1];
+        self.read(sub, 0, &mut buf)?;
+        Ok(buf[0])
+    }
+
+    fn read_i32(&self, sub: u8) -> Result<i32, AbortCode> {
+        let mut buf = [0; 4];
+        self.read(sub, 0, &mut buf)?;
+        Ok(i32::from_le_bytes(buf))
+    }
+
+    fn read_i16(&self, sub: u8) -> Result<i16, AbortCode> {
+        let mut buf = [0; 2];
+        self.read(sub, 0, &mut buf)?;
+        Ok(i16::from_le_bytes(buf))
+    }
+
+    fn read_i8(&self, sub: u8) -> Result<i8, AbortCode> {
+        let mut buf = [0; 1];
+        self.read(sub, 0, &mut buf)?;
+        Ok(buf[0] as i8)
+    }
 }
 
 pub struct CallbackObject {
