@@ -158,7 +158,6 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
     ///   responsiveness of the slaves, and on the amount of bus traffic. If the timeout is set too
     ///   short, the scan may fail to find existing nodes.
     pub async fn fast_scan(&mut self, timeout: Duration) -> Option<LssIdentity> {
-
         let mut id = [0, 0, 0, 0];
         let mut sub = 0;
         let mut next = 0;

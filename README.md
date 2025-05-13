@@ -10,3 +10,4 @@
       fastscan messages, regardless of process timing. It isn't required, but could be implemented
       on a lot of systems.
 - Non-async API for zencan-client
+- Implement periodic heartbeat

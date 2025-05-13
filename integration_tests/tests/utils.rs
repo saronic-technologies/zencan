@@ -21,7 +21,7 @@ pub async fn test_with_background_process<'a, 'b>(
 
     let node_process_task = async move {
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+            tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
             for node in nodes.iter_mut() {
                 node.process(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
             }

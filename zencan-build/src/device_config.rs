@@ -4,7 +4,7 @@ use zencan_common::objects::{AccessType, ObjectCode};
 use crate::errors::*;
 use snafu::ResultExt as _;
 
-pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
+pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
     vec![
         ObjectDefinition {
             index: 0x1000,
@@ -14,6 +14,7 @@ pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
                 data_type: DataType::UInt32,
                 access_type: AccessType::Const.into(),
                 default_value: Some(DefaultValue::Integer(0x00000000)),
+                pdo_mapping: PdoMapping::None,
             }),
         },
         ObjectDefinition {
@@ -24,6 +25,40 @@ pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
                 data_type: DataType::UInt8,
                 access_type: AccessType::Ro.into(),
                 default_value: Some(DefaultValue::Integer(0x00000000)),
+                pdo_mapping: PdoMapping::None,
+            }),
+        },
+        ObjectDefinition {
+            index: 0x1008,
+            parameter_name: "Manufacturer Device Name".to_string(),
+            application_callback: false,
+            object: Object::Var(VarDefinition {
+                data_type: DataType::VisibleString(config.device_name.len()),
+                access_type: AccessType::Const.into(),
+                default_value: Some(DefaultValue::String(config.device_name.clone())),
+                pdo_mapping: PdoMapping::None,
+            }),
+        },
+        ObjectDefinition {
+            index: 0x1009,
+            parameter_name: "Manufacturer Hardware Version".to_string(),
+            application_callback: false,
+            object: Object::Var(VarDefinition {
+                data_type: DataType::VisibleString(config.hardware_version.len()),
+                access_type: AccessType::Const.into(),
+                default_value: Some(DefaultValue::String(config.hardware_version.clone())),
+                pdo_mapping: PdoMapping::None,
+            }),
+        },
+        ObjectDefinition {
+            index: 0x100A,
+            parameter_name: "Manufacturer Software Version".to_string(),
+            application_callback: false,
+            object: Object::Var(VarDefinition {
+                data_type: DataType::VisibleString(config.software_version.len()),
+                access_type: AccessType::Const.into(),
+                default_value: Some(DefaultValue::String(config.software_version.clone())),
+                pdo_mapping: PdoMapping::None,
             }),
         },
         ObjectDefinition {
@@ -38,7 +73,10 @@ pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
                         field_name: Some("vendor_id".into()),
                         data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
-                        default_value: Some(DefaultValue::Integer(identity.vendor_id as i64)),
+                        default_value: Some(DefaultValue::Integer(
+                            config.identity.vendor_id as i64,
+                        )),
+                        pdo_mapping: PdoMapping::None,
                     },
                     SubDefinition {
                         sub_index: 2,
@@ -46,7 +84,10 @@ pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
                         field_name: Some("product_code".into()),
                         data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
-                        default_value: Some(DefaultValue::Integer(identity.product_code as i64)),
+                        default_value: Some(DefaultValue::Integer(
+                            config.identity.product_code as i64,
+                        )),
+                        pdo_mapping: PdoMapping::None,
                     },
                     SubDefinition {
                         sub_index: 3,
@@ -54,7 +95,10 @@ pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
                         field_name: Some("revision".into()),
                         data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
-                        default_value: Some(DefaultValue::Integer(identity.revision_number as i64)),
+                        default_value: Some(DefaultValue::Integer(
+                            config.identity.revision_number as i64,
+                        )),
+                        pdo_mapping: PdoMapping::None,
                     },
                     SubDefinition {
                         sub_index: 4,
@@ -63,6 +107,7 @@ pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
                         data_type: DataType::UInt32,
                         access_type: AccessType::Const.into(),
                         default_value: Some(DefaultValue::Integer(0)),
+                        pdo_mapping: PdoMapping::None,
                     },
                 ],
             }),
@@ -71,7 +116,6 @@ pub fn mandatory_objects(identity: &IdentityConfig) -> Vec<ObjectDefinition> {
 }
 
 pub fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
-
     let mut objects = Vec::new();
 
     fn add_objects(objects: &mut Vec<ObjectDefinition>, i: usize, tx: bool) {
@@ -92,6 +136,8 @@ pub fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
                         data_type: DataType::UInt32,
                         access_type: AccessType::Rw.into(),
                         default_value: None,
+                        pdo_mapping: PdoMapping::None,
+                        ..Default::default()
                     },
                     SubDefinition {
                         sub_index: 2,
@@ -100,6 +146,8 @@ pub fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
                         data_type: DataType::UInt8,
                         access_type: AccessType::Rw.into(),
                         default_value: None,
+                        pdo_mapping: PdoMapping::None,
+                        ..Default::default()
                     },
                 ],
             }),
@@ -110,16 +158,18 @@ pub fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
             parameter_name: format!("{}{} Mapping Parameters", pdo_type, i),
             application_callback: true,
             object: Object::Record(RecordDefinition {
-                subs: (0..64).map(|j| {
-                    SubDefinition {
+                subs: (0..64)
+                    .map(|j| SubDefinition {
                         sub_index: j + 1,
                         parameter_name: format!("{}{} Mapping App Object {}", pdo_type, i, j),
                         field_name: None,
                         data_type: DataType::UInt32,
                         access_type: AccessType::Rw.into(),
                         default_value: None,
-                    }
-                }).collect()
+                        pdo_mapping: PdoMapping::None,
+                        ..Default::default()
+                    })
+                    .collect(),
             }),
         });
     }
@@ -132,8 +182,12 @@ pub fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
     objects
 }
 
-fn default_num_rpdo() -> u8 { 4 }
-fn default_num_tpdo() -> u8 { 4 }
+fn default_num_rpdo() -> u8 {
+    4
+}
+fn default_num_tpdo() -> u8 {
+    4
+}
 
 #[derive(Deserialize, Debug, Clone, Copy)]
 pub struct PdoConfig {
@@ -162,12 +216,35 @@ pub struct IdentityConfig {
     pub revision_number: u32,
 }
 
+/// Enum indicating what PDO mappings a sub object supports
+#[derive(Deserialize, Debug, Default, Clone, Copy)]
+#[serde(rename_all="lowercase")]
+pub enum PdoMapping {
+    #[default]
+    None,
+    Tpdo,
+    Rpdo,
+    Both,
+}
+
+impl PdoMapping {
+    pub fn supports_tpdo(&self) -> bool {
+        matches!(self, PdoMapping::Tpdo | PdoMapping::Both)
+    }
+}
+
 #[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 /// Device configuration structure
 pub struct DeviceConfig {
+    pub device_name: String,
     #[serde(default)]
-    pub vendor_name: String,
+    pub hardware_version: String,
+    #[serde(default)]
+    pub software_version: String,
+
+    #[serde(default)]
+    pub heartbeat_period: u16,
 
     pub identity: IdentityConfig,
 
@@ -178,7 +255,7 @@ pub struct DeviceConfig {
     pub objects: Vec<ObjectDefinition>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Default, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct SubDefinition {
     pub sub_index: u8,
@@ -195,6 +272,8 @@ pub struct SubDefinition {
     pub access_type: AccessTypeDeser,
     #[serde(default)]
     pub default_value: Option<DefaultValue>,
+    #[serde(default)]
+    pub pdo_mapping: PdoMapping,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -220,6 +299,8 @@ pub struct VarDefinition {
     pub data_type: DataType,
     pub access_type: AccessTypeDeser,
     pub default_value: Option<DefaultValue>,
+    #[serde(default)]
+    pub pdo_mapping: PdoMapping,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -229,6 +310,8 @@ pub struct ArrayDefinition {
     pub access_type: AccessTypeDeser,
     pub array_size: usize,
     pub default_value: Option<Vec<DefaultValue>>,
+    #[serde(default)]
+    pub pdo_mapping: PdoMapping,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -238,9 +321,7 @@ pub struct RecordDefinition {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct DomainDefinition {
-
-}
+pub struct DomainDefinition {}
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct ObjectDefinition {
@@ -267,15 +348,14 @@ impl ObjectDefinition {
 }
 
 impl DeviceConfig {
-    pub fn load(
-        config_path: impl AsRef<std::path::Path>,
-    ) -> Result<Self, CompileError> {
+    pub fn load(config_path: impl AsRef<std::path::Path>) -> Result<Self, CompileError> {
         let config_str = std::fs::read_to_string(&config_path).context(IoSnafu)?;
         let mut config: DeviceConfig = toml::from_str(&config_str).context(ParseTomlSnafu {
-            message: format!("Error parsing {}", config_path.as_ref().display())})?;
+            message: format!("Error parsing {}", config_path.as_ref().display()),
+        })?;
 
         // Add mandatory objects to the config
-        config.objects.extend(mandatory_objects(&config.identity));
+        config.objects.extend(mandatory_objects(&config));
 
         config.objects.extend(pdo_objects(
             config.pdos.num_rpdo as usize,
@@ -291,7 +371,7 @@ impl DeviceConfig {
         })?;
 
         // Add mandatory objects to the config
-        config.objects.extend(mandatory_objects(&config.identity));
+        config.objects.extend(mandatory_objects(&config));
 
         config.objects.extend(pdo_objects(
             config.pdos.num_rpdo as usize,
@@ -365,12 +445,13 @@ impl From<AccessType> for AccessTypeDeser {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum DataType {
     Boolean,
     Int8,
     Int16,
     Int32,
+    #[default]
     UInt8,
     UInt16,
     UInt32,
@@ -385,7 +466,10 @@ pub enum DataType {
 
 impl DataType {
     pub fn is_str(&self) -> bool {
-        matches!(self, DataType::VisibleString(_) | DataType::OctetString(_) | DataType::UnicodeString(_))
+        matches!(
+            self,
+            DataType::VisibleString(_) | DataType::OctetString(_) | DataType::UnicodeString(_)
+        )
     }
 
     pub fn size(&self) -> usize {
@@ -436,26 +520,17 @@ impl<'de> serde::Deserialize<'de> for DataType {
             return Ok(DataType::Real32);
         } else if let Some(caps) = re_visiblestring.captures(&s) {
             let size: usize = caps[1].parse().map_err(|_| {
-                D::Error::custom(format!(
-                    "Invalid size for VisibleString: {}",
-                    &caps[1]
-                ))
+                D::Error::custom(format!("Invalid size for VisibleString: {}", &caps[1]))
             })?;
             return Ok(DataType::VisibleString(size));
         } else if let Some(caps) = re_octetstring.captures(&s) {
             let size: usize = caps[1].parse().map_err(|_| {
-                D::Error::custom(format!(
-                    "Invalid size for OctetString: {}",
-                    &caps[1]
-                ))
+                D::Error::custom(format!("Invalid size for OctetString: {}", &caps[1]))
             })?;
             return Ok(DataType::OctetString(size));
         } else if let Some(caps) = re_unicodestring.captures(&s) {
             let size: usize = caps[1].parse().map_err(|_| {
-                D::Error::custom(format!(
-                    "Invalid size for UnicodeString: {}",
-                    &caps[1]
-                ))
+                D::Error::custom(format!("Invalid size for UnicodeString: {}", &caps[1]))
             })?;
             return Ok(DataType::UnicodeString(size));
         } else if s == "timeofday" {

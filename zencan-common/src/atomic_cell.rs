@@ -5,8 +5,8 @@
 //! TODO: This can be made more efficient by using core::sync::atomic types for types which can
 //! transmute into the base integer types
 
-use critical_section::Mutex;
 use core::{cell::Cell, ops::Add};
+use critical_section::Mutex;
 
 #[derive(Debug)]
 pub struct AtomicCell<T: Copy> {
@@ -21,15 +21,15 @@ impl<T: Send + Copy> AtomicCell<T> {
     }
 
     pub fn load(&self) -> T {
-        critical_section::with(|cs| {
-            self.inner.borrow(cs).get()
-        })
+        critical_section::with(|cs| self.inner.borrow(cs).get())
     }
 
     pub fn store(&self, value: T) {
-        critical_section::with(|cs| {
-            self.inner.borrow(cs).set(value)
-        });
+        critical_section::with(|cs| self.inner.borrow(cs).set(value));
+    }
+
+    pub fn borrow<'a>(&'a self, cs: critical_section::CriticalSection<'a>) -> &'a Cell<T> {
+        self.inner.borrow(cs)
     }
 
     pub fn fetch_update(&self, mut f: impl FnMut(T) -> Option<T>) -> Result<T, T> {
@@ -47,9 +47,7 @@ impl<T: Send + Copy> AtomicCell<T> {
 
 impl<T: Send + Copy + Default> AtomicCell<T> {
     pub fn take(&self) -> T {
-        critical_section::with(|cs| {
-            self.inner.borrow(cs).take()
-        })
+        critical_section::with(|cs| self.inner.borrow(cs).take())
     }
 }
 
@@ -66,10 +64,7 @@ impl<T: Copy + Add<Output = T>> AtomicCell<T> {
 impl<T: Default + Copy + Send> Default for AtomicCell<T> {
     fn default() -> Self {
         Self {
-            inner: Mutex::new(Cell::new(T::default()))
+            inner: Mutex::new(Cell::new(T::default())),
         }
     }
 }
-
-
-

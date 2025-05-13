@@ -1,4 +1,4 @@
-use crate::device_config::{DataType as DCDataType, DefaultValue};
+use crate::device_config::{DataType as DCDataType, DefaultValue, PdoMapping};
 use crate::{
     device_config::{DeviceConfig, Object, ObjectDefinition, SubDefinition},
     errors::CompileError,
@@ -84,6 +84,25 @@ fn data_type_to_tokens(dt: DCDataType) -> TokenStream {
     }
 }
 
+fn pdo_mapping_to_tokens(p: PdoMapping) -> TokenStream {
+    match p {
+        PdoMapping::None => quote!(zencan_node::common::objects::PdoMapping::None),
+        PdoMapping::Tpdo => quote!(zencan_node::common::objects::PdoMapping::Tpdo),
+        PdoMapping::Rpdo => quote!(zencan_node::common::objects::PdoMapping::Rpdo),
+        PdoMapping::Both => quote!(zencan_node::common::objects::PdoMapping::Both),
+    }
+}
+
+/// Return true if any subobjects on the object support being mapped to a TPDO
+fn object_supports_tpdo(obj: &ObjectDefinition) -> bool {
+    match &obj.object {
+        Object::Var(def) => def.pdo_mapping.supports_tpdo(),
+        Object::Array(def) => def.pdo_mapping.supports_tpdo(),
+        Object::Record(def) => def.subs.iter().any(|s| s.pdo_mapping.supports_tpdo()),
+        Object::Domain(_) => false,
+    }
+}
+
 fn string_to_byte_literal_tokens(s: &str, size: usize) -> Result<TokenStream, CompileError> {
     let b = s.as_bytes();
     if b.len() > size {
@@ -105,6 +124,8 @@ fn generate_object_definition(obj: &ObjectDefinition) -> Result<TokenStream, Com
     let struct_name: syn::Ident = syn::parse_str(&format!("Object{:X}", obj.index)).unwrap();
 
     let mut field_tokens = TokenStream::new();
+    let mut tpdo_mapping = false;
+    let mut highest_sub_index = 0;
     match &obj.object {
         Object::Record(def) => {
             for sub in &def.subs {
@@ -113,6 +134,8 @@ fn generate_object_definition(obj: &ObjectDefinition) -> Result<TokenStream, Com
                 field_tokens.extend(quote! {
                     pub #field_name: AtomicCell<#field_type>,
                 });
+                tpdo_mapping |= sub.pdo_mapping.supports_tpdo();
+                highest_sub_index = highest_sub_index.max(sub.sub_index);
             }
         }
         Object::Array(def) => {
@@ -120,18 +143,29 @@ fn generate_object_definition(obj: &ObjectDefinition) -> Result<TokenStream, Com
             let array_size = def.array_size;
             field_tokens.extend(quote! {
                 pub size: u8,
-                pub array: Mutex<RefCell<[#field_type; #array_size]>>
+                pub array: Mutex<RefCell<[#field_type; #array_size]>>,
             });
+            tpdo_mapping |= def.pdo_mapping.supports_tpdo();
+            highest_sub_index = array_size as u8;
         }
         Object::Var(def) => {
             let (field_type, _) = get_rust_type_and_size(def.data_type);
             field_tokens.extend(quote! {
                 pub value: AtomicCell<#field_type>,
             });
+            tpdo_mapping |= def.pdo_mapping.supports_tpdo();
+            highest_sub_index = 0;
         }
         Object::Domain(_) => {
             panic!("Domain objects are only supported with application callback enabled")
         }
+    }
+
+    if tpdo_mapping {
+        let n = (highest_sub_index as usize + 7) / 8;
+        field_tokens.extend( quote! {
+            flags: ObjectFlags<#n>,
+        });
     }
 
     Ok(quote! {
@@ -288,6 +322,25 @@ fn get_object_impls(
         }
     }
 
+    fn get_tpdo_event_snippet(max_sub: usize) -> TokenStream {
+        quote! {
+            fn set_event_flag(&self, sub: u8) -> Result<(), AbortCode> {
+                if sub as usize > #max_sub {
+                    return Err(AbortCode::NoSuchSubIndex);
+                }
+                Ok(self.flags.set_flag(sub))
+            }
+
+            fn read_event_flag(&self, sub: u8) -> bool {
+                self.flags.get_flag(sub)
+            }
+
+            fn clear_events(&self) {
+                self.flags.clear();
+            }
+        }
+    }
+
     match &obj.object {
         Object::Var(def) => {
             let (field_type, size) = get_rust_type_and_size(def.data_type);
@@ -305,12 +358,22 @@ fn get_object_impls(
             }
             let data_type = data_type_to_tokens(def.data_type);
             let access_type = access_type_to_tokens(def.access_type.0);
+            let pdo_mapping = pdo_mapping_to_tokens(def.pdo_mapping);
 
             let default_value = def
                 .default_value
                 .clone()
                 .unwrap_or(default_default_value(def.data_type));
             let default_tokens = get_default_tokens(&default_value, def.data_type)?;
+
+            let mut tpdo_event_tokens = TokenStream::new();
+            let mut tpdo_default_tokens = TokenStream::new();
+            if def.pdo_mapping.supports_tpdo() {
+                tpdo_event_tokens.extend(get_tpdo_event_snippet(0));
+                tpdo_default_tokens.extend(quote! {
+                    flags: ObjectFlags::<1>::new(&NODE_STATE.pdo_sync),
+                });
+            }
 
             Ok(quote! {
                 impl #struct_name {
@@ -325,6 +388,7 @@ fn get_object_impls(
                     const fn default() -> Self {
                         #struct_name {
                             #field_name: AtomicCell::new(#default_tokens),
+                            #tpdo_default_tokens
                         }
                     }
                 }
@@ -355,8 +419,11 @@ fn get_object_impls(
                             access_type: #access_type,
                             data_type: #data_type,
                             size: #size,
+                            pdo_mapping: #pdo_mapping,
                         })
                     }
+
+                    #tpdo_event_tokens
                 }
             })
         }
@@ -364,8 +431,10 @@ fn get_object_impls(
         Object::Array(def) => {
             let (field_type, storage_size) = get_rust_type_and_size(def.data_type);
             let array_size = def.array_size;
+            let flag_size = ((array_size + 1) + 7) / 8;
             let data_type = data_type_to_tokens(def.data_type);
             let access_type = access_type_to_tokens(def.access_type.0);
+            let pdo_mapping = pdo_mapping_to_tokens(def.pdo_mapping);
 
             let default_value =
                 def.default_value
@@ -426,6 +495,16 @@ fn get_object_impls(
                     buf.copy_from_slice(&value.to_le_bytes());
                 }
             }
+
+            let mut tpdo_event_tokens = TokenStream::new();
+            let mut tpdo_default_tokens = TokenStream::new();
+            if def.pdo_mapping.supports_tpdo() {
+                tpdo_event_tokens.extend(get_tpdo_event_snippet(array_size));
+                tpdo_default_tokens.extend(quote!{
+                    flags: ObjectFlags::<#flag_size>::new(&NODE_STATE.pdo_sync),
+                });
+            }
+
             Ok(quote! {
                 impl #struct_name {
                     pub fn set(&self, idx: usize, value: #field_type) -> Result<(), AbortCode> {
@@ -454,6 +533,7 @@ fn get_object_impls(
                         #struct_name {
                             size: #array_size as u8,
                             array: Mutex::new(RefCell::new([#(#default_tokens),*])),
+                            #tpdo_default_tokens
                         }
                     }
                 }
@@ -488,6 +568,7 @@ fn get_object_impls(
                                 access_type: zencan_node::common::objects::AccessType::Ro,
                                 data_type: zencan_node::common::objects::DataType::UInt8,
                                 size: 1,
+                                pdo_mapping: zencan_node::common::objects::PdoMapping::None,
                             });
                         }
                         if sub as usize > #array_size {
@@ -497,8 +578,11 @@ fn get_object_impls(
                             access_type: #access_type,
                             data_type: #data_type,
                             size: #storage_size,
+                            pdo_mapping: #pdo_mapping,
                         })
                     }
+
+                    #tpdo_event_tokens
                 }
             })
         }
@@ -512,6 +596,7 @@ fn get_object_impls(
 
             // For records, sub0 gives the highest sub object support by the record
             let max_sub = def.subs.iter().map(|s| s.sub_index).max().unwrap_or(0);
+            let flag_size = (max_sub as usize + 7) / 8;
             accessor_methods.extend(quote! {
                 pub fn get_sub0(&self) -> u8 {
                     #max_sub
@@ -539,6 +624,7 @@ fn get_object_impls(
                         access_type: zencan_node::common::objects::AccessType::Ro,
                         data_type: zencan_node::common::objects::DataType::UInt8,
                         size: 1,
+                        pdo_mapping: zencan_node::common::objects::PdoMapping::None,
                     })
                 }
             });
@@ -552,6 +638,7 @@ fn get_object_impls(
                 let getter_name = format_ident!("get_{}", field_name);
                 let sub_index = sub.sub_index;
                 let data_type = data_type_to_tokens(sub.data_type);
+                let pdo_mapping = pdo_mapping_to_tokens(sub.pdo_mapping);
 
                 let default_value = sub
                     .default_value
@@ -593,6 +680,7 @@ fn get_object_impls(
                             access_type: #access_type,
                             data_type: #data_type,
                             size: #size,
+                            pdo_mapping: #pdo_mapping,
                         })
                     }
                 });
@@ -600,6 +688,16 @@ fn get_object_impls(
                     #field_name: AtomicCell::new(#default_tokens),
                 });
             }
+
+            let mut tpdo_event_tokens = TokenStream::new();
+            let mut tpdo_default_tokens = TokenStream::new();
+            if object_supports_tpdo(obj) {
+                tpdo_event_tokens.extend(get_tpdo_event_snippet(max_sub as usize));
+                tpdo_default_tokens.extend(quote! {
+                    flags: ObjectFlags::<#flag_size>::new(&NODE_STATE.pdo_sync),
+                })
+            }
+
             Ok(quote! {
                 impl #struct_name {
                     #accessor_methods
@@ -607,6 +705,7 @@ fn get_object_impls(
                     const fn default() -> Self {
                         #struct_name {
                             #default_init_statements
+                            #tpdo_default_tokens
                         }
                     }
                 }
@@ -711,13 +810,13 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
         #[allow(unused_imports)]
         use zencan_node::critical_section::Mutex;
         #[allow(unused_imports)]
-        use zencan_node::common::objects::{CallbackObject, ODEntry, ObjectData, ObjectRawAccess, SubInfo};
+        use zencan_node::common::objects::{CallbackObject, ObjectFlags, ODEntry, ObjectData, ObjectRawAccess, SubInfo};
         #[allow(unused_imports)]
         use zencan_node::common::sdo::AbortCode;
         #[allow(unused_imports)]
         use zencan_node::node_mbox::NodeMbox;
         #[allow(unused_imports)]
-        use zencan_node::node_state::NodeState;
+        use zencan_node::node_state::{NodeState, NodeStateAccess};
         #object_defs
         #object_instantiations
         pub static OD_TABLE: [ODEntry; #table_len] = [

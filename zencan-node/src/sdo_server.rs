@@ -19,25 +19,6 @@ pub struct SdoServer {
     sub: u8,
 }
 
-// /// Attempt to find a subobject in the object dict
-// ///
-// /// Returns an Err<SdoResponse> with the appropriate SDO abort response on failure
-// fn lookup_sub_object<'a, 'table, 'cb, const N: usize>(
-//     od: &'a ObjectDict<'table, 'cb, N>,
-//     index: u16,
-//     sub: u8,
-// ) -> Result<(&'a Object<'table, 'cb>, SubInfo), SdoResponse> {
-//     let obj = od
-//         .find(index)
-//         .ok_or(SdoResponse::abort(index, sub, AbortCode::NoSuchObject))?;
-
-//     let subinfo =
-//         obj.sub_info(sub)
-//             .ok_or(SdoResponse::abort(index, sub, AbortCode::NoSuchSubIndex))?;
-
-//     Ok((obj, subinfo))
-// }
-
 impl Default for SdoServer {
     fn default() -> Self {
         Self::new()
@@ -108,6 +89,7 @@ impl SdoServer {
                     Err(abort_code) => return Some(SdoResponse::abort(*index, *sub, abort_code)),
                 };
 
+
                 if current_size <= 4 {
                     self.state = State::Idle;
                     // Do expedited upload
@@ -119,6 +101,8 @@ impl SdoServer {
                 } else {
                     // Segmented upload
                     self.state = State::UploadSegment;
+                    self.index = *index;
+                    self.sub = *sub;
                     self.segment_counter = 0;
                     Some(SdoResponse::upload_acknowledge(*index, *sub, current_size as u32))
                 }

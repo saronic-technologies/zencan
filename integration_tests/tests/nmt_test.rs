@@ -12,6 +12,9 @@ use integration_tests::sim_bus::SimBus;
 mod utils;
 use utils::BusLogger;
 
+use serial_test::serial;
+
+#[serial]
 #[tokio::test]
 async fn test_nmt_init() {
 

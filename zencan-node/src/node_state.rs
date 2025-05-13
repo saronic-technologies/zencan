@@ -1,3 +1,4 @@
+use zencan_common::objects::{find_object, ODEntry, ObjectFlagSync, ObjectRawAccess as _};
 use zencan_common::AtomicCell;
 use zencan_common::messages::CanId;
 
@@ -57,6 +58,10 @@ impl Pdo {
     ///
     /// It will return true if the PDO should be sent in response to the SYNC event
     pub fn sync_update(&self) -> bool {
+        if !self.valid.load() {
+            return false;
+        }
+
         let transmission_type = self.transmission_type.load();
         if transmission_type == 0 {
             // TODO: Figure out how to determine application "event" which triggers the PDO
@@ -70,6 +75,42 @@ impl Pdo {
         }
     }
 
+    /// Check mapped objects for TPDO event flag
+    pub fn read_events(&self, od: &[ODEntry]) -> bool {
+        // TODO: Should maybe cache pointers or something. This is searching the whole OD for every
+        // mapped object
+        if !self.valid.load() {
+            return false;
+        }
+
+        for i in 0..self.mapping_params.len() {
+            let param = self.mapping_params[i].load();
+            if param == 0 {
+                break;
+            }
+            let object_id = (param >> 16) as u16;
+            let sub_index = ((param & 0xFF00) >> 8) as u8;
+            // Unwrap safety: Object is validated to exist prior to setting mapping
+            let entry = find_object(od, object_id).expect("invalid mapping parameter");
+            if entry.read_event_flag(sub_index) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn clear_events(&self, od: &[ODEntry]) {
+        for i in 0..self.mapping_params.len() {
+            let param = self.mapping_params[i].load();
+            if param == 0 {
+                break;
+            }
+            let object_id = (param >> 16) as u16;
+            // Unwrap safety: Object is validated to exist prior to setting mapping
+            let entry = find_object(od, object_id).expect("invalid mapping parameter");
+            entry.clear_events();
+        }
+    }
 }
 
 pub trait NodeStateAccess : Sync + Send {
@@ -77,11 +118,13 @@ pub trait NodeStateAccess : Sync + Send {
     fn get_rpdos(&self) -> &[Pdo];
     fn num_tpdos(&self) -> usize;
     fn get_tpdos(&self) -> &[Pdo];
+    fn get_pdo_sync(&self) -> &ObjectFlagSync;
 }
 
 pub struct NodeState<const N_RPDO: usize, const N_TPDO: usize> {
     pub rpdos: [Pdo; N_RPDO],
     pub tpdos: [Pdo; N_TPDO],
+    pub pdo_sync: ObjectFlagSync,
 }
 
 impl<const N_RPDO: usize, const N_TPDO: usize> Default for NodeState<N_RPDO, N_TPDO> {
@@ -94,7 +137,8 @@ impl<const N_RPDO: usize, const N_TPDO: usize> NodeState<N_RPDO, N_TPDO> {
     pub const fn new() -> Self {
         let rpdos = [const { Pdo::new() }; N_RPDO];
         let tpdos = [const { Pdo::new() }; N_TPDO];
-        Self { rpdos, tpdos }
+        let pdo_sync = ObjectFlagSync::new();
+        Self { rpdos, tpdos, pdo_sync }
     }
 
     pub const fn rpdos(&'static self) -> &'static [Pdo] {
@@ -117,5 +161,9 @@ impl<const N_RPDO: usize, const N_TPDO: usize> NodeStateAccess for NodeState<N_R
 
     fn get_tpdos(&self) -> &[Pdo] {
         &self.tpdos
+    }
+
+    fn get_pdo_sync(&self) -> &ObjectFlagSync {
+        &self.pdo_sync
     }
 }

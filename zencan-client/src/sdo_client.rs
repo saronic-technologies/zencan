@@ -311,6 +311,16 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         self.download_i8(index, sub, data).await
     }
 
+    /// Read a string from the SDO server
+    pub async fn upload_utf8(&mut self, index: u16, sub: u8) -> Result<String> {
+        let data = self.upload(index, sub).await?;
+        Ok(String::from_utf8_lossy(&data).into())
+    }
+    /// Alias for `upload_utf8`
+    pub async fn read_utf8(&mut self, index: u16, sub: u8) -> Result<String> {
+        self.upload_utf8(index, sub).await
+    }
+
     /// Read a sub-object from the SDO server, assuming it is an u8
     pub async fn upload_u8(&mut self, index: u16, sub: u8) -> Result<u8> {
         let data = self.upload(index, sub).await?;

@@ -1,4 +1,4 @@
-vendor_name = "Example 2"
+device_name = "Example 2"
 
 [pdos]
 num_rpdo = 4

@@ -1,9 +1,5 @@
 use zencan_common::{
-    NodeId,
-    lss::LssIdentity,
-    messages::{CanMessage, CanId, Heartbeat, NmtCommandCmd, NmtState, ZencanMessage, LSS_RESP_ID},
-    objects::{find_object, AccessType, Context, DataType, ODEntry, ObjectRawAccess, SubInfo},
-    sdo::AbortCode,
+    lss::LssIdentity, messages::{CanId, CanMessage, Heartbeat, NmtCommandCmd, NmtState, ZencanMessage, LSS_RESP_ID}, objects::{find_object, AccessType, Context, DataType, ODEntry, ObjectRawAccess, PdoMapping, SubInfo}, sdo::AbortCode, NodeId
 };
 
 use crate::{lss_slave::LssSlave, node_mbox::NodeMboxRead, node_state::Pdo};
@@ -122,16 +118,19 @@ fn pdo_comm_info_callback(_ctx: &Option<&dyn Context>, sub: u8) -> Result<SubInf
             data_type: DataType::UInt8,
             size: 1,
             access_type: AccessType::Ro,
+            pdo_mapping: PdoMapping::None,
         }),
         1 => Ok(SubInfo {
             data_type: DataType::UInt32,
             size: 4,
             access_type: AccessType::Rw,
+            pdo_mapping: PdoMapping::None,
         }),
         2 => Ok(SubInfo {
             data_type: DataType::UInt8,
             size: 1,
             access_type: AccessType::Rw,
+            pdo_mapping: PdoMapping::None,
         }),
         _ => Err(AbortCode::NoSuchSubIndex),
     }
@@ -227,12 +226,14 @@ fn pdo_mapping_info_callback(ctx: &Option<&dyn Context>, sub: u8) -> Result<SubI
             size: 1,
             data_type: DataType::UInt8,
             access_type: AccessType::Ro,
+            pdo_mapping: PdoMapping::None,
         })
     } else if sub <= pdo.mapping_params.len() as u8 {
         Ok(SubInfo {
             size: 4,
             data_type: DataType::UInt32,
             access_type: AccessType::Rw,
+            pdo_mapping: PdoMapping::None,
         })
     } else {
         Err(AbortCode::NoSuchSubIndex)
@@ -286,6 +287,25 @@ fn read_pdo_data(data: &mut [u8], pdo: &Pdo, od: &[ODEntry]) {
             .ok();
         offset += length;
     }
+}
+
+fn read_pdo_flags(pdo: &Pdo, od: &[ODEntry]) -> bool {
+    // TODO: Should maybe cache pointers or something. This is searching the whole OD for every
+    // mapped object
+    for i in 0..pdo.mapping_params.len() {
+        let param = pdo.mapping_params[i].load();
+        if param == 0 {
+            break;
+        }
+        let object_id = (param >> 16) as u16;
+        let sub_index = ((param & 0xFF00) >> 8) as u8;
+        // Unwrap safety: Object is validated to exist prior to setting mapping
+        let entry = find_object(od, object_id).expect("invalid mapping parameter");
+        if entry.read_event_flag(sub_index) {
+            return true;
+        }
+    }
+    return false;
 }
 
 
@@ -457,8 +477,21 @@ impl<'table> Node<'table> {
         }
 
         // check if a sync has been received
-        if self.mbox.read_sync_flag() {
-            for pdo in self.state.get_tpdos() {
+        let sync = self.mbox.read_sync_flag();
+
+        // Swap the active TPDO flag set
+        self.state.get_pdo_sync().toggle();
+
+        for pdo in self.state.get_tpdos() {
+            let transmission_type = pdo.transmission_type.load();
+            if transmission_type >= 254 {
+                if pdo.read_events(self.od) {
+                    let mut data = [0u8; 8];
+                    read_pdo_data(&mut data, pdo, self.od);
+                    let msg = CanMessage::new(pdo.cob_id.load(), &data);
+                    send_cb(msg);
+                }
+            } else if sync {
                 if pdo.sync_update() {
                     let mut data = [0u8; 8];
                     read_pdo_data(&mut data, pdo, self.od);
@@ -466,6 +499,10 @@ impl<'table> Node<'table> {
                     send_cb(msg);
                 }
             }
+        }
+
+        for pdo in self.state.get_tpdos() {
+            pdo.clear_events(self.od);
         }
 
         for rpdo in self.state.get_rpdos() {
@@ -510,18 +547,6 @@ impl<'table> Node<'table> {
             "NMT state changed from {:?} to {:?}",
             prev_state, self.nmt_state
         );
-        // if self.node_id.is_some() && self.node_state == NmtState::Bootup {
-        //     if let Some(cb) = self.app_reset_callback.as_mut() {
-        //         cb();
-        //     }
-        //     self.node_state = NmtState::PreOperational;
-        // }
-
-        // if self.node_state != prev_state {
-        //     if let Some(cb) = self.nmt_state_callback.as_mut() {
-        //         cb(self.node_state);
-        //     }
-        // }
     }
 
     pub fn node_id(&self) -> u8 {
@@ -600,7 +625,3 @@ impl<'table> Node<'table> {
         }
     }
 }
-
-// pub struct PdoServer<const N_RX {
-
-// }

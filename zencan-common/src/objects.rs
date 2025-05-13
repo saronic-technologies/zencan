@@ -2,9 +2,75 @@
 
 // }
 
-use core::any::Any;
-use crate::AtomicCell;
 use crate::sdo::AbortCode;
+use crate::AtomicCell;
+use core::any::Any;
+use core::sync::atomic::{AtomicBool, Ordering};
+
+#[derive(Debug)]
+pub struct ObjectFlagSync {
+    toggle: AtomicBool,
+}
+
+impl ObjectFlagSync {
+    pub const fn new() -> Self {
+        Self { toggle: AtomicBool::new(false) }
+    }
+
+    pub fn toggle(&self) {
+        self.toggle.fetch_xor(true, Ordering::SeqCst);
+    }
+}
+
+/// Store an event flag for each sub object in an object
+#[derive(Debug)]
+pub struct ObjectFlags<const N: usize>
+{
+    sync: &'static ObjectFlagSync,
+    flags0: AtomicCell<[u8; N]>,
+    flags1: AtomicCell<[u8; N]>,
+}
+
+impl<const N: usize> ObjectFlags<N> {
+    pub const fn new(sync: &'static ObjectFlagSync) -> Self {
+        Self { sync, flags0: AtomicCell::new([0; N]), flags1: AtomicCell::new([0; N]) }
+    }
+
+    pub fn set_flag(&self, sub: u8) {
+        if sub as usize >= N * 8 {
+            return;
+        }
+        let flags = if self.sync.toggle.load(Ordering::Acquire) {
+            &self.flags0
+        } else {
+            &self.flags1
+        };
+        flags.fetch_update(|mut f| {
+            f[sub as usize / 8] |= 1 << (sub & 7);
+            Some(f)
+        }).unwrap();
+    }
+
+    pub fn get_flag(&self, sub: u8) -> bool {
+        if sub as usize >= N*8 {
+            return false;
+        }
+        let flags = if self.sync.toggle.load(Ordering::Acquire) {
+            &self.flags1.load()
+        } else {
+            &self.flags0.load()
+        };
+        flags[(sub / 8) as usize] & (1 << (sub & 7)) != 0
+    }
+
+    pub fn clear(&self) {
+        if self.sync.toggle.load(Ordering::Relaxed) {
+            self.flags0.store([0; N]);
+        } else {
+            self.flags1.store([0; N]);
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
@@ -49,7 +115,13 @@ pub enum AccessType {
     Const,
 }
 
-
+#[derive(Copy, Clone, Debug)]
+pub enum PdoMapping {
+    None,
+    Rpdo,
+    Tpdo,
+    Both,
+}
 
 #[derive(Copy, Clone, Debug, Default)]
 #[repr(u16)]
@@ -93,11 +165,13 @@ impl From<u16> for DataType {
     }
 }
 
-
 impl DataType {
     /// Returns true if data type is one of the string types
     pub fn is_str(&self) -> bool {
-        matches!(self, Self::VisibleString | Self::OctetString | Self::UnicodeString)
+        matches!(
+            self,
+            Self::VisibleString | Self::OctetString | Self::UnicodeString
+        )
     }
 }
 
@@ -110,7 +184,18 @@ pub trait ObjectRawAccess: Sync + Send {
     /// Write raw bytes to a subobject
     fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode>;
 
+    /// Get metadata about a sub object
     fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode>;
+
+    fn set_event_flag(&self, _sub: u8) -> Result<(), AbortCode> {
+        return Err(AbortCode::UnsupportedAccess);
+    }
+
+    fn read_event_flag(&self, _sub: u8) -> bool {
+        false
+    }
+
+    fn clear_events(&self) {}
 
     fn access_type(&self, sub: u8) -> Result<AccessType, AbortCode> {
         Ok(self.sub_info(sub)?.access_type)
@@ -198,6 +283,7 @@ pub struct CallbackObject {
     write_cb: AtomicCell<Option<WriteHookFn>>,
     read_cb: AtomicCell<Option<ReadHookFn>>,
     info_cb: AtomicCell<Option<InfoHookFn>>,
+
     od: &'static [ODEntry<'static>],
     context: AtomicCell<Option<&'static dyn Context>>,
 }
@@ -225,7 +311,6 @@ impl CallbackObject {
         self.info_cb.store(info);
         self.context.store(context);
     }
-
 }
 
 impl ObjectRawAccess for CallbackObject {
@@ -252,6 +337,7 @@ impl ObjectRawAccess for CallbackObject {
             Err(AbortCode::ResourceNotAvailable)
         }
     }
+
 }
 
 // Trait to define requirements for opaque callback context references
@@ -271,7 +357,7 @@ type ReadHookFn = fn(
     od: &[ODEntry],
     sub: u8,
     offset: usize,
-    buf: &mut [u8]
+    buf: &mut [u8],
 ) -> Result<(), AbortCode>;
 
 type WriteHookFn = fn(
@@ -279,13 +365,10 @@ type WriteHookFn = fn(
     od: &[ODEntry],
     sub: u8,
     offset: usize,
-    buf: &[u8]
+    buf: &[u8],
 ) -> Result<(), AbortCode>;
 
-type InfoHookFn = fn(
-    ctx: &Option<&dyn Context>,
-    sub: u8,
-) -> Result<SubInfo, AbortCode>;
+type InfoHookFn = fn(ctx: &Option<&dyn Context>, sub: u8) -> Result<SubInfo, AbortCode>;
 
 pub enum ObjectData<'a> {
     Storage(&'a dyn ObjectRawAccess),
@@ -313,6 +396,27 @@ impl ObjectRawAccess for ObjectData<'_> {
             ObjectData::Callback(obj) => obj.sub_info(sub),
         }
     }
+
+    fn set_event_flag(&self, sub: u8) -> Result<(), AbortCode> {
+        match self {
+            ObjectData::Storage(obj) => obj.set_event_flag(sub),
+            ObjectData::Callback(obj) => obj.set_event_flag(sub),
+        }
+    }
+
+    fn read_event_flag(&self, sub: u8) -> bool {
+        match self {
+            ObjectData::Storage(obj) => obj.read_event_flag(sub),
+            ObjectData::Callback(obj) => obj.read_event_flag(sub),
+        }
+    }
+
+    fn clear_events(&self) {
+        match self {
+            ObjectData::Storage(obj) => obj.clear_events(),
+            ObjectData::Callback(obj) => obj.clear_events(),
+        }
+    }
 }
 
 /// Represents one item in the in-memory table of objects
@@ -329,9 +433,10 @@ pub struct SubInfo {
     pub data_type: DataType,
     /// Indicates what accesses (i.e. read/write) are allowed on this sub object
     pub access_type: AccessType,
+    pub pdo_mapping: PdoMapping,
 }
 
-pub fn find_object<'a, 'b>(table: &'b[ODEntry<'a>], index: u16) -> Option<&'b ObjectData<'a>> {
+pub fn find_object<'a, 'b>(table: &'b [ODEntry<'a>], index: u16) -> Option<&'b ObjectData<'a>> {
     // TODO: Table is sorted, so we could use binary search
     for entry in table {
         if entry.index == index {
@@ -387,7 +492,6 @@ mod tests {
 
     // }
 
-
     // #[test]
     // fn test_write_hook() {
     //     let mut dict = ObjectDict::new(&OD_TABLE);
@@ -421,5 +525,4 @@ mod tests {
 
     // fn test() {
     // }
-
 }

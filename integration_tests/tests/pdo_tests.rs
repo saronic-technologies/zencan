@@ -7,11 +7,12 @@ use integration_tests::{
     object_dict1,
     sim_bus::{SimBus, SimBusReceiver, SimBusSender},
 };
+use serial_test::serial;
 use tokio::time::timeout;
 use zencan_client::sdo_client::SdoClient;
 use zencan_common::{
     messages::{CanId, CanMessage, SyncObject},
-    objects::ODEntry,
+    objects::{find_object, ODEntry, ObjectRawAccess},
     traits::{AsyncCanReceiver, AsyncCanSender},
     NodeId,
 };
@@ -44,7 +45,7 @@ fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
 }
 
 #[tokio::test]
-#[serial_test::serial]
+#[serial]
 async fn test_rpdo_assignment() {
     let od = &object_dict1::OD_TABLE;
     let state = &object_dict1::NODE_STATE;
@@ -92,7 +93,7 @@ async fn test_rpdo_assignment() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
+#[serial]
 async fn test_tpdo_asignment() {
     let od = &integration_tests::object_dict1::OD_TABLE;
     let state = &integration_tests::object_dict1::NODE_STATE;
@@ -112,7 +113,7 @@ async fn test_tpdo_asignment() {
     let test_task = async move {
         // Set the TPDO COB ID
         client
-            .download(TPDO_COMM1_ID, PDO_COMM_COB_SUBID, &0x181u32.to_le_bytes())
+            .download(TPDO_COMM1_ID, PDO_COMM_COB_SUBID, &(0x181u32 | (1<<31)).to_le_bytes())
             .await
             .unwrap();
         // Set to sync driven
@@ -120,7 +121,7 @@ async fn test_tpdo_asignment() {
             .download(
                 TPDO_COMM1_ID,
                 PDO_COMM_TRANSMISSION_TYPE_SUBID,
-                &0u8.to_le_bytes(),
+                &1u8.to_le_bytes(),
             )
             .await
             .unwrap();
@@ -170,4 +171,74 @@ async fn test_tpdo_asignment() {
     let mut sender = bus.new_sender();
 
     test_with_background_process(&mut [&mut node], &mut sender, test_task).await;
+}
+
+#[serial]
+#[tokio::test]
+async fn test_tpdo_event_flags() {
+    let od = &integration_tests::object_dict1::OD_TABLE;
+    let state = &integration_tests::object_dict1::NODE_STATE;
+    let mbox = &integration_tests::object_dict1::NODE_MBOX;
+    let (mut node, mut client, mut bus) = setup(od, mbox, state);
+
+    let _logger = BusLogger::new(bus.new_receiver());
+
+    // Set COB-ID
+    const TPDO_COMM1_ID: u16 = 0x1800;
+    const PDO_COMM_COB_SUBID: u8 = 1;
+    const PDO_COMM_TRANSMISSION_TYPE_SUBID: u8 = 2;
+
+    let mut rx = bus.new_receiver();
+
+    let test_task = async move {
+        // Set the TPDO COB ID
+        client
+            .download(TPDO_COMM1_ID, PDO_COMM_COB_SUBID, &(0x181u32 + (1<<31)).to_le_bytes())
+            .await
+            .unwrap();
+        // Set to asynchronous transmission
+        client
+            .download(
+                TPDO_COMM1_ID,
+                PDO_COMM_TRANSMISSION_TYPE_SUBID,
+                &254u8.to_le_bytes(),
+            )
+            .await
+            .unwrap();
+
+        // Set some known values into some application objects
+        client.download_u32(0x2000, 1, 222).await.unwrap();
+        client.download_u32(0x2001, 1, 333).await.unwrap();
+
+        // Set the first TPDO mapping to 0x2000, subindex 1, length 32 bits
+        let mapping_entry: u32 = (0x2000 << 16) | (1 << 8) | 32;
+        client
+            .download(0x1A00, 1, &mapping_entry.to_le_bytes())
+            .await
+            .unwrap();
+        // Set the second TPDO mapping entry to 0x2001, subindex 1, length 32 bits
+        let mapping_entry: u32 = (0x2001 << 16) | (1 << 8) | 32;
+        client
+            .download(0x1A00, 2, &mapping_entry.to_le_bytes())
+            .await
+            .unwrap();
+
+        rx.flush();
+
+        tokio::time::sleep(Duration::from_millis(5)).await;
+
+        // No messages in queue
+        assert!(rx.try_recv().is_none());
+
+        let obj = find_object(od, 0x2000).expect("Could not find object 0x2000");
+        // Set the event flag for sub 1
+        obj.set_event_flag(1).expect("Error setting event flag");
+
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let pdomsg = rx.try_recv().expect("No message received after TPDO event");
+        // should only have gotten one message
+        assert!(rx.try_recv().is_none());
+    };
+
+    test_with_background_process(&mut [&mut node], &mut bus.new_sender(), test_task).await;
 }

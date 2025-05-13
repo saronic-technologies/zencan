@@ -13,5 +13,5 @@ socketcan = { workspace = true, optional = true }
 
 [features]
 default = ["socketcan", "std"]
-std = ["critical-section/std"]
-socketcan = ["dep:socketcan", "std"]
+std = ["critical-section/std", "snafu/std"]
+socketcan = ["dep:socketcan", "std",]

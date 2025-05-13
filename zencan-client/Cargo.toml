@@ -14,4 +14,4 @@ futures.workspace = true
 log.workspace = true
 snafu.workspace = true
 socketcan.workspace = true
-tokio = { version = "1.45.0", features = ["net", "time"] }
+tokio = { version = "1.45.0", features = ["net", "time", "sync"] }

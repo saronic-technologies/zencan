@@ -35,8 +35,33 @@ fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
     (node, client, bus)
 }
 
-#[tokio::test]
+
 #[serial_test::serial]
+#[tokio::test]
+async fn test_device_info_readback() {
+    const DEVICE_NAME_ID: u16 = 0x1008;
+    const DEVICE_HW_VER_ID: u16 = 0x1009;
+    const DEVICE_SW_VER_ID: u16 = 0x100A;
+
+    let (mut node, mut client, mut bus) = setup(
+        &object_dict1::OD_TABLE,
+        &object_dict1::NODE_MBOX,
+        &object_dict1::NODE_STATE,
+    );
+
+    let _logger = BusLogger::new(bus.new_receiver());
+
+    let test_task = async move {
+        assert_eq!(&client.read_utf8(DEVICE_NAME_ID, 0).await.unwrap(), "Example 1");
+        assert_eq!(&client.read_utf8(DEVICE_HW_VER_ID, 0).await.unwrap(), "v1.2.3");
+        assert_eq!(&client.read_utf8(DEVICE_SW_VER_ID, 0).await.unwrap(), "v2.1.0");
+    };
+
+    test_with_background_process(&mut [&mut node], &mut bus.new_sender(), test_task).await;
+}
+
+#[serial_test::serial]
+#[tokio::test]
 async fn test_identity_readback() {
     const IDENTITY_OBJECT_ID: u16 = 0x1018;
     const VENDOR_SUB_ID: u8 = 1;
