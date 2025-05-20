@@ -119,18 +119,21 @@ fn pdo_comm_info_callback(_ctx: &Option<&dyn Context>, sub: u8) -> Result<SubInf
             size: 1,
             access_type: AccessType::Ro,
             pdo_mapping: PdoMapping::None,
+            persist: false,
         }),
         1 => Ok(SubInfo {
             data_type: DataType::UInt32,
             size: 4,
             access_type: AccessType::Rw,
             pdo_mapping: PdoMapping::None,
+            persist: true,
         }),
         2 => Ok(SubInfo {
             data_type: DataType::UInt8,
             size: 1,
             access_type: AccessType::Rw,
             pdo_mapping: PdoMapping::None,
+            persist: true
         }),
         _ => Err(AbortCode::NoSuchSubIndex),
     }
@@ -227,6 +230,7 @@ fn pdo_mapping_info_callback(ctx: &Option<&dyn Context>, sub: u8) -> Result<SubI
             data_type: DataType::UInt8,
             access_type: AccessType::Ro,
             pdo_mapping: PdoMapping::None,
+            persist: false,
         })
     } else if sub <= pdo.mapping_params.len() as u8 {
         Ok(SubInfo {
@@ -234,6 +238,7 @@ fn pdo_mapping_info_callback(ctx: &Option<&dyn Context>, sub: u8) -> Result<SubI
             data_type: DataType::UInt32,
             access_type: AccessType::Rw,
             pdo_mapping: PdoMapping::None,
+            persist: true,
         })
     } else {
         Err(AbortCode::NoSuchSubIndex)

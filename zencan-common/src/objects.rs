@@ -14,18 +14,22 @@ pub struct ObjectFlagSync {
 
 impl ObjectFlagSync {
     pub const fn new() -> Self {
-        Self { toggle: AtomicBool::new(false) }
+        Self {
+            toggle: AtomicBool::new(false),
+        }
     }
 
     pub fn toggle(&self) {
-        self.toggle.fetch_xor(true, Ordering::SeqCst);
+        critical_section::with(|_| {
+            self.toggle
+                .store(!self.toggle.load(Ordering::Relaxed), Ordering::Relaxed);
+        });
     }
 }
 
 /// Store an event flag for each sub object in an object
 #[derive(Debug)]
-pub struct ObjectFlags<const N: usize>
-{
+pub struct ObjectFlags<const N: usize> {
     sync: &'static ObjectFlagSync,
     flags0: AtomicCell<[u8; N]>,
     flags1: AtomicCell<[u8; N]>,
@@ -33,7 +37,11 @@ pub struct ObjectFlags<const N: usize>
 
 impl<const N: usize> ObjectFlags<N> {
     pub const fn new(sync: &'static ObjectFlagSync) -> Self {
-        Self { sync, flags0: AtomicCell::new([0; N]), flags1: AtomicCell::new([0; N]) }
+        Self {
+            sync,
+            flags0: AtomicCell::new([0; N]),
+            flags1: AtomicCell::new([0; N]),
+        }
     }
 
     pub fn set_flag(&self, sub: u8) {
@@ -45,14 +53,16 @@ impl<const N: usize> ObjectFlags<N> {
         } else {
             &self.flags1
         };
-        flags.fetch_update(|mut f| {
-            f[sub as usize / 8] |= 1 << (sub & 7);
-            Some(f)
-        }).unwrap();
+        flags
+            .fetch_update(|mut f| {
+                f[sub as usize / 8] |= 1 << (sub & 7);
+                Some(f)
+            })
+            .unwrap();
     }
 
     pub fn get_flag(&self, sub: u8) -> bool {
-        if sub as usize >= N*8 {
+        if sub as usize >= N * 8 {
             return false;
         }
         let flags = if self.sync.toggle.load(Ordering::Acquire) {
@@ -102,7 +112,7 @@ impl TryFrom<u8> for ObjectCode {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub enum AccessType {
     /// Read-only
     #[default]
@@ -115,15 +125,16 @@ pub enum AccessType {
     Const,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub enum PdoMapping {
+    #[default]
     None,
     Rpdo,
     Tpdo,
     Both,
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[repr(u16)]
 pub enum DataType {
     Boolean = 1,
@@ -184,8 +195,24 @@ pub trait ObjectRawAccess: Sync + Send {
     /// Write raw bytes to a subobject
     fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode>;
 
+    /// Get the type of this object
+    fn object_code(&self) -> ObjectCode;
+
     /// Get metadata about a sub object
     fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode>;
+
+    /// Get the highest sub index available in this object
+    fn max_sub_number(&self) -> u8 {
+        match self.object_code() {
+            ObjectCode::Null => 0,
+            ObjectCode::Domain => 0,
+            ObjectCode::DefType => 0,
+            ObjectCode::DefStruct => 0,
+            ObjectCode::Var => 0,
+            ObjectCode::Array => self.read_u8(0).unwrap(),
+            ObjectCode::Record => self.read_u8(0).unwrap(),
+        }
+    }
 
     fn set_event_flag(&self, _sub: u8) -> Result<(), AbortCode> {
         return Err(AbortCode::UnsupportedAccess);
@@ -242,6 +269,8 @@ pub trait ObjectRawAccess: Sync + Send {
         Ok(size)
     }
 
+
+
     fn read_u32(&self, sub: u8) -> Result<u32, AbortCode> {
         let mut buf = [0; 4];
         self.read(sub, 0, &mut buf)?;
@@ -283,17 +312,19 @@ pub struct CallbackObject {
     write_cb: AtomicCell<Option<WriteHookFn>>,
     read_cb: AtomicCell<Option<ReadHookFn>>,
     info_cb: AtomicCell<Option<InfoHookFn>>,
+    object_code: ObjectCode,
 
     od: &'static [ODEntry<'static>],
     context: AtomicCell<Option<&'static dyn Context>>,
 }
 
 impl CallbackObject {
-    pub const fn new(od: &'static [ODEntry<'static>]) -> Self {
+    pub const fn new(od: &'static [ODEntry<'static>], object_code: ObjectCode) -> Self {
         Self {
             write_cb: AtomicCell::new(None),
             read_cb: AtomicCell::new(None),
             info_cb: AtomicCell::new(None),
+            object_code,
             od,
             context: AtomicCell::new(None),
         }
@@ -338,6 +369,9 @@ impl ObjectRawAccess for CallbackObject {
         }
     }
 
+    fn object_code(&self) -> ObjectCode {
+        self.object_code
+    }
 }
 
 // Trait to define requirements for opaque callback context references
@@ -397,6 +431,13 @@ impl ObjectRawAccess for ObjectData<'_> {
         }
     }
 
+    fn object_code(&self) -> ObjectCode {
+        match self {
+            ObjectData::Storage(obj) => obj.object_code(),
+            ObjectData::Callback(obj) => obj.object_code(),
+        }
+    }
+
     fn set_event_flag(&self, sub: u8) -> Result<(), AbortCode> {
         match self {
             ObjectData::Storage(obj) => obj.set_event_flag(sub),
@@ -426,6 +467,7 @@ pub struct ODEntry<'a> {
     pub data: ObjectData<'a>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SubInfo {
     /// The size (or max size) of this sub object, in bytes
     pub size: usize,
@@ -433,7 +475,10 @@ pub struct SubInfo {
     pub data_type: DataType,
     /// Indicates what accesses (i.e. read/write) are allowed on this sub object
     pub access_type: AccessType,
+    /// Indicates whether this sub may be mapped to PDOs
     pub pdo_mapping: PdoMapping,
+    /// Indicates whether this sub should be persisted when data is saved
+    pub persist: bool,
 }
 
 pub fn find_object<'a, 'b>(table: &'b [ODEntry<'a>], index: u16) -> Option<&'b ObjectData<'a>> {
@@ -444,85 +489,4 @@ pub fn find_object<'a, 'b>(table: &'b [ODEntry<'a>], index: u16) -> Option<&'b O
         }
     }
     None
-}
-
-#[cfg(test)]
-mod tests {
-    // #[test]
-    // fn test_object_var() {
-    //     let dict = ObjectDict::new(&OD_TABLE);
-    //     let object = dict.find(0x1000).unwrap();
-    //     let node = object.get_sub(0).unwrap();
-    //     //let node = dict.find_sub(0x1000, 0).unwrap();
-    //     node.write(0, &10u32.to_le_bytes()).unwrap();
-    //     let mut buf = [0u8; 4];
-    //     node.read(0, &mut buf);
-    //     assert_eq!(10, u32::from_le_bytes(buf));
-    // }
-
-    // #[test]
-    // fn test_object_array() {
-    //     let dict = ObjectDict::new(&OD_TABLE);
-    //     let object = dict.find(0x1001).unwrap();
-    //     let node0 = object.get_sub(0).unwrap();
-    //     let mut buf = [0u8];
-    //     node0.read(0, &mut buf);
-    //     assert_eq!(buf[0], ITEM2_SIZE);
-
-    //     let node1 = object.get_sub(1).unwrap();
-    //     let buf = [0; 2];
-    //     node1.write(0, &99u16.to_le_bytes()).unwrap();
-    // }
-
-    // #[test]
-    // fn test_object_record() {
-    //     let dict = ObjectDict::new(&OD_TABLE);
-    //     let object = dict.find(0x1002).unwrap();
-    //     let node1 = object.get_sub(1).unwrap();
-    //     node1.write(0, &44u32.to_le_bytes()).unwrap();
-    //     let mut buf = [0; 4];
-    //     node1.read(0, &mut buf);
-    //     assert_eq!(44, u32::from_le_bytes(buf));
-
-    //     let node3 = object.get_sub(3).unwrap();
-    //     node3.write(0, &22u8.to_le_bytes()).unwrap();
-    //     let mut buf = [0; 1];
-    //     node3.read(0, &mut buf);
-    //     assert_eq!(22, buf[0]);
-
-    // }
-
-    // #[test]
-    // fn test_write_hook() {
-    //     let mut dict = ObjectDict::new(&OD_TABLE);
-
-    //     fn fail_hook(
-    //         ctx: &Option<&dyn Context>,
-    //         object: &Object,
-    //         sub: u8,
-    //         offset: usize,
-    //         buf: &[u8]
-    //     ) -> Result<(), AbortCode> {
-    //         let binding2 = ctx.unwrap().as_any().downcast_ref::<Mutex<RefCell<u32>>>().unwrap();
-    //         critical_section::with(|cs| {
-    //             *binding2.borrow_ref_mut(cs) += 1;
-    //         });
-
-    //         return Err(AbortCode::CantStore)
-    //     }
-
-    //     let value = Mutex::new(RefCell::new(20u32));
-    //     dict.register_hook(0x1000, Some(&value), None, Some(fail_hook));
-
-    //     let object = dict.find(0x1000).unwrap();
-    //     let result = object.write(0x1, 0, &[]);
-    //     assert_eq!(Err(AbortCode::CantStore), result);
-    //     let stored_value = critical_section::with(|cs| {
-    //         *value.borrow_ref_mut(cs)
-    //     });
-    //     assert_eq!(21, stored_value);
-    // }
-
-    // fn test() {
-    // }
 }
