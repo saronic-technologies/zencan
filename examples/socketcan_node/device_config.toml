@@ -1,4 +1,4 @@
-vendor_name = "Example 1"
+device_name = "SocketCan Example"
 
 [identity]
 vendor_id = 123
@@ -28,13 +28,13 @@ data_type = "uint16"
 access_type = "rw"
 [[objects.subs]]
 sub_index = 2
-parameter_name = "first"
+parameter_name = "second"
 field_name = "field_b"
 data_type = "uint16"
 access_type = "rw"
 [[objects.subs]]
 sub_index = 3
-parameter_name = "first"
+parameter_name = "third"
 field_name = "field_c"
 data_type = "uint16"
 access_type = "rw"
