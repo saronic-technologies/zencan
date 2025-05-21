@@ -1,4 +1,6 @@
-#![no_std]
+
+#![cfg_attr(all(not(test),not(feature = "std")), no_std)]
+
 #![allow(clippy::comparison_chain)]
 
 pub mod lss_slave;
@@ -6,6 +8,7 @@ pub mod nmt;
 pub mod node;
 pub mod node_mbox;
 pub mod node_state;
+pub mod persist;
 pub mod sdo_server;
 pub mod stack;
 

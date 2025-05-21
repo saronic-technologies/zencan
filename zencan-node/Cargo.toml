@@ -17,8 +17,11 @@ futures.workspace = true
 log = { version = "0.4" }
 
 [features]
-default = ["log"]
+default = ["log", "std"]
 std = ["critical-section/std", "zencan-common/std"]
 log = ["defmt-or-log/log"]
 defmt = ["defmt-or-log/defmt"]
 socketcan = ["zencan-common/socketcan", "std"]
+
+[profile.test]
+default = ["log", "std"]
