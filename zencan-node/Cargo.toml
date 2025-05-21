@@ -1,7 +1,13 @@
 [package]
 name = "zencan-node"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
+authors = ["Jeff McBride <jeff@jeffmcbride.net>"]
+license = "MPL-2"
+rust-version = "1.81"
+description = "Library for implementing a CAN-BUS node, primarily on an MCU"
+keywords = ["no_std", "embedded", "CAN"]
+categories = ["embedded", "no_std", "no_std::no_alloc"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -22,6 +28,3 @@ std = ["critical-section/std", "zencan-common/std"]
 log = ["defmt-or-log/log"]
 defmt = ["defmt-or-log/defmt"]
 socketcan = ["zencan-common/socketcan", "std"]
-
-[profile.test]
-default = ["log", "std"]
