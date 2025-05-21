@@ -175,6 +175,7 @@ fn generate_object_definition(obj: &ObjectDefinition) -> Result<TokenStream, Com
     }
 
     Ok(quote! {
+        #[allow(dead_code)]
         #[derive(Debug)]
         pub struct #struct_name {
             #field_tokens
@@ -378,6 +379,7 @@ fn get_object_impls(
             }
 
             Ok(quote! {
+                #[allow(dead_code)]
                 impl #struct_name {
                     pub fn #setter_name(&self, value: #field_type) {
                         self.#field_name.store(value);

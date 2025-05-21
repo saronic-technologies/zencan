@@ -300,25 +300,6 @@ fn read_pdo_data(data: &mut [u8], pdo: &Pdo, od: &[ODEntry]) {
     }
 }
 
-fn read_pdo_flags(pdo: &Pdo, od: &[ODEntry]) -> bool {
-    // TODO: Should maybe cache pointers or something. This is searching the whole OD for every
-    // mapped object
-    for i in 0..pdo.mapping_params.len() {
-        let param = pdo.mapping_params[i].load();
-        if param == 0 {
-            break;
-        }
-        let object_id = (param >> 16) as u16;
-        let sub_index = ((param & 0xFF00) >> 8) as u8;
-        // Unwrap safety: Object is validated to exist prior to setting mapping
-        let entry = find_object(od, object_id).expect("invalid mapping parameter");
-        if entry.read_event_flag(sub_index) {
-            return true;
-        }
-    }
-    false
-}
-
 pub struct Node<'table> {
     node_id: NodeId,
     nmt_state: NmtState,

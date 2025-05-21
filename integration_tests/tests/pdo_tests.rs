@@ -243,7 +243,7 @@ async fn test_tpdo_event_flags() {
         obj.set_event_flag(1).expect("Error setting event flag");
 
         tokio::time::sleep(Duration::from_millis(5)).await;
-        let pdomsg = rx.try_recv().expect("No message received after TPDO event");
+        let _pdomsg = rx.try_recv().expect("No message received after TPDO event");
         // should only have gotten one message
         assert!(rx.try_recv().is_none());
     };

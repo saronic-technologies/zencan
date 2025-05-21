@@ -39,6 +39,8 @@ pub struct BusLogger {
 }
 
 impl BusLogger {
+
+    #[allow(dead_code)]
     pub fn new(rx: SimBusReceiver) -> Self {
         Self { rx }
     }
