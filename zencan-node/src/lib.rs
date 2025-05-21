@@ -1,6 +1,4 @@
-
-#![cfg_attr(all(not(test),not(feature = "std")), no_std)]
-
+#![cfg_attr(all(not(test), not(feature = "std")), no_std)]
 #![allow(clippy::comparison_chain)]
 
 pub mod lss_slave;
@@ -16,8 +14,8 @@ pub mod stack;
 pub use zencan_macro::build_object_dict;
 
 // Re-export types used by generated code
-pub use zencan_common as common;
 pub use critical_section;
+pub use zencan_common as common;
 
 #[cfg(feature = "socketcan")]
 pub use common::open_socketcan;
@@ -26,21 +24,16 @@ pub use common::open_socketcan;
 #[macro_export]
 macro_rules! include_modules {
     ($name: tt) => {
-        include!(
-            env!(
-                concat!(
-                    "ZENCAN_INCLUDE_GENERATED_",
-                    stringify!($name),
-                ),
-                concat!(
-                    "Missing env var ",
-                    "ZENCAN_INCLUDE_GENERATED_",
-                    stringify!($name),
-                    ". Did you generate an object dictionary named ",
-                    stringify!($name),
-                    " in build.rs?"
-                )
+        include!(env!(
+            concat!("ZENCAN_INCLUDE_GENERATED_", stringify!($name),),
+            concat!(
+                "Missing env var ",
+                "ZENCAN_INCLUDE_GENERATED_",
+                stringify!($name),
+                ". Did you generate an object dictionary named ",
+                stringify!($name),
+                " in build.rs?"
             )
-        );
+        ));
     };
 }

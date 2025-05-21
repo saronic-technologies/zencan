@@ -1,6 +1,6 @@
+use zencan_common::messages::CanId;
 use zencan_common::objects::{find_object, ODEntry, ObjectFlagSync, ObjectRawAccess as _};
 use zencan_common::AtomicCell;
-use zencan_common::messages::CanId;
 
 #[derive(Debug)]
 pub struct Pdo {
@@ -113,7 +113,7 @@ impl Pdo {
     }
 }
 
-pub trait NodeStateAccess : Sync + Send {
+pub trait NodeStateAccess: Sync + Send {
     fn num_rpdos(&self) -> usize;
     fn get_rpdos(&self) -> &[Pdo];
     fn num_tpdos(&self) -> usize;
@@ -138,7 +138,11 @@ impl<const N_RPDO: usize, const N_TPDO: usize> NodeState<N_RPDO, N_TPDO> {
         let rpdos = [const { Pdo::new() }; N_RPDO];
         let tpdos = [const { Pdo::new() }; N_TPDO];
         let pdo_sync = ObjectFlagSync::new();
-        Self { rpdos, tpdos, pdo_sync }
+        Self {
+            rpdos,
+            tpdos,
+            pdo_sync,
+        }
     }
 
     pub const fn rpdos(&'static self) -> &'static [Pdo] {

@@ -1,6 +1,4 @@
-
-use zencan_common::messages::{ZencanMessage, NmtCommandCmd, NmtState};
-
+use zencan_common::messages::{NmtCommandCmd, NmtState, ZencanMessage};
 
 pub struct NmtSlave {
     node_id: Option<u8>,
@@ -33,7 +31,7 @@ impl NmtSlave {
                         cb();
                     }
                     self.state = NmtState::PreOperational;
-                },
+                }
                 NmtCommandCmd::ResetComm => self.state = NmtState::PreOperational,
             }
         }
@@ -63,9 +61,6 @@ impl NmtSlave {
     pub fn node_id(&self) -> Option<u8> {
         self.node_id
     }
-
 }
 
-pub struct NmtMaster {
-
-}
+pub struct NmtMaster {}

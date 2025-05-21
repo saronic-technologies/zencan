@@ -21,7 +21,6 @@
 //     message_count: u32,
 // }
 
-
 // impl<S: CanSender, R: CanReceiver> Stack<S, R> {
 //     pub fn new(node_id: Option<u8>, sender: S, receiver: R) -> Self {
 //         let nmt_slave = NmtSlave::new(node_id);

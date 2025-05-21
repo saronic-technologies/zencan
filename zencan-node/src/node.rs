@@ -1,5 +1,11 @@
 use zencan_common::{
-    lss::LssIdentity, messages::{CanId, CanMessage, Heartbeat, NmtCommandCmd, NmtState, ZencanMessage, LSS_RESP_ID}, objects::{find_object, AccessType, Context, DataType, ODEntry, ObjectRawAccess, PdoMapping, SubInfo}, sdo::AbortCode, NodeId
+    lss::LssIdentity,
+    messages::{CanId, CanMessage, Heartbeat, NmtCommandCmd, NmtState, ZencanMessage, LSS_RESP_ID},
+    objects::{
+        find_object, AccessType, Context, DataType, ODEntry, ObjectRawAccess, PdoMapping, SubInfo,
+    },
+    sdo::AbortCode,
+    NodeId,
 };
 
 use crate::{lss_slave::LssSlave, node_mbox::NodeMboxRead, node_state::Pdo};
@@ -133,7 +139,7 @@ fn pdo_comm_info_callback(_ctx: &Option<&dyn Context>, sub: u8) -> Result<SubInf
             size: 1,
             access_type: AccessType::Rw,
             pdo_mapping: PdoMapping::None,
-            persist: true
+            persist: true,
         }),
         _ => Err(AbortCode::NoSuchSubIndex),
     }
@@ -312,7 +318,6 @@ fn read_pdo_flags(pdo: &Pdo, od: &[ODEntry]) -> bool {
     }
     return false;
 }
-
 
 pub struct Node<'table> {
     node_id: NodeId,
