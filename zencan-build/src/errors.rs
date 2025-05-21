@@ -10,9 +10,6 @@ pub enum CompileError {
     InvalidFieldName {
         field_name: String,
     },
-    EdsLoad {
-        source: eds_parser::LoadError,
-    },
     MissingSub0 {
         obj_num: u32,
     },
