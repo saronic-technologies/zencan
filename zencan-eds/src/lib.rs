@@ -384,19 +384,20 @@ impl ElectronicDataSheet {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    // use std::io::Write;
 
-    use super::*;
+    // use super::*;
 
-    #[test]
-    fn test_load() {
-        const EDS: &[u8] = include_bytes!("example.eds");
 
-        let mut eds_file = tempfile::NamedTempFile::new().unwrap();
-        eds_file.write_all(EDS).unwrap();
+    // #[test]
+    // fn test_load() {
+    //     const EDS: &[u8] = include_bytes!("example.eds");
 
-        let eds = ElectronicDataSheet::load(eds_file.path()).unwrap();
-        println!("Eds: {:?}", eds);
-        assert!(false, "EDS loaded; just failing to read the output");
-    }
+    //     let mut eds_file = tempfile::NamedTempFile::new().unwrap();
+    //     eds_file.write_all(EDS).unwrap();
+
+    //     let eds = ElectronicDataSheet::load(eds_file.path()).unwrap();
+    //     println!("Eds: {:?}", eds);
+    //     assert!(false, "EDS loaded; just failing to read the output");
+    // }
 }
