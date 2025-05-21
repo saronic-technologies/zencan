@@ -411,7 +411,6 @@ fn get_object_impls(
                         }
                     }
                     fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
-
                         if sub != 0 {
                             return Err(AbortCode::NoSuchSubIndex);
                         }
@@ -420,7 +419,11 @@ fn get_object_impls(
                             data_type: #data_type,
                             size: #size,
                             pdo_mapping: #pdo_mapping,
+                            persist: false,
                         })
+                    }
+                    fn object_code(&self) -> zencan_node::common::objects::ObjectCode {
+                        zencan_node::common::objects::ObjectCode::Var
                     }
 
                     #tpdo_event_tokens
@@ -569,6 +572,7 @@ fn get_object_impls(
                                 data_type: zencan_node::common::objects::DataType::UInt8,
                                 size: 1,
                                 pdo_mapping: zencan_node::common::objects::PdoMapping::None,
+                                persist: false,
                             });
                         }
                         if sub as usize > #array_size {
@@ -579,7 +583,12 @@ fn get_object_impls(
                             data_type: #data_type,
                             size: #storage_size,
                             pdo_mapping: #pdo_mapping,
+                            persist: false,
                         })
+                    }
+
+                    fn object_code(&self) -> zencan_node::common::objects::ObjectCode {
+                        zencan_node::common::objects::ObjectCode::Array
                     }
 
                     #tpdo_event_tokens
@@ -625,6 +634,7 @@ fn get_object_impls(
                         data_type: zencan_node::common::objects::DataType::UInt8,
                         size: 1,
                         pdo_mapping: zencan_node::common::objects::PdoMapping::None,
+                        persist: false,
                     })
                 }
             });
@@ -681,6 +691,7 @@ fn get_object_impls(
                             data_type: #data_type,
                             size: #size,
                             pdo_mapping: #pdo_mapping,
+                            persist: false,
                         })
                     }
                 });
@@ -724,11 +735,16 @@ fn get_object_impls(
                             _ => Err(AbortCode::NoSuchSubIndex),
                         }
                     }
+
                     fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
                         match sub {
                             #sub_info_match_statements
                             _ => Err(AbortCode::NoSuchSubIndex),
                         }
+                    }
+
+                    fn object_code(&self) -> zencan_node::common::objects::ObjectCode {
+                        zencan_node::common::objects::ObjectCode::Record
                     }
                 }
             })
@@ -785,8 +801,9 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
                 },
             });
         } else {
+            let object_code = object_code_to_tokens(obj.object_code());
             object_instantiations.extend(quote! {
-                pub static #inst_name: CallbackObject = CallbackObject::new(&OD_TABLE);
+                pub static #inst_name: CallbackObject = CallbackObject::new(&OD_TABLE, #object_code);
             });
             table_entries.extend(quote! {
                 ODEntry {
