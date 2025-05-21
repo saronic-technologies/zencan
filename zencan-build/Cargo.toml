@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 zencan-common = { path = "../zencan-common" }
-eds-parser = { path = "../eds-parser" }
 prettyplease = "0.2"
 proc-macro2 = "1.0"
 quote = "1.0"

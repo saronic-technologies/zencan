@@ -1,13 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "eds-parser",
+
     "examples/socketcan_node",
     "integration_tests",
     "zencan-build",
     "zencan-cli",
     "zencan-client",
     "zencan-common",
+    "zencan-eds",
     "zencan-macro",
     "zencan-node",
 ]
@@ -17,6 +18,7 @@ members = [
 zencan-build = { path = "zencan-build" }
 zencan-client = { path = "zencan-client" }
 zencan-common = { path = "zencan-common", default-features = false }
+zencan-eds = { path = "zencan-eds" }
 zencan-macro = { path = "zencan-macro" }
 zencan-node = { path = "zencan-node" }
 

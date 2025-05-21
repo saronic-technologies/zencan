@@ -10,7 +10,6 @@ proc-macro = true
 
 [dependencies]
 zencan-build = { path = "../zencan-build" }
-eds-parser = { path = "../eds-parser" }
 syn = "*"
 proc-macro2 = "1.0.95"
 quote = "1.0.40"
