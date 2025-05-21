@@ -12,7 +12,7 @@ zencan-macro.workspace = true
 
 # External
 critical-section.workspace = true
-defmt-or-log = "0.2.0"
+defmt-or-log = { version = "0.2.0", default-features = false }
 futures.workspace = true
 log = { version = "0.4" }
 
