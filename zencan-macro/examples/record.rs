@@ -15,6 +15,4 @@ struct TestObject {
     val8: [u8; 15],
 }
 
-fn main() {
-
-}
+fn main() {}

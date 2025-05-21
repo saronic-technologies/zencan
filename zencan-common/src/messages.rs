@@ -47,7 +47,12 @@ pub struct CanMessage {
 
 impl Default for CanMessage {
     fn default() -> Self {
-        Self { data: [0; MAX_DATA_LENGTH], dlc: 0, id: CanId::Std(0), rtr: false }
+        Self {
+            data: [0; MAX_DATA_LENGTH],
+            dlc: 0,
+            id: CanId::Std(0),
+            rtr: false,
+        }
     }
 }
 
@@ -55,13 +60,21 @@ impl CanMessage {
     pub fn new(id: CanId, data: &[u8]) -> Self {
         let dlc = data.len() as u8;
         if dlc > MAX_DATA_LENGTH as u8 {
-            panic!("Data length exceeds maximum size of {} bytes", MAX_DATA_LENGTH);
+            panic!(
+                "Data length exceeds maximum size of {} bytes",
+                MAX_DATA_LENGTH
+            );
         }
         let mut buf = [0u8; MAX_DATA_LENGTH];
         buf[0..dlc as usize].copy_from_slice(data);
         let rtr = false;
 
-        Self { id, dlc, data: buf, rtr }
+        Self {
+            id,
+            dlc,
+            data: buf,
+            rtr,
+        }
     }
 
     pub fn new_rtr(id: CanId) -> Self {
@@ -166,7 +179,10 @@ impl TryFrom<CanMessage> for NmtCommand {
     fn try_from(msg: CanMessage) -> Result<Self, Self::Error> {
         let payload = msg.data();
         if msg.id() != NMT_CMD_ID {
-            Err(MessageError::UnexpectedId { cob_id: msg.id(), expected: NMT_CMD_ID })
+            Err(MessageError::UnexpectedId {
+                cob_id: msg.id(),
+                expected: NMT_CMD_ID,
+            })
         } else if payload.len() >= 2 {
             let cmd = NmtCommandCmd::from_byte(payload[0])?;
             let node = payload[1];
@@ -331,7 +347,9 @@ impl TryFrom<CanMessage> for ZencanMessage {
             }))
         } else if cob_id.raw() & 0xff80 == 0x580 {
             // SDO response
-            let resp: SdoResponse = msg.try_into().map_err(|_| MessageError::MalformedMsg { cob_id })?;
+            let resp: SdoResponse = msg
+                .try_into()
+                .map_err(|_| MessageError::MalformedMsg { cob_id })?;
             Ok(ZencanMessage::SdoResponse(resp))
         } else if cob_id.raw() >= 0x580 && cob_id.raw() <= 0x580 + 256 {
             // SDO request
@@ -374,15 +392,26 @@ pub enum ZencanMessage {
 #[derive(Debug, Clone, Copy, PartialEq, Snafu)]
 pub enum MessageError {
     MessageTooShort,
-    MalformedMsg{ cob_id: CanId },
+    MalformedMsg {
+        cob_id: CanId,
+    },
     /// The message ID was not the expected value
     #[snafu(display("Unexpected message ID found: {cob_id:?}, expected: {expected:?}"))]
-    UnexpectedId{ cob_id: CanId, expected: CanId },
+    UnexpectedId {
+        cob_id: CanId,
+        expected: CanId,
+    },
     InvalidField,
-    UnrecognizedId{ cob_id: CanId },
+    UnrecognizedId {
+        cob_id: CanId,
+    },
     /// The NMT state integer in the message is not a valid NMT state
-    InvalidNmtState { value: u8 },
+    InvalidNmtState {
+        value: u8,
+    },
     /// An invalid LSS command specifier was found in the message
     #[snafu(display("Unexpected LSS command: {value}"))]
-    UnexpectedLssCommand { value: u8 },
+    UnexpectedLssCommand {
+        value: u8,
+    },
 }

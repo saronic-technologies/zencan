@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use zencan_common::{
-    messages::{CanMessage, ZencanMessage, NmtCommand, NmtCommandCmd, NmtState},
+    messages::{CanMessage, NmtCommand, NmtCommandCmd, NmtState, ZencanMessage},
     traits::{AsyncCanReceiver, AsyncCanSender},
 };
 
@@ -68,7 +68,11 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> Master<S, R> {
         self.process_rx().await;
 
         // Find the first empty slot; this indicates the end of the list
-        let n = self.nodes.iter().position(|n| n.id == 0).unwrap_or(MAX_NODES);
+        let n = self
+            .nodes
+            .iter()
+            .position(|n| n.id == 0)
+            .unwrap_or(MAX_NODES);
         &self.nodes[0..n]
     }
 

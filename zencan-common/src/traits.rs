@@ -26,12 +26,10 @@ pub trait AsyncCanReceiver {
     fn try_recv(&mut self) -> Option<CanMessage>;
 
     /// A blocking receive
-    fn recv(
-        &mut self,
-    ) -> impl core::future::Future<Output = Result<CanMessage, Self::Error>>;
+    fn recv(&mut self) -> impl core::future::Future<Output = Result<CanMessage, Self::Error>>;
 
     /// Remove any pending messages from the receiver
     fn flush(&mut self) {
-        while let Some(_) = self.try_recv() { }
+        while let Some(_) = self.try_recv() {}
     }
 }

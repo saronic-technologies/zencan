@@ -116,10 +116,7 @@ fn test_record_object_sub_info() {
             persist: true
         }
     );
-    assert_eq!(
-        obj.sub_info(9),
-        Err(AbortCode::NoSuchSubIndex)
-    );
+    assert_eq!(obj.sub_info(9), Err(AbortCode::NoSuchSubIndex));
 }
 
 #[test]

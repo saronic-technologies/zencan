@@ -239,62 +239,67 @@ impl From<LssRequest> for CanMessage {
         let mut data = [0u8; 8];
         match value {
             LssRequest::SwitchModeGlobal { mode } => {
-            data[0] = LssCommandSpecifier::SwitchModeGlobal as u8;
-            data[1] = mode;
-            },
+                data[0] = LssCommandSpecifier::SwitchModeGlobal as u8;
+                data[1] = mode;
+            }
             LssRequest::ConfigureNodeId { node_id } => {
-            data[0] = LssCommandSpecifier::ConfigureNodeId as u8;
-            data[1] = node_id;
-            },
+                data[0] = LssCommandSpecifier::ConfigureNodeId as u8;
+                data[1] = node_id;
+            }
             LssRequest::ConfigureBitTiming { table, index } => {
-            data[0] = LssCommandSpecifier::ConfigureBitTiming as u8;
-            data[1] = table;
-            data[2] = index;
-            },
+                data[0] = LssCommandSpecifier::ConfigureBitTiming as u8;
+                data[1] = table;
+                data[2] = index;
+            }
             LssRequest::ActivateBitTiming { delay } => {
-            data[0] = LssCommandSpecifier::ActivateBitTiming as u8;
-            let delay_bytes = delay.to_le_bytes();
-            data[1] = delay_bytes[0];
-            data[2] = delay_bytes[1];
-            },
+                data[0] = LssCommandSpecifier::ActivateBitTiming as u8;
+                let delay_bytes = delay.to_le_bytes();
+                data[1] = delay_bytes[0];
+                data[2] = delay_bytes[1];
+            }
             LssRequest::SwitchStateVendor { vendor_id } => {
-            data[0] = LssCommandSpecifier::SwitchStateVendor as u8;
-            data[1..5].copy_from_slice(&vendor_id.to_le_bytes());
-            },
+                data[0] = LssCommandSpecifier::SwitchStateVendor as u8;
+                data[1..5].copy_from_slice(&vendor_id.to_le_bytes());
+            }
             LssRequest::SwitchStateProduct { product_code } => {
-            data[0] = LssCommandSpecifier::SwitchStateProduct as u8;
-            data[1..5].copy_from_slice(&product_code.to_le_bytes());
-            },
+                data[0] = LssCommandSpecifier::SwitchStateProduct as u8;
+                data[1..5].copy_from_slice(&product_code.to_le_bytes());
+            }
             LssRequest::SwitchStateRevision { revision } => {
-            data[0] = LssCommandSpecifier::SwitchStateRev as u8;
-            data[1..5].copy_from_slice(&revision.to_le_bytes());
-            },
+                data[0] = LssCommandSpecifier::SwitchStateRev as u8;
+                data[1..5].copy_from_slice(&revision.to_le_bytes());
+            }
             LssRequest::SwitchStateSerial { serial } => {
-            data[0] = LssCommandSpecifier::SwitchStateSerial as u8;
-            data[1..5].copy_from_slice(&serial.to_le_bytes());
-            },
+                data[0] = LssCommandSpecifier::SwitchStateSerial as u8;
+                data[1..5].copy_from_slice(&serial.to_le_bytes());
+            }
             LssRequest::InquireVendor => {
-            data[0] = LssCommandSpecifier::InquireVendor as u8;
-            },
+                data[0] = LssCommandSpecifier::InquireVendor as u8;
+            }
             LssRequest::InquireProduct => {
-            data[0] = LssCommandSpecifier::InquireProduct as u8;
-            },
+                data[0] = LssCommandSpecifier::InquireProduct as u8;
+            }
             LssRequest::InquireRev => {
-            data[0] = LssCommandSpecifier::InquireRev as u8;
-            },
+                data[0] = LssCommandSpecifier::InquireRev as u8;
+            }
             LssRequest::InquireSerial => {
-            data[0] = LssCommandSpecifier::InquireSerial as u8;
-            },
+                data[0] = LssCommandSpecifier::InquireSerial as u8;
+            }
             LssRequest::InquireNodeId => {
-            data[0] = LssCommandSpecifier::InquireNodeId as u8;
-            },
-            LssRequest::FastScan { id, bit_check, sub, next } => {
-            data[0] = LssCommandSpecifier::FastScan as u8;
-            data[1..5].copy_from_slice(&id.to_le_bytes());
-            data[5] = bit_check;
-            data[6] = sub;
-            data[7] = next;
-            },
+                data[0] = LssCommandSpecifier::InquireNodeId as u8;
+            }
+            LssRequest::FastScan {
+                id,
+                bit_check,
+                sub,
+                next,
+            } => {
+                data[0] = LssCommandSpecifier::FastScan as u8;
+                data[1..5].copy_from_slice(&id.to_le_bytes());
+                data[5] = bit_check;
+                data[6] = sub;
+                data[7] = next;
+            }
         }
         CanMessage::new(LSS_REQ_ID, &data)
     }

@@ -75,11 +75,17 @@ fn data_type_to_tokens(dt: DCDataType) -> TokenStream {
         DCDataType::UInt16 => quote!(zencan_node::common::objects::DataType::UInt16),
         DCDataType::UInt32 => quote!(zencan_node::common::objects::DataType::UInt32),
         DCDataType::Real32 => quote!(zencan_node::common::objects::DataType::Real32),
-        DCDataType::VisibleString(_) => quote!(zencan_node::common::objects::DataType::VisibleString),
-        DCDataType::UnicodeString(_) => quote!(zencan_node::common::objects::DataType::UnicodeString),
+        DCDataType::VisibleString(_) => {
+            quote!(zencan_node::common::objects::DataType::VisibleString)
+        }
+        DCDataType::UnicodeString(_) => {
+            quote!(zencan_node::common::objects::DataType::UnicodeString)
+        }
         DCDataType::OctetString(_) => quote!(zencan_node::common::objects::DataType::OctetString),
         DCDataType::TimeOfDay => quote!(zencan_node::common::objects::DataType::TimeOfDay),
-        DCDataType::TimeDifference => quote!(zencan_node::common::objects::DataType::TimeDifference),
+        DCDataType::TimeDifference => {
+            quote!(zencan_node::common::objects::DataType::TimeDifference)
+        }
         DCDataType::Domain => quote!(zencan_node::common::objects::DataType::Domain),
     }
 }
@@ -163,7 +169,7 @@ fn generate_object_definition(obj: &ObjectDefinition) -> Result<TokenStream, Com
 
     if tpdo_mapping {
         let n = (highest_sub_index as usize + 7) / 8;
-        field_tokens.extend( quote! {
+        field_tokens.extend(quote! {
             flags: ObjectFlags<#n>,
         });
     }
@@ -214,14 +220,12 @@ fn get_default_tokens(
         }
         DefaultValue::Float(f) => match data_type {
             DCDataType::Real32 => Ok(quote!(#f)),
-            _ => {
-                Err(CompileError::DefaultValueTypeMismatch {
-                    message: format!(
-                        "Default value {} is not a valid value for type {:?}",
-                        f, data_type
-                    ),
-                })
-            }
+            _ => Err(CompileError::DefaultValueTypeMismatch {
+                message: format!(
+                    "Default value {} is not a valid value for type {:?}",
+                    f, data_type
+                ),
+            }),
         },
         DefaultValue::Integer(i) => {
             // Create token as stream so the literal does not have an explicit type (e.g. '32' instead of '32i64')
@@ -240,14 +244,12 @@ fn get_default_tokens(
                 DCDataType::UInt16 => Ok(quote!(#i as u16)),
                 DCDataType::UInt32 => Ok(quote!(#i as u32)),
                 DCDataType::Real32 => Ok(quote!(#i as f32)),
-                _ => {
-                    Err(CompileError::DefaultValueTypeMismatch {
-                        message: format!(
-                            "Default value {} is not a valid value for type {:?}",
-                            i, data_type
-                        ),
-                    })
-                }
+                _ => Err(CompileError::DefaultValueTypeMismatch {
+                    message: format!(
+                        "Default value {} is not a valid value for type {:?}",
+                        i, data_type
+                    ),
+                }),
             }
         }
     }
@@ -503,7 +505,7 @@ fn get_object_impls(
             let mut tpdo_default_tokens = TokenStream::new();
             if def.pdo_mapping.supports_tpdo() {
                 tpdo_event_tokens.extend(get_tpdo_event_snippet(array_size));
-                tpdo_default_tokens.extend(quote!{
+                tpdo_default_tokens.extend(quote! {
                     flags: ObjectFlags::<#flag_size>::new(&NODE_STATE.pdo_sync),
                 });
             }

@@ -3,15 +3,13 @@ use std::path::Path;
 use device_config::DeviceConfig;
 use snafu::ResultExt;
 
+mod codegen;
 pub mod device_config;
 pub mod errors;
-mod codegen;
 
-
-pub use codegen::device_config_to_tokens;
-pub use codegen::device_config_to_string;
 use crate::errors::*;
-
+pub use codegen::device_config_to_string;
+pub use codegen::device_config_to_tokens;
 
 // fn get_default_literal(obj: u32, sub: &SubObject) -> Result<TokenStream, CompileError> {
 //     let s = if sub.default_value.is_empty() {
@@ -95,7 +93,6 @@ use crate::errors::*;
 //     }
 // }
 
-
 pub fn compile_device_config(
     config_path: impl AsRef<Path>,
     out_path: impl AsRef<Path>,
@@ -108,7 +105,10 @@ pub fn compile_device_config(
     Ok(())
 }
 
-pub fn build_node_from_device_config(name: &str, config_path: impl AsRef<Path>) -> Result<(), CompileError> {
+pub fn build_node_from_device_config(
+    name: &str,
+    config_path: impl AsRef<Path>,
+) -> Result<(), CompileError> {
     let output_file_path =
         Path::new(&std::env::var_os("OUT_DIR").ok_or(NotRunViaCargoSnafu.build())?)
             .join(format!("zencan_node_{}.rs", name));

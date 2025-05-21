@@ -1,13 +1,8 @@
+use zencan_common::{messages::NmtState, traits::AsyncCanSender, NodeId};
 
-use zencan_common::{
-    messages::NmtState,
-    traits::AsyncCanSender,
-    NodeId,
-};
-
-use zencan_node::node::Node;
-use zencan_client::nmt_master::Master;
 use integration_tests::sim_bus::SimBus;
+use zencan_client::nmt_master::Master;
+use zencan_node::node::Node;
 
 mod utils;
 use utils::BusLogger;
@@ -17,7 +12,6 @@ use serial_test::serial;
 #[serial]
 #[tokio::test]
 async fn test_nmt_init() {
-
     const SLAVE_NODE_ID: u8 = 1;
     let od = &integration_tests::object_dict1::OD_TABLE;
     let state = &integration_tests::object_dict1::NODE_STATE;
@@ -62,5 +56,4 @@ async fn test_nmt_init() {
 
     assert_eq!(NmtState::Stopped, node.nmt_state());
     assert_eq!(2, node.rx_message_count());
-
 }

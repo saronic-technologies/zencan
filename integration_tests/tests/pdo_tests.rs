@@ -20,7 +20,7 @@ use zencan_node::node_mbox::{NodeMboxRead, NodeMboxWrite};
 use zencan_node::{node::Node, node_state::NodeStateAccess};
 
 mod utils;
-use utils::{BusLogger, test_with_background_process};
+use utils::{test_with_background_process, BusLogger};
 
 fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
     od: &'static [ODEntry],
@@ -113,7 +113,11 @@ async fn test_tpdo_asignment() {
     let test_task = async move {
         // Set the TPDO COB ID
         client
-            .download(TPDO_COMM1_ID, PDO_COMM_COB_SUBID, &(0x181u32 | (1<<31)).to_le_bytes())
+            .download(
+                TPDO_COMM1_ID,
+                PDO_COMM_COB_SUBID,
+                &(0x181u32 | (1 << 31)).to_le_bytes(),
+            )
             .await
             .unwrap();
         // Set to sync driven
@@ -193,7 +197,11 @@ async fn test_tpdo_event_flags() {
     let test_task = async move {
         // Set the TPDO COB ID
         client
-            .download(TPDO_COMM1_ID, PDO_COMM_COB_SUBID, &(0x181u32 + (1<<31)).to_le_bytes())
+            .download(
+                TPDO_COMM1_ID,
+                PDO_COMM_COB_SUBID,
+                &(0x181u32 + (1 << 31)).to_le_bytes(),
+            )
             .await
             .unwrap();
         // Set to asynchronous transmission

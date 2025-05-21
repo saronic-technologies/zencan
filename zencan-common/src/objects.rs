@@ -269,8 +269,6 @@ pub trait ObjectRawAccess: Sync + Send {
         Ok(size)
     }
 
-
-
     fn read_u32(&self, sub: u8) -> Result<u32, AbortCode> {
         let mut buf = [0; 4];
         self.read(sub, 0, &mut buf)?;

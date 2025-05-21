@@ -11,7 +11,7 @@ use zencan_node::{
 };
 
 mod utils;
-use utils::{BusLogger, test_with_background_process};
+use utils::{test_with_background_process, BusLogger};
 
 fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
     od: &'static [ODEntry],
@@ -35,7 +35,6 @@ fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
     (node, client, bus)
 }
 
-
 #[serial_test::serial]
 #[tokio::test]
 async fn test_device_info_readback() {
@@ -52,9 +51,18 @@ async fn test_device_info_readback() {
     let _logger = BusLogger::new(bus.new_receiver());
 
     let test_task = async move {
-        assert_eq!(&client.read_utf8(DEVICE_NAME_ID, 0).await.unwrap(), "Example 1");
-        assert_eq!(&client.read_utf8(DEVICE_HW_VER_ID, 0).await.unwrap(), "v1.2.3");
-        assert_eq!(&client.read_utf8(DEVICE_SW_VER_ID, 0).await.unwrap(), "v2.1.0");
+        assert_eq!(
+            &client.read_utf8(DEVICE_NAME_ID, 0).await.unwrap(),
+            "Example 1"
+        );
+        assert_eq!(
+            &client.read_utf8(DEVICE_HW_VER_ID, 0).await.unwrap(),
+            "v1.2.3"
+        );
+        assert_eq!(
+            &client.read_utf8(DEVICE_SW_VER_ID, 0).await.unwrap(),
+            "v2.1.0"
+        );
     };
 
     test_with_background_process(&mut [&mut node], &mut bus.new_sender(), test_task).await;

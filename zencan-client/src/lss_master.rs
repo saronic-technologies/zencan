@@ -2,9 +2,9 @@ use core::time::Duration;
 
 use tokio::time::timeout_at;
 use zencan_common::{
-    NodeId,
-    lss::{LSS_FASTSCAN_CONFIRM, LssIdentity, LssRequest, LssResponse},
+    lss::{LssIdentity, LssRequest, LssResponse, LSS_FASTSCAN_CONFIRM},
     traits::{AsyncCanReceiver, AsyncCanSender},
+    NodeId,
 };
 
 use snafu::Snafu;
@@ -166,12 +166,18 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
         let mut send_fs = async |id: &[u32; 4], bit_check: u8, sub: u8, next: u8| -> bool {
             // Unlike send_and_receive, this function always waits the full timeout, because we don't know
             // how many nodes will respond to us, so we need to give them time.
-            self.sender.send(LssRequest::FastScan {
-                id: id[sub as usize],
-                bit_check,
-                sub,
-                next,
-            }.into()).await.ok();
+            self.sender
+                .send(
+                    LssRequest::FastScan {
+                        id: id[sub as usize],
+                        bit_check,
+                        sub,
+                        next,
+                    }
+                    .into(),
+                )
+                .await
+                .ok();
 
             let wait_until = tokio::time::Instant::now() + timeout;
             let mut resp_flag = false;
@@ -184,7 +190,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
                             resp_flag = true;
                         }
                     }
-                    _ => ()
+                    _ => (),
                 }
             }
             resp_flag

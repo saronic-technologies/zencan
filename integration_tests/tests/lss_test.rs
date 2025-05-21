@@ -8,7 +8,7 @@ use zencan_node::node::Node;
 use serial_test::serial;
 
 mod utils;
-use utils::{BusLogger, test_with_background_process};
+use utils::{test_with_background_process, BusLogger};
 
 #[serial]
 #[tokio::test]

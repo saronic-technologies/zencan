@@ -3,9 +3,8 @@ use std::time::Duration;
 use clap::Parser;
 use tokio::time::timeout;
 use zencan_node::common::{
-    CanMessage,
     traits::{AsyncCanReceiver, AsyncCanSender},
-    NodeId,
+    CanMessage, NodeId,
 };
 use zencan_node::node::Node;
 
@@ -25,14 +24,18 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-
     // Initialize the logger
     env_logger::init();
     let args = Args::parse();
 
     log::info!("Logging is working...");
     let node_id = NodeId::try_from(args.node_id).unwrap();
-    let mut node = Node::new(node_id, &zencan::NODE_MBOX, &zencan::NODE_STATE, &zencan::OD_TABLE);
+    let mut node = Node::new(
+        node_id,
+        &zencan::NODE_MBOX,
+        &zencan::NODE_STATE,
+        &zencan::OD_TABLE,
+    );
 
     let (mut tx, mut rx) = open_socketcan(&args.socket).unwrap();
 
@@ -76,6 +79,8 @@ async fn main() {
         }
 
         // Wait for notification to run, or a timeout
-        timeout(Duration::from_millis(1), process_notify.notified()).await.ok();
+        timeout(Duration::from_millis(1), process_notify.notified())
+            .await
+            .ok();
     }
 }

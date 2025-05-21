@@ -431,7 +431,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                 // Recv returned an error
                 Ok(Err(e)) => {
                     log::error!("Error reading from socket: {e:?}");
-                    return NoResponseSnafu.fail()
+                    return NoResponseSnafu.fail();
                 }
             }
         }

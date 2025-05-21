@@ -1,4 +1,3 @@
-
 /// An enum representing the node ID of a CANopen node. The node ID must be between 1 and 127 for
 /// configured devices, with the special value of 255 used to represent an unconfigured device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

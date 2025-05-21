@@ -218,7 +218,7 @@ pub struct IdentityConfig {
 
 /// Enum indicating what PDO mappings a sub object supports
 #[derive(Deserialize, Debug, Default, Clone, Copy)]
-#[serde(rename_all="lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum PdoMapping {
     #[default]
     None,

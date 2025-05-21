@@ -1,7 +1,7 @@
 use std::{cell::RefCell, sync::Arc};
 
-use zencan_common::traits::{AsyncCanReceiver, AsyncCanSender};
 use zencan_common::messages::CanMessage;
+use zencan_common::traits::{AsyncCanReceiver, AsyncCanSender};
 use zencan_node::node::Node;
 use zencan_node::node_mbox::NodeMboxWrite;
 
@@ -34,12 +34,10 @@ impl<'a> SimBus<'a> {
         }
     }
 
-    pub fn process(&mut self, nodes: &mut[&mut Node]) {
+    pub fn process(&mut self, nodes: &mut [&mut Node]) {
         let mut to_deliver = Vec::new();
         for (i, n) in nodes.iter_mut().enumerate() {
-            n.process(&mut |msg_to_send| {
-                to_deliver.push((i, msg_to_send.clone()))
-            });
+            n.process(&mut |msg_to_send| to_deliver.push((i, msg_to_send.clone())));
         }
         for (sender_idx, msg) in &to_deliver {
             // Send the message to all nodes except the one that sent it

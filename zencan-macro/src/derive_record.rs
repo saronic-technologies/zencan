@@ -177,8 +177,6 @@ fn string_read_snippet(field_name: &syn::Ident, size: usize) -> TokenStream {
 }
 
 fn generate_object_raw_access_impl(receiver: &RecordObjectReceiver) -> TokenStream {
-
-
     let struct_name = &receiver.ident;
     let fields = receiver
         .data
@@ -215,8 +213,6 @@ fn generate_object_raw_access_impl(receiver: &RecordObjectReceiver) -> TokenStre
             ..Default::default()
         }),
     };
-
-
 
     let mut sub_idx = 1u8;
     for field in &fields {
@@ -305,16 +301,16 @@ fn wrap_struct_fields(receiver: &RecordObjectReceiver) -> TokenStream {
     let mut field_tokens = TokenStream::new();
     let struct_name = &receiver.ident;
     let fields = receiver
-    .data
-    .as_ref()
-    .take_struct()
-    .expect("Should never be enum")
-    .fields;
+        .data
+        .as_ref()
+        .take_struct()
+        .expect("Should never be enum")
+        .fields;
 
     for field in &fields {
         let field_name = field.ident.as_ref().expect("Fields must be named");
         let field_ty = &field.ty;
-        field_tokens.extend(quote!{
+        field_tokens.extend(quote! {
             #field_name: zencan_node::common::AtomicCell<#field_ty>,
         });
     }
@@ -376,5 +372,6 @@ pub fn record_object_impl(
         #item_tokens
         #accessors
         #raw_access
-    }.into()
+    }
+    .into()
 }
