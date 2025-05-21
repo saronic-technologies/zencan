@@ -37,13 +37,13 @@ impl<'a> SimBus<'a> {
     pub fn process(&mut self, nodes: &mut [&mut Node]) {
         let mut to_deliver = Vec::new();
         for (i, n) in nodes.iter_mut().enumerate() {
-            n.process(&mut |msg_to_send| to_deliver.push((i, msg_to_send.clone())));
+            n.process(&mut |msg_to_send| to_deliver.push((i, msg_to_send)));
         }
         for (sender_idx, msg) in &to_deliver {
             // Send the message to all nodes except the one that sent it
             for (i, n) in self.node_states.borrow().iter().enumerate() {
                 if i != *sender_idx {
-                    n.store_message(msg.clone()).ok();
+                    n.store_message(*msg).ok();
                 }
             }
         }
@@ -55,7 +55,7 @@ pub struct SimBusSender<'a> {
     external_channels: Arc<RefCell<Vec<UnboundedSender<CanMessage>>>>,
 }
 
-impl<'a> AsyncCanSender for SimBusSender<'a> {
+impl AsyncCanSender for SimBusSender<'_> {
     async fn send(&mut self, msg: CanMessage) -> Result<(), CanMessage> {
         // Send to nodes on the bus
         for ns in self.node_states.borrow().iter() {
@@ -65,7 +65,7 @@ impl<'a> AsyncCanSender for SimBusSender<'a> {
         }
         // Send to external listeners on the bus (those created by `new_receiver()``)
         for rx in self.external_channels.borrow_mut().iter() {
-            rx.send(msg.clone()).unwrap();
+            rx.send(msg).unwrap();
         }
 
         Ok(())
@@ -78,7 +78,7 @@ pub struct SimBusReceiver {
 
 impl SimBusReceiver {
     pub fn flush(&mut self) {
-        while let Ok(_) = self.channel_rx.try_recv() {}
+        while self.channel_rx.try_recv().is_ok() {}
     }
 }
 
@@ -90,13 +90,10 @@ impl AsyncCanReceiver for SimBusReceiver {
     }
 
     fn try_recv(&mut self) -> Option<CanMessage> {
-        match self.channel_rx.try_recv() {
-            Ok(msg) => Some(msg),
-            Err(_) => None,
-        }
+        self.channel_rx.try_recv().ok()
     }
 
     fn flush(&mut self) {
-        while let Ok(_) = self.channel_rx.try_recv() {}
+        while self.channel_rx.try_recv().is_ok() {}
     }
 }

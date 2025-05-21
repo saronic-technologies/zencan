@@ -30,6 +30,6 @@ pub trait AsyncCanReceiver {
 
     /// Remove any pending messages from the receiver
     fn flush(&mut self) {
-        while let Some(_) = self.try_recv() {}
+        while self.try_recv().is_some() {}
     }
 }

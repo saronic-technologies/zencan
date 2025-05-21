@@ -261,7 +261,7 @@ fn store_pdo_data(data: &[u8], pdo: &Pdo, od: &[ODEntry]) {
         let object_id = (param >> 16) as u16;
         let sub_index = ((param & 0xFF00) >> 8) as u8;
         // Rounding up to BYTES, because we do not currently support bit access
-        let length = (((param & 0xFF) + 7) / 8) as usize;
+        let length = (param & 0xFF).div_ceil(8) as usize;
         let entry = find_object(od, object_id).expect("Invalid mapping parameter");
         if offset + length > data.len() {
             break;
@@ -285,7 +285,7 @@ fn read_pdo_data(data: &mut [u8], pdo: &Pdo, od: &[ODEntry]) {
         let object_id = (param >> 16) as u16;
         let sub_index = ((param & 0xFF00) >> 8) as u8;
         // Rounding up to BYTES, because we do not currently support bit access
-        let length = (((param & 0xFF) + 7) / 8) as usize;
+        let length = (param & 0xFF).div_ceil(8) as usize;
         let entry = find_object(od, object_id).expect("Invalid mapping parameter");
         if offset + length > data.len() {
             break;
@@ -316,7 +316,7 @@ fn read_pdo_flags(pdo: &Pdo, od: &[ODEntry]) -> bool {
             return true;
         }
     }
-    return false;
+    false
 }
 
 pub struct Node<'table> {
@@ -501,13 +501,11 @@ impl<'table> Node<'table> {
                     let msg = CanMessage::new(pdo.cob_id.load(), &data);
                     send_cb(msg);
                 }
-            } else if sync {
-                if pdo.sync_update() {
-                    let mut data = [0u8; 8];
-                    read_pdo_data(&mut data, pdo, self.od);
-                    let msg = CanMessage::new(pdo.cob_id.load(), &data);
-                    send_cb(msg);
-                }
+            } else if sync && pdo.sync_update() {
+                let mut data = [0u8; 8];
+                read_pdo_data(&mut data, pdo, self.od);
+                let msg = CanMessage::new(pdo.cob_id.load(), &data);
+                send_cb(msg);
             }
         }
 

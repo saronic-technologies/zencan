@@ -28,7 +28,7 @@ fn type_to_zentype_and_size(ty: &Type) -> Result<(bool, TokenStream, usize), syn
                 _ => return Err(array_err),
             };
 
-            if elem.to_string() == "u8" {
+            if elem == "u8" {
                 Ok((
                     true,
                     quote!(zencan_node::common::objects::DataType::VisibleString),
@@ -267,7 +267,7 @@ fn generate_object_raw_access_impl(receiver: &RecordObjectReceiver) -> TokenStre
         sub_idx += 1;
     }
 
-    return quote! {
+    quote! {
         impl zencan_node::common::objects::ObjectRawAccess for #struct_name {
             fn sub_info(&self, sub: u8) -> Result<zencan_node::common::objects::SubInfo, zencan_node::common::sdo::AbortCode> {
                 match sub {
@@ -294,7 +294,7 @@ fn generate_object_raw_access_impl(receiver: &RecordObjectReceiver) -> TokenStre
                 zencan_node::common::objects::ObjectCode::Record
             }
         }
-    }.into();
+    }
 }
 
 fn wrap_struct_fields(receiver: &RecordObjectReceiver) -> TokenStream {

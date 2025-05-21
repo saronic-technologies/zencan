@@ -21,6 +21,12 @@ pub struct LssReceiver {
     pub rx_req: AtomicCell<Option<LssRequest>>,
 }
 
+impl Default for LssReceiver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LssReceiver {
     pub const fn new() -> Self {
         Self {

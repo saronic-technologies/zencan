@@ -168,7 +168,7 @@ fn generate_object_definition(obj: &ObjectDefinition) -> Result<TokenStream, Com
     }
 
     if tpdo_mapping {
-        let n = (highest_sub_index as usize + 7) / 8;
+        let n = (highest_sub_index as usize).div_ceil(8);
         field_tokens.extend(quote! {
             flags: ObjectFlags<#n>,
         });
@@ -436,7 +436,7 @@ fn get_object_impls(
         Object::Array(def) => {
             let (field_type, storage_size) = get_rust_type_and_size(def.data_type);
             let array_size = def.array_size;
-            let flag_size = ((array_size + 1) + 7) / 8;
+            let flag_size = (array_size + 1).div_ceil(8);
             let data_type = data_type_to_tokens(def.data_type);
             let access_type = access_type_to_tokens(def.access_type.0);
             let pdo_mapping = pdo_mapping_to_tokens(def.pdo_mapping);
@@ -607,7 +607,7 @@ fn get_object_impls(
 
             // For records, sub0 gives the highest sub object support by the record
             let max_sub = def.subs.iter().map(|s| s.sub_index).max().unwrap_or(0);
-            let flag_size = (max_sub as usize + 7) / 8;
+            let flag_size = (max_sub as usize).div_ceil(8);
             accessor_methods.extend(quote! {
                 pub fn get_sub0(&self) -> u8 {
                     #max_sub

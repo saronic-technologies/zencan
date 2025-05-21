@@ -94,7 +94,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
 
             let mut toggle = false;
             // Send segments
-            let total_segments = (data.len() + 6) / 7;
+            let total_segments = data.len().div_ceil(7);
             for n in 0..total_segments {
                 let last_segment = n == total_segments - 1;
                 let segment_size = (data.len() - n * 7).min(7);

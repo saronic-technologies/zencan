@@ -6,10 +6,7 @@ use core::{
 };
 
 use futures::{pending, task::noop_waker_ref};
-use zencan_common::{
-    node_id,
-    objects::{ODEntry, ObjectRawAccess},
-};
+use zencan_common::objects::{ODEntry, ObjectRawAccess};
 
 pub enum NodeType {
     NodeConfig = 0,
@@ -139,7 +136,7 @@ impl<'a, 'b, F: Future> PersistSerializer<'a, 'b, F> {
     }
 }
 
-impl<'a, 'b, F: Future> PersistWriter for PersistSerializer<'a, 'b, F> {
+impl<F: Future> PersistWriter for PersistSerializer<'_, '_, F> {
     fn read(&mut self, buf: &mut [u8]) -> usize {
         let mut cx = Context::from_waker(noop_waker_ref());
 
@@ -191,7 +188,7 @@ pub enum PersistNodeRef<'a> {
 
 impl<'a> PersistNodeRef<'a> {
     pub fn from_slice(data: &'a [u8]) -> Result<Self, PersistReadError> {
-        if data.len() == 0 {
+        if data.is_empty() {
             return Err(PersistReadError::NodeLengthShort);
         }
 

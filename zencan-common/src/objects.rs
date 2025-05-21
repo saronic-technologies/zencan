@@ -12,6 +12,12 @@ pub struct ObjectFlagSync {
     toggle: AtomicBool,
 }
 
+impl Default for ObjectFlagSync {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ObjectFlagSync {
     pub const fn new() -> Self {
         Self {
@@ -215,7 +221,7 @@ pub trait ObjectRawAccess: Sync + Send {
     }
 
     fn set_event_flag(&self, _sub: u8) -> Result<(), AbortCode> {
-        return Err(AbortCode::UnsupportedAccess);
+        Err(AbortCode::UnsupportedAccess)
     }
 
     fn read_event_flag(&self, _sub: u8) -> bool {

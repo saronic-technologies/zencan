@@ -28,7 +28,7 @@ pub async fn test_with_background_process<'a, 'b>(
         }
     };
 
-    let _ = tokio::select! {
+    tokio::select! {
         _ = node_process_task => {}
         _ = test_task => {}
     };

@@ -135,7 +135,7 @@ impl TryFrom<&[u8]> for LssRequest {
     type Error = MessageError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if value.len() < 1 {
+        if value.is_empty() {
             return Err(MessageError::MessageTooShort);
         }
         let cs = LssCommandSpecifier::from_byte(value[0])?;
@@ -322,7 +322,7 @@ impl TryFrom<&[u8]> for LssResponse {
     type Error = MessageError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if value.len() < 1 {
+        if value.is_empty() {
             return Err(MessageError::MessageTooShort);
         }
         let cs = LssCommandSpecifier::from_byte(value[0])?;

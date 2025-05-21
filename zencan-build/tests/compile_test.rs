@@ -4,6 +4,6 @@ fn compile_test() {
 
     let config = toml::from_str(CONFIG).expect("Failed to parse example config");
 
-    let compiled =
+    let _compiled =
         zencan_build::device_config_to_string(&config, false).expect("Failed to compile");
 }

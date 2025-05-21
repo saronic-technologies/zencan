@@ -96,7 +96,7 @@ impl Pdo {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     pub fn clear_events(&self, od: &[ODEntry]) {
