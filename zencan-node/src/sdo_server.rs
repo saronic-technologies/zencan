@@ -70,6 +70,10 @@ impl SdoServer {
         Ok(())
     }
 
+    /// Handle an SDO request received from the client
+    ///
+    /// This will process the request, update server state and the object dictionary accordingly,
+    /// and return a response to be transmitted back to the client
     pub fn handle_request(
         &mut self,
         req: &SdoRequest,
@@ -88,7 +92,6 @@ impl SdoServer {
                     Ok(s) => s,
                     Err(abort_code) => return Some(SdoResponse::abort(*index, *sub, abort_code)),
                 };
-
 
                 if current_size <= 4 {
                     self.state = State::Idle;
