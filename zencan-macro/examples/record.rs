@@ -1,4 +1,4 @@
-
+//! An example, mainly for use with `cargo expand` to see macro output
 use zencan_macro::record_object;
 
 #[record_object]
