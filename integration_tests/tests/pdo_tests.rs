@@ -16,15 +16,14 @@ use zencan_common::{
     traits::{AsyncCanReceiver, AsyncCanSender},
     NodeId,
 };
-use zencan_node::node_mbox::{NodeMboxRead, NodeMboxWrite};
-use zencan_node::{node::Node, node_state::NodeStateAccess};
+use zencan_node::{node_state::NodeStateAccess, Node, NodeMbox};
 
 mod utils;
 use utils::{test_with_background_process, BusLogger};
 
-fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
+fn setup<'a, S: NodeStateAccess>(
     od: &'static [ODEntry],
-    mbox: &'static M,
+    mbox: &'static NodeMbox,
     state: &'static S,
 ) -> (
     Node<'static>,

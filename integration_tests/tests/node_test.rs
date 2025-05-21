@@ -5,17 +5,17 @@ use integration_tests::{
 use zencan_client::sdo_client::{SdoClient, SdoClientError};
 use zencan_common::{objects::ODEntry, sdo::AbortCode, NodeId};
 use zencan_node::{
-    node::Node,
-    node_mbox::{NodeMboxRead, NodeMboxWrite},
+    Node,
+    NodeMbox,
     node_state::NodeStateAccess,
 };
 
 mod utils;
 use utils::{test_with_background_process, BusLogger};
 
-fn setup<'a, M: NodeMboxWrite + NodeMboxRead, S: NodeStateAccess>(
+fn setup<'a, S: NodeStateAccess>(
     od: &'static [ODEntry],
-    mbox: &'static M,
+    mbox: &'static NodeMbox,
     state: &'static S,
 ) -> (
     Node<'static>,

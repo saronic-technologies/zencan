@@ -374,7 +374,7 @@ fn get_object_impls(
             if def.pdo_mapping.supports_tpdo() {
                 tpdo_event_tokens.extend(get_tpdo_event_snippet(0));
                 tpdo_default_tokens.extend(quote! {
-                    flags: ObjectFlags::<1>::new(&NODE_STATE.pdo_sync),
+                    flags: ObjectFlags::<1>::new(&NODE_STATE.pdo_sync()),
                 });
             }
 
@@ -508,7 +508,7 @@ fn get_object_impls(
             if def.pdo_mapping.supports_tpdo() {
                 tpdo_event_tokens.extend(get_tpdo_event_snippet(array_size));
                 tpdo_default_tokens.extend(quote! {
-                    flags: ObjectFlags::<#flag_size>::new(&NODE_STATE.pdo_sync),
+                    flags: ObjectFlags::<#flag_size>::new(&NODE_STATE.pdo_sync()),
                 });
             }
 
@@ -709,7 +709,7 @@ fn get_object_impls(
             if object_supports_tpdo(obj) {
                 tpdo_event_tokens.extend(get_tpdo_event_snippet(max_sub as usize));
                 tpdo_default_tokens.extend(quote! {
-                    flags: ObjectFlags::<#flag_size>::new(&NODE_STATE.pdo_sync),
+                    flags: ObjectFlags::<#flag_size>::new(&NODE_STATE.pdo_sync()),
                 })
             }
 
@@ -835,7 +835,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
         #[allow(unused_imports)]
         use zencan_node::common::sdo::AbortCode;
         #[allow(unused_imports)]
-        use zencan_node::node_mbox::NodeMbox;
+        use zencan_node::NodeMbox;
         #[allow(unused_imports)]
         use zencan_node::node_state::{NodeState, NodeStateAccess};
         #object_defs

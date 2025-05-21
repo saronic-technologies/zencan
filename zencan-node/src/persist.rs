@@ -8,13 +8,20 @@ use core::{
 use futures::{pending, task::noop_waker_ref};
 use zencan_common::objects::{ODEntry, ObjectRawAccess};
 
+/// Specifies the types of nodes which can be serialized to persistent storage
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(u8)]
 pub enum NodeType {
+    /// A node containing the top-level node configuration
     NodeConfig = 0,
+    /// A node containing a saved sub-object value
     ObjectValue = 1,
+    /// An unrecognized node type
     Unknown,
 }
 
 impl NodeType {
+    /// Create a `NodeType` from an ID byte
     pub fn from_byte(b: u8) -> Self {
         match b {
             0 => Self::NodeConfig,
@@ -24,39 +31,16 @@ impl NodeType {
     }
 }
 
-pub enum SerializeState {
-    NodeInfo {
-        offset: usize,
-    },
-    Object {
-        index: u16,
-        sub_index: u8,
-        offset: usize,
-    },
-}
 
-impl SerializeState {
-    pub fn increment(&self) -> Self {
-        match self {
-            SerializeState::NodeInfo { offset } => Self::NodeInfo { offset: offset + 1 },
-            SerializeState::Object {
-                index,
-                sub_index,
-                offset,
-            } => Self::Object {
-                index: *index,
-                sub_index: *sub_index,
-                offset: offset + 1,
-            },
-        }
-    }
-}
-
+/// Top-level node configuration which is persisted
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NodeConfig {
-    node_id: u8,
-    baud_table: u8,
-    baud_index: u8,
+    /// The configured node ID
+    pub node_id: u8,
+    /// The configured baud table
+    pub baud_table: u8,
+    /// The index into the baud table of the configured baud rate
+    pub baud_index: u8,
 }
 
 async fn write_bytes(bytes: &[u8], reg: &RefCell<u8>) {
@@ -117,7 +101,8 @@ async fn serialize_sm(node_config: &NodeConfig, objects: &[ODEntry<'static>], re
     }
 }
 
-pub trait PersistWriter {
+/// A trait for reading data during persist serialization
+pub trait PersistReader {
     /// Read the next chunk of serialized persist data into buf
     ///
     /// Returns the number of bytes written. If the return value is less than buf.len(), this
@@ -125,7 +110,7 @@ pub trait PersistWriter {
     fn read(&mut self, buf: &mut [u8]) -> usize;
 }
 
-pub struct PersistSerializer<'a, 'b, F: Future> {
+struct PersistSerializer<'a, 'b, F: Future> {
     f: Pin<&'a mut F>,
     reg: &'b RefCell<u8>,
 }
@@ -136,7 +121,7 @@ impl<'a, 'b, F: Future> PersistSerializer<'a, 'b, F> {
     }
 }
 
-impl<F: Future> PersistWriter for PersistSerializer<'_, '_, F> {
+impl<F: Future> PersistReader for PersistSerializer<'_, '_, F> {
     fn read(&mut self, buf: &mut [u8]) -> usize {
         let mut cx = Context::from_waker(noop_waker_ref());
 
@@ -157,7 +142,8 @@ impl<F: Future> PersistWriter for PersistSerializer<'_, '_, F> {
     }
 }
 
-pub fn serialize<F: FnMut(&mut dyn PersistWriter)>(
+/// Serialize node data
+pub fn serialize<F: FnMut(&mut dyn PersistReader)>(
     node_config: &NodeConfig,
     od: &'static [ODEntry],
     mut callback: F,
@@ -168,25 +154,42 @@ pub fn serialize<F: FnMut(&mut dyn PersistWriter)>(
     callback(&mut serializer)
 }
 
+/// Error which can be returned while reading persisted data
 pub enum PersistReadError {
+    /// Not enough bytes were present to construct the node
     NodeLengthShort,
 }
 
+/// The data for an ObjectValue node
 #[derive(Debug, PartialEq)]
 pub struct ObjectValue<'a> {
-    index: u16,
-    sub: u8,
-    data: &'a [u8],
+    /// The object index this value belongs to
+    pub index: u16,
+    /// The sub-object index this value belongs to
+    pub sub: u8,
+    /// The raw bytes to be restored to the sub object
+    pub data: &'a [u8],
 }
 
+/// A reference to a single node within a slice of serialized data
+///
+/// Returned by the PersistNodeReader iterator.
 #[derive(Debug, PartialEq)]
 pub enum PersistNodeRef<'a> {
+    /// A node config object, holding basic node info like the node ID
     NodeConfig(NodeConfig),
+    /// A saved value for a sub-object
     ObjectValue(ObjectValue<'a>),
-    Unknown,
+    /// An unrecognized node type was encountered. Either the serialized data is malformed, or
+    /// perhaps it was written with a future version of code that supports more node types
+    ///
+    /// The bytes of the node are stored in the contained slice, including the node type in the
+    /// first byte
+    Unknown(&'a [u8]),
 }
 
 impl<'a> PersistNodeRef<'a> {
+    /// Create a PersistNodeRef from a slice of bytes
     pub fn from_slice(data: &'a [u8]) -> Result<Self, PersistReadError> {
         if data.is_empty() {
             return Err(PersistReadError::NodeLengthShort);
@@ -213,17 +216,22 @@ impl<'a> PersistNodeRef<'a> {
                     data: &data[4..],
                 }))
             }
-            NodeType::Unknown => todo!(),
+            NodeType::Unknown => Ok(PersistNodeRef::Unknown(&data)),
         }
     }
 }
 
+/// Read serialized object data from a slice of bytes
+///
+/// PersistNodeReader provides an Iterator of PersistNodeRef objects, representing all of the nodes
+/// stored in the slice
 pub struct PersistNodeReader<'a> {
     buf: &'a [u8],
     pos: usize,
 }
 
 impl<'a> PersistNodeReader<'a> {
+    /// Instantiate a PersistNodeReader from a slice of serialized data
     pub fn new(data: &'a [u8]) -> Self {
         Self { buf: data, pos: 0 }
     }
@@ -256,7 +264,7 @@ mod tests {
     use crate::{self as zencan_node, persist::serialize};
 
     #[test]
-    fn test_serialize_single_object() {
+    fn test_serialize_deserialize() {
         #[derive(Debug, Default)]
         #[record_object]
         struct Object100 {

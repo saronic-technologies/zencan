@@ -6,9 +6,8 @@ use zencan_node::common::{
     traits::{AsyncCanReceiver, AsyncCanSender},
     CanMessage, NodeId,
 };
-use zencan_node::node::Node;
+use zencan_node::Node;
 
-use zencan_node::node_mbox::NodeMboxWrite;
 use zencan_node::open_socketcan;
 
 mod zencan {

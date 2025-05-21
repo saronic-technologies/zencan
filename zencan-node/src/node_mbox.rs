@@ -1,3 +1,4 @@
+//! Implements mailbox for receiving CAN messages
 use defmt_or_log::warn;
 use zencan_common::{
     messages::{CanId, CanMessage},
@@ -7,52 +8,10 @@ use zencan_common::{
 
 use crate::{lss_slave::LssReceiver, node_state::Pdo};
 
-/// A trait for the (typically auto-generated) shared data struct to implement for reading data from mailboxes
-pub trait NodeMboxRead: Sync + Send {
-    /// Get the number of RX PDO mailboxes available
-    fn num_rx_pdos(&self) -> usize;
-    /// Set the receive COB ID for the SDO server
-    /// Read a pending message for the main SDO mailbox. Will return None if there is no message.
-    fn set_sdo_cob_id(&self, cob_id: Option<CanId>);
-    /// Read a pending message for the main SDO mailbox. Will return None if there is no message.
-    fn read_sdo_mbox(&self) -> Option<SdoRequest>;
-    /// Read a pending NMT command
-    fn read_nmt_mbox(&self) -> Option<CanMessage>;
-    /// Borrow the LSS receiver object
-    fn lss_receiver(&self) -> &LssReceiver;
-    /// Read the sync flag
-    ///
-    /// The flag is set when a SYNC message is received, and cleared when this function is called.
-    fn read_sync_flag(&self) -> bool;
-}
-
-/// A trait for the (typically auto-generated) shared data struct to implement for storing recieved messages
-pub trait NodeMboxWrite: Sync + Send {
-    /// Attempt to store a message to the node
-    ///
-    /// If the message ID is a valid CanOpen message handled by the node, returns `OK(())`,
-    /// otherwise the unhandled message is returned wrapped in an Err.
-    fn store_message(&self, msg: CanMessage) -> Result<(), CanMessage>;
-}
-
-/// A mailbox for communication of RX PDO messages between a message receiving thread and the main thread
-#[derive(Debug, Default)]
-pub struct RxPdoMbox {
-    /// The current COB ID for this PDO
-    pub cob_id: AtomicCell<Option<CanId>>,
-    /// Holds any pending message for this PDO
-    pub mbox: AtomicCell<Option<[u8; 8]>>,
-}
-
-impl RxPdoMbox {
-    pub const fn new() -> Self {
-        Self {
-            cob_id: AtomicCell::new(None),
-            mbox: AtomicCell::new(None),
-        }
-    }
-}
-
+/// A data structure to be shared between a receiving thread (e.g. a CAN controller IRQ) and the
+/// [`Node`](crate::Node) object.
+///
+/// Incoming messages should be passed to [NodeMbox::store_message].
 pub struct NodeMbox {
     rx_pdos: &'static [Pdo],
     sdo_cob_id: AtomicCell<Option<CanId>>,
@@ -64,6 +23,11 @@ pub struct NodeMbox {
 }
 
 impl NodeMbox {
+    /// Create a new NodeMbox
+    ///
+    /// # Args
+    ///
+    /// - `rx_pdos`: A slice of Pdo objects for all of the receive PDOs
     pub const fn new(rx_pdos: &'static [Pdo]) -> Self {
         let sdo_cob_id = AtomicCell::new(None);
         let sdo_mbox = AtomicCell::new(None);
@@ -96,36 +60,33 @@ impl NodeMbox {
             notify_cb();
         }
     }
-}
 
-impl NodeMboxRead for NodeMbox {
-    fn num_rx_pdos(&self) -> usize {
+    pub(crate) fn num_rx_pdos(&self) -> usize {
         self.rx_pdos.len()
     }
 
-    fn set_sdo_cob_id(&self, cob_id: Option<CanId>) {
+    pub(crate) fn set_sdo_cob_id(&self, cob_id: Option<CanId>) {
         self.sdo_cob_id.store(cob_id);
     }
 
-    fn read_sdo_mbox(&self) -> Option<SdoRequest> {
+    pub(crate) fn read_sdo_mbox(&self) -> Option<SdoRequest> {
         self.sdo_mbox.take()
     }
 
-    fn read_nmt_mbox(&self) -> Option<CanMessage> {
+    pub(crate) fn read_nmt_mbox(&self) -> Option<CanMessage> {
         self.nmt_mbox.take()
     }
 
-    fn lss_receiver(&self) -> &LssReceiver {
+    pub(crate) fn lss_receiver(&self) -> &LssReceiver {
         &self.lss_receiver
     }
 
-    fn read_sync_flag(&self) -> bool {
+    pub(crate) fn read_sync_flag(&self) -> bool {
         self.sync_flag.take()
     }
-}
 
-impl NodeMboxWrite for NodeMbox {
-    fn store_message(&self, msg: CanMessage) -> Result<(), CanMessage> {
+    /// Store a received CAN message
+    pub fn store_message(&self, msg: CanMessage) -> Result<(), CanMessage> {
         let id = msg.id();
         if id == zencan_common::messages::NMT_CMD_ID {
             self.nmt_mbox.store(Some(msg));

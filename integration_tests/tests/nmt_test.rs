@@ -2,7 +2,7 @@ use zencan_common::{messages::NmtState, traits::AsyncCanSender, NodeId};
 
 use integration_tests::sim_bus::SimBus;
 use zencan_client::nmt_master::Master;
-use zencan_node::node::Node;
+use zencan_node::Node;
 
 mod utils;
 use utils::BusLogger;

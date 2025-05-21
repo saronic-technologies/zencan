@@ -6,7 +6,7 @@ use zencan_common::{
     messages::ZencanMessage,
     traits::{AsyncCanReceiver, AsyncCanSender},
 };
-use zencan_node::node::Node;
+use zencan_node::Node;
 
 #[allow(dead_code)]
 pub async fn test_with_background_process<'a, 'b>(

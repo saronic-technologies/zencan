@@ -11,6 +11,11 @@ enum State {
     UploadSegment,
 }
 
+/// Implements an SDO server
+///
+/// A single SDO server can be controlled by a single SDO client (at one time). This struct wraps up
+/// the state and implements handling of SDO requests. A node implementing multiple SDO servers can
+/// instantiate multiple instances of `SdoServer` to track each.
 pub struct SdoServer {
     toggle_state: bool,
     state: State,
@@ -26,6 +31,7 @@ impl Default for SdoServer {
 }
 
 impl SdoServer {
+    /// Create a new SDO server
     pub fn new() -> Self {
         let toggle_state = false;
         let state = State::Idle;

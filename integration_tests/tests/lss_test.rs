@@ -3,7 +3,7 @@ use std::time::Duration;
 use integration_tests::{object_dict1, object_dict2, sim_bus::SimBus};
 use zencan_client::lss_master::LssMaster;
 use zencan_common::{lss::LssIdentity, NodeId};
-use zencan_node::node::Node;
+use zencan_node::Node;
 
 use serial_test::serial;
 

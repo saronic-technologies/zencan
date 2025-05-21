@@ -1,26 +1,33 @@
+//! Zencan Node implementation
+//!
+//! Used to implement a node
 #![cfg_attr(all(not(test), not(feature = "std")), no_std)]
+#![warn(missing_docs)]
 #![allow(clippy::comparison_chain)]
 
-pub mod lss_slave;
-pub mod nmt;
-pub mod node;
-pub mod node_mbox;
-pub mod node_state;
-pub mod persist;
-pub mod sdo_server;
-pub mod stack;
+mod lss_slave;
 
-/// Re-expore the proc macro for building code from an inline EDS
+mod node;
+mod node_mbox;
+pub mod node_state;
+mod persist;
+mod sdo_server;
+
+// Re-expore proc macros
 pub use zencan_macro::build_object_dict;
+pub use zencan_macro::record_object;
 
 // Re-export types used by generated code
 pub use critical_section;
 pub use zencan_common as common;
 
+pub use node::Node;
+pub use node_mbox::NodeMbox;
+
 #[cfg(feature = "socketcan")]
 pub use common::open_socketcan;
 
-/// Include the code generated for the object dict in the buils script.
+/// Include the code generated for the object dict in the build script.
 #[macro_export]
 macro_rules! include_modules {
     ($name: tt) => {

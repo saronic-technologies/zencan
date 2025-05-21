@@ -1,3 +1,5 @@
+//! Implements the core Node object
+
 use zencan_common::{
     lss::LssIdentity,
     messages::{CanId, CanMessage, Heartbeat, NmtCommandCmd, NmtState, ZencanMessage, LSS_RESP_ID},
@@ -8,7 +10,7 @@ use zencan_common::{
     NodeId,
 };
 
-use crate::{lss_slave::LssSlave, node_mbox::NodeMboxRead, node_state::Pdo};
+use crate::{lss_slave::LssSlave, node_mbox::NodeMbox, node_state::Pdo};
 use crate::{node_state::NodeStateAccess, sdo_server::SdoServer};
 
 use defmt_or_log::{debug, info};
@@ -300,6 +302,7 @@ fn read_pdo_data(data: &mut [u8], pdo: &Pdo, od: &[ODEntry]) {
     }
 }
 
+/// The main object representing a node
 pub struct Node<'table> {
     node_id: NodeId,
     nmt_state: NmtState,
@@ -307,7 +310,7 @@ pub struct Node<'table> {
     lss_slave: LssSlave,
     message_count: u32,
     od: &'table [ODEntry<'table>],
-    mbox: &'static dyn NodeMboxRead,
+    mbox: &'static NodeMbox,
     state: &'static dyn NodeStateAccess,
     reassigned_node_id: Option<NodeId>,
 }
@@ -327,9 +330,18 @@ fn read_identity(od: &[ODEntry]) -> Option<LssIdentity> {
 }
 
 impl<'table> Node<'table> {
+    /// Create a new Node
+    ///
+    /// # Arguments
+    ///
+    /// - `node_id`: The initial ID for the node. It may be assigned an ID at boot time by the
+    ///   application, or it may be left as [NodeId::Unconfigured].
+    /// - `mbox`: The NodeMbox object created by code generator
+    /// - `state`: The NodeState object created by code generator
+    /// - `od`: The Object Dictionary, created by code generator
     pub fn new(
         node_id: NodeId,
-        mbox: &'static dyn NodeMboxRead,
+        mbox: &'static NodeMbox,
         state: &'static dyn NodeStateAccess,
         od: &'table [ODEntry<'table>],
     ) -> Self {
@@ -430,6 +442,14 @@ impl<'table> Node<'table> {
         self.reassigned_node_id = Some(node_id);
     }
 
+    /// Run periodic processing
+    ///
+    /// This should be called periodically by the application so that the node can update it's
+    /// state, send periodic messages, process received messages, etc.
+    ///
+    /// It is sufficient to call this based on a timer, but the [NodeMbox] object also provides a
+    /// notification callback, which can be used by an application to accelerate the call to process
+    /// when an action is required
     pub fn process(&mut self, send_cb: &mut dyn FnMut(CanMessage)) {
         if let Some(new_node_id) = self.reassigned_node_id.take() {
             self.node_id = new_node_id;
@@ -538,24 +558,27 @@ impl<'table> Node<'table> {
         );
     }
 
+    /// Get the current Node ID
     pub fn node_id(&self) -> u8 {
         self.node_id.into()
     }
 
+    /// Get the current NMT state of the node
     pub fn nmt_state(&self) -> NmtState {
         self.nmt_state
     }
 
+    /// Get the number of received messages
     pub fn rx_message_count(&self) -> u32 {
         self.message_count
     }
 
-    pub fn sdo_tx_cob_id(&self) -> CanId {
+    fn sdo_tx_cob_id(&self) -> CanId {
         let node_id: u8 = self.node_id.into();
         CanId::Std(0x580 + node_id as u16)
     }
 
-    pub fn sdo_rx_cob_id(&self) -> CanId {
+    fn sdo_rx_cob_id(&self) -> CanId {
         let node_id: u8 = self.node_id.into();
         CanId::Std(0x600 + node_id as u16)
     }
@@ -576,8 +599,6 @@ impl<'table> Node<'table> {
                 pdo.rtr_disabled.store(false);
                 pdo.transmission_type.store(0);
                 pdo.inhibit_time.store(0);
-                pdo.event_timer.store(0);
-                pdo.sync_start.store(0);
                 pdo.buffered_value.store(None);
                 i += i;
             }
@@ -593,15 +614,14 @@ impl<'table> Node<'table> {
                 pdo.rtr_disabled.store(false);
                 pdo.transmission_type.store(0);
                 pdo.inhibit_time.store(0);
-                pdo.event_timer.store(0);
-                pdo.sync_start.store(0);
                 pdo.buffered_value.store(None);
                 i += i;
             }
 
             self.mbox.set_sdo_cob_id(Some(self.sdo_rx_cob_id()));
 
-            self.lss_slave = LssSlave::new(LssIdentity::new(10, 20, 30, 40), self.node_id);
+            // Reset the LSS slave with the new ID
+            self.lss_slave = LssSlave::new(read_identity(self.od).unwrap(), self.node_id);
 
             sender(
                 Heartbeat {
