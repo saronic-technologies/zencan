@@ -56,18 +56,6 @@ impl AsyncCanReceiver for SocketCanReceiver {
     type Error = ReceiveError;
 
     fn try_recv(&mut self) -> Option<CanMessage> {
-        // let mut socket = self.socket.lock().unwrap();
-        // let x = futures::poll!(socket.next());
-        // match x {
-        //     std::task::Poll::Ready(Some(Ok(frame))) => {
-        //         let msg = socketcan_frame_to_zencan_message(frame);
-        //         if msg.is_err() {
-        //             return None;
-        //         }
-        //         Some(msg.unwrap())
-        //     }
-        //     _ => None,
-        // }
         match self.socket.try_read_frame() {
             Ok(frame) => Some(socketcan_frame_to_zencan_message(frame).unwrap()),
             _ => None,
