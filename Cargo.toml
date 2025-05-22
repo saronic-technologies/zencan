@@ -28,4 +28,4 @@ crossbeam = { version = "0.8.4", default-features = false }
 futures = { version = "0.3.31", default-features = false, features = ["async-await"] }
 log = "0.4.27"
 snafu = { version = "0.8.5", default-features = false }
-socketcan = { version = "3.5.0", features = ["tokio"], path = "../socketcan-rs" }
+socketcan = { version = "3.5.0", features = ["tokio"], git = "https://github.com/mcbridejc/socketcan-rs" }
