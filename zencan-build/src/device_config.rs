@@ -15,6 +15,7 @@ pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
                 access_type: AccessType::Const.into(),
                 default_value: Some(DefaultValue::Integer(0x00000000)),
                 pdo_mapping: PdoMapping::None,
+                ..Default::default()
             }),
         },
         ObjectDefinition {
@@ -26,6 +27,7 @@ pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
                 access_type: AccessType::Ro.into(),
                 default_value: Some(DefaultValue::Integer(0x00000000)),
                 pdo_mapping: PdoMapping::None,
+                ..Default::default()
             }),
         },
         ObjectDefinition {
@@ -37,6 +39,7 @@ pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
                 access_type: AccessType::Const.into(),
                 default_value: Some(DefaultValue::String(config.device_name.clone())),
                 pdo_mapping: PdoMapping::None,
+                ..Default::default()
             }),
         },
         ObjectDefinition {
@@ -48,6 +51,7 @@ pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
                 access_type: AccessType::Const.into(),
                 default_value: Some(DefaultValue::String(config.hardware_version.clone())),
                 pdo_mapping: PdoMapping::None,
+                ..Default::default()
             }),
         },
         ObjectDefinition {
@@ -59,6 +63,19 @@ pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
                 access_type: AccessType::Const.into(),
                 default_value: Some(DefaultValue::String(config.software_version.clone())),
                 pdo_mapping: PdoMapping::None,
+                ..Default::default()
+            }),
+        },
+        ObjectDefinition {
+            index: 0x1010,
+            parameter_name: "Object Save Command".to_string(),
+            application_callback: true,
+            object: Object::Array(ArrayDefinition {
+                data_type: DataType::UInt32,
+                access_type: AccessType::Rw.into(),
+                array_size: 1,
+                persist: false,
+                ..Default::default()
             }),
         },
         ObjectDefinition {
@@ -77,6 +94,7 @@ pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
                             config.identity.vendor_id as i64,
                         )),
                         pdo_mapping: PdoMapping::None,
+                        ..Default::default()
                     },
                     SubDefinition {
                         sub_index: 2,
@@ -88,6 +106,7 @@ pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
                             config.identity.product_code as i64,
                         )),
                         pdo_mapping: PdoMapping::None,
+                        ..Default::default()
                     },
                     SubDefinition {
                         sub_index: 3,
@@ -99,6 +118,7 @@ pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
                             config.identity.revision_number as i64,
                         )),
                         pdo_mapping: PdoMapping::None,
+                        ..Default::default()
                     },
                     SubDefinition {
                         sub_index: 4,
@@ -108,6 +128,7 @@ pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
                         access_type: AccessType::Const.into(),
                         default_value: Some(DefaultValue::Integer(0)),
                         pdo_mapping: PdoMapping::None,
+                        ..Default::default()
                     },
                 ],
             }),
@@ -274,6 +295,8 @@ pub struct SubDefinition {
     pub default_value: Option<DefaultValue>,
     #[serde(default)]
     pub pdo_mapping: PdoMapping,
+    #[serde(default)]
+    pub persist: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -293,17 +316,24 @@ pub enum Object {
     Domain(DomainDefinition),
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Default, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct VarDefinition {
+    /// Indicates the type of data stored in the object
     pub data_type: DataType,
+    /// Indicates how this object can be accessed
     pub access_type: AccessTypeDeser,
+    /// The default value for this object
     pub default_value: Option<DefaultValue>,
+    /// Determines which if type of PDO this object can me mapped to
     #[serde(default)]
     pub pdo_mapping: PdoMapping,
+    /// Indicates that this object should be saved
+    #[serde(default)]
+    pub persist: bool,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Default, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct ArrayDefinition {
     pub data_type: DataType,
@@ -312,6 +342,8 @@ pub struct ArrayDefinition {
     pub default_value: Option<Vec<DefaultValue>>,
     #[serde(default)]
     pub pdo_mapping: PdoMapping,
+    #[serde(default)]
+    pub persist: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]

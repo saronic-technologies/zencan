@@ -1,5 +1,5 @@
 use zencan_common::{
-    objects::{find_object, AccessType, ODEntry, ObjectRawAccess, SubInfo},
+    objects::{find_object, ODEntry, ObjectRawAccess, SubInfo},
     sdo::{AbortCode, SdoRequest, SdoResponse},
 };
 
@@ -146,7 +146,7 @@ impl SdoServer {
                         }
                     };
                     // Verify that the requested object is writable
-                    if matches!(subinfo.access_type, AccessType::Ro | AccessType::Const) {
+                    if !subinfo.access_type.is_writable() {
                         return Some(SdoResponse::abort(
                             self.index,
                             self.sub,

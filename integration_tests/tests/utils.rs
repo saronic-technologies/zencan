@@ -9,8 +9,8 @@ use zencan_common::{
 use zencan_node::Node;
 
 #[allow(dead_code)]
-pub async fn test_with_background_process<'a, 'b>(
-    nodes: &mut [&mut Node<'a>],
+pub async fn test_with_background_process<'b>(
+    nodes: &mut [&mut Node],
     sender: &mut SimBusSender<'b>,
     test_task: impl Future<Output = ()> + 'static,
 ) {
@@ -39,7 +39,6 @@ pub struct BusLogger {
 }
 
 impl BusLogger {
-
     #[allow(dead_code)]
     pub fn new(rx: SimBusReceiver) -> Self {
         Self { rx }

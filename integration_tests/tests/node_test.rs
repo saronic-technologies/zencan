@@ -1,14 +1,16 @@
+use std::{
+    convert::Infallible,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
+
 use integration_tests::{
     object_dict1,
     sim_bus::{SimBus, SimBusReceiver, SimBusSender},
 };
 use zencan_client::sdo_client::{SdoClient, SdoClientError};
 use zencan_common::{objects::ODEntry, sdo::AbortCode, NodeId};
-use zencan_node::{
-    Node,
-    NodeMbox,
-    node_state::NodeStateAccess,
-};
+use zencan_node::{node_state::NodeStateAccess, Node, NodeMbox};
 
 mod utils;
 use utils::{test_with_background_process, BusLogger};
@@ -18,7 +20,7 @@ fn setup<'a, S: NodeStateAccess>(
     mbox: &'static NodeMbox,
     state: &'static S,
 ) -> (
-    Node<'static>,
+    Node,
     SdoClient<SimBusSender<'a>, SimBusReceiver>,
     SimBus<'a>,
 ) {
@@ -183,10 +185,7 @@ async fn test_record_access() {
         assert_eq!(1, size_data.len());
         assert_eq!(4, size_data[0]); // Highest sub index supported
 
-        // Check default values of all sub indices
-        let sub1_bytes = client.upload(OBJECT_ID, 1).await.unwrap();
-        assert_eq!(4, sub1_bytes.len());
-        assert_eq!(140, u32::from_le_bytes(sub1_bytes.try_into().unwrap()));
+        // Check default values of read-only subs
         let sub3_bytes = client.upload(OBJECT_ID, 3).await.unwrap();
         assert_eq!(2, sub3_bytes.len());
         assert_eq!(0x20, u16::from_le_bytes(sub3_bytes.try_into().unwrap()));
@@ -234,15 +233,6 @@ async fn test_array_access() {
         assert_eq!(1, size_data.len());
         assert_eq!(2, size_data[0]); // Highest sub index supported
 
-        // Read back default values
-        let data = client.upload(OBJECT_ID, 1).await.unwrap();
-        assert_eq!(4, data.len());
-        assert_eq!(123, i32::from_le_bytes(data.try_into().unwrap()));
-
-        let data = client.upload(OBJECT_ID, 2).await.unwrap();
-        assert_eq!(4, data.len());
-        assert_eq!(-1, i32::from_le_bytes(data.try_into().unwrap()));
-
         // Write and read
         client
             .download(OBJECT_ID, 1, &(-40i32).to_le_bytes())
@@ -257,6 +247,84 @@ async fn test_array_access() {
             .unwrap();
         let data = client.upload(OBJECT_ID, 2).await.unwrap();
         assert_eq!(99, i32::from_le_bytes(data.try_into().unwrap()));
+    };
+
+    test_with_background_process(&mut [&mut node], &mut sender, test_task).await;
+}
+
+#[tokio::test]
+#[serial_test::serial]
+async fn test_store_and_restore_objects() {
+    env_logger::init();
+
+    const SAVE_CMD: u32 = 0x73617665;
+
+    let od = &object_dict1::OD_TABLE;
+    let (mut node, mut client, mut bus) =
+        setup(od, &object_dict1::NODE_MBOX, &object_dict1::NODE_STATE);
+
+    let mut sender = bus.new_sender();
+
+    let _logger = BusLogger::new(bus.new_receiver());
+
+    let serialized_data = Arc::new(RwLock::new(Vec::new()));
+    let cloned_data = serialized_data.clone();
+    let store_objects_callback = Box::leak(Box::new(
+        move |reader: &mut dyn embedded_io::Read<Error = Infallible>, _size: usize| {
+            let mut buf = [0; 32];
+            loop {
+                let n = reader.read(&mut buf).unwrap();
+                let mut data = cloned_data.write().unwrap();
+                data.extend_from_slice(&buf[..n]);
+                if n < 32 {
+                    break;
+                }
+            }
+        },
+    ));
+    node.register_store_objects(store_objects_callback);
+
+    let test_task = async move {
+        // Load some values to persist
+        client
+            .download(0x2002, 0, "SAVEME".as_bytes())
+            .await
+            .unwrap();
+        client
+            .download(0x2003, 0, "SAVEME".as_bytes())
+            .await
+            .unwrap();
+        client.download_u32(0x2000, 1, 900).await.unwrap();
+
+        // Trigger a save
+        client.download_u32(0x1010, 1, SAVE_CMD).await.unwrap();
+
+        tokio::time::sleep(Duration::from_millis(5)).await;
+
+        assert!(serialized_data.read().unwrap().len() > 0);
+
+        // Change the values
+        client
+            .download(0x2002, 0, "NOTSAVED".as_bytes())
+            .await
+            .unwrap();
+        client
+            .download(0x2003, 0, "NOTSAVED".as_bytes())
+            .await
+            .unwrap();
+        client.download_u32(0x2000, 1, 500).await.unwrap();
+
+        zencan_node::restore_stored_objects(od, &serialized_data.read().unwrap());
+
+        // 0x2002 has persist set, so should have been saved
+        assert_eq!(client.upload(0x2002, 0).await.unwrap(), "SAVEME".as_bytes());
+        // should not have saved
+        assert_eq!(
+            client.upload(0x2003, 0).await.unwrap(),
+            "NOTSAVED".as_bytes()
+        );
+        // Should have saved
+        assert_eq!(client.upload_u32(0x2000, 1).await.unwrap(), 900);
     };
 
     test_with_background_process(&mut [&mut node], &mut sender, test_task).await;

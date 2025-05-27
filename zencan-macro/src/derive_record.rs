@@ -6,6 +6,10 @@ use syn::parse_macro_input;
 use syn::spanned::Spanned;
 use syn::{DeriveInput, Expr, Lit, Type};
 
+use zencan_build::utils::{
+    scalar_read_snippet, scalar_write_snippet, string_read_snippet, string_write_snippet,
+};
+
 fn type_to_zentype_and_size(ty: &Type) -> Result<(bool, TokenStream, usize), syn::Error> {
     match ty {
         Type::Array(array) => {
@@ -122,60 +126,6 @@ struct RecordObjectReceiver {
     data: ast::Data<(), FieldAttrs>,
 }
 
-fn scalar_write_snippet(field_name: &syn::Ident, ty: &syn::Type, _size: usize) -> TokenStream {
-    let setter_name = format_ident!("set_{}", field_name);
-    quote! {
-        if offset != 0 {
-            return Err(zencan_node::common::sdo::AbortCode::UnsupportedAccess);
-        }
-        let value = #ty::from_le_bytes(data.try_into().map_err(|_| {
-            if data.len() < size_of::<#ty>() {
-                zencan_node::common::sdo::AbortCode::DataTypeMismatchLengthLow
-            } else {
-                zencan_node::common::sdo::AbortCode::DataTypeMismatchLengthHigh
-            }
-        })?);
-        self.#setter_name(value);
-    }
-}
-
-fn scalar_read_snippet(field_name: &syn::Ident) -> TokenStream {
-    let getter_name = format_ident!("get_{}", field_name);
-    quote! {
-        let bytes = self.#getter_name().to_le_bytes();
-        if offset + buf.len() > bytes.len() {
-            return Err(zencan_node::common::sdo::AbortCode::DataTypeMismatchLengthHigh);
-        }
-        buf.copy_from_slice(&bytes[offset..offset + buf.len()]);
-    }
-}
-
-fn string_write_snippet(field_name: &syn::Ident, size: usize) -> TokenStream {
-    quote! {
-        if offset + data.len() > #size {
-            return Err(zencan_node::common::sdo::AbortCode::DataTypeMismatchLengthHigh);
-        }
-
-        // Unwrap safety: closure always returns Some(_) so fetch_update will never fail
-        self.#field_name.fetch_update(|old| {
-            let mut new = old.clone();
-            new[offset..offset + data.len()].copy_from_slice(data);
-            Some(new)
-        }).unwrap();
-    }
-}
-
-fn string_read_snippet(field_name: &syn::Ident, size: usize) -> TokenStream {
-    quote! {
-        if offset + buf.len() > #size {
-            return Err(zencan_node::common::sdo::AbortCode::DataTypeMismatchLengthHigh);
-        }
-
-        let value = self.#field_name.load();
-        buf.copy_from_slice(&value[offset..offset + buf.len()]);
-    }
-}
-
 fn generate_object_raw_access_impl(receiver: &RecordObjectReceiver) -> TokenStream {
     let struct_name = &receiver.ident;
     let fields = receiver
@@ -246,7 +196,7 @@ fn generate_object_raw_access_impl(receiver: &RecordObjectReceiver) -> TokenStre
             write_snippet = string_write_snippet(field.ident.as_ref().unwrap(), size);
             read_snippet = string_read_snippet(field.ident.as_ref().unwrap(), size);
         } else {
-            write_snippet = scalar_write_snippet(field.ident.as_ref().unwrap(), &field.ty, size);
+            write_snippet = scalar_write_snippet(field.ident.as_ref().unwrap(), &field.ty);
             read_snippet = scalar_read_snippet(field.ident.as_ref().unwrap());
         }
 
@@ -336,19 +286,45 @@ fn generate_accessor_impl(receiver: &RecordObjectReceiver) -> TokenStream {
     for field in &fields {
         let field_name = field.ident.as_ref().expect("Fields must be named");
         let field_ty = &field.ty;
+        let (is_str, _zencan_type, size) = match type_to_zentype_and_size(field_ty) {
+            Ok(value) => value,
+            Err(e) => panic!("{e}"),
+        };
 
         let getter_name = format_ident!("get_{}", field_name);
         let setter_name = format_ident!("set_{}", field_name);
 
-        accessor_methods.extend(quote! {
-            pub fn #getter_name(&self) -> #field_ty {
-                self.#field_name.load()
-            }
+        if is_str {
+            accessor_methods.extend(quote! {
+                pub fn #getter_name(&self) -> zencan_node::heapless::Vec<u8, #size> {
+                    let bytes = self.#field_name.load();
+                    let strlen = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+                    let mut result = zencan_node::heapless::Vec::new();
+                    result.extend_from_slice(&bytes[0..strlen]).unwrap();
+                    result
+                }
 
-            pub fn #setter_name(&self, value: #field_ty) {
-                self.#field_name.store(value);
-            }
-        });
+                pub fn #setter_name(&self, value: &[u8]) {
+                    let mut new_value = [0u8; #size];
+                    new_value[0..value.len()].copy_from_slice(value);
+                    // null terminate if string is shorter than buffer
+                    if value.len() < new_value.len() {
+                        new_value[value.len()] = 0;
+                    }
+                    self.#field_name.store(new_value);
+                }
+            });
+        } else {
+            accessor_methods.extend(quote! {
+                pub fn #getter_name(&self) -> #field_ty {
+                    self.#field_name.load()
+                }
+
+                pub fn #setter_name(&self, value: #field_ty) {
+                    self.#field_name.store(value);
+                }
+            });
+        }
     }
 
     quote! {

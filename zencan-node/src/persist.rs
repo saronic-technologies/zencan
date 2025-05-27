@@ -1,19 +1,20 @@
 use core::{
     cell::RefCell,
+    convert::Infallible,
     future::Future,
     pin::{pin, Pin},
     task::Context,
 };
 
 use futures::{pending, task::noop_waker_ref};
-use zencan_common::objects::{ODEntry, ObjectRawAccess};
+use zencan_common::objects::{find_object, ODEntry, ObjectRawAccess};
+
+use defmt_or_log::{info, warn};
 
 /// Specifies the types of nodes which can be serialized to persistent storage
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum NodeType {
-    /// A node containing the top-level node configuration
-    NodeConfig = 0,
     /// A node containing a saved sub-object value
     ObjectValue = 1,
     /// An unrecognized node type
@@ -24,13 +25,11 @@ impl NodeType {
     /// Create a `NodeType` from an ID byte
     pub fn from_byte(b: u8) -> Self {
         match b {
-            0 => Self::NodeConfig,
             1 => Self::ObjectValue,
             _ => Self::Unknown,
         }
     }
 }
-
 
 /// Top-level node configuration which is persisted
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -50,19 +49,30 @@ async fn write_bytes(bytes: &[u8], reg: &RefCell<u8>) {
     }
 }
 
-async fn serialize_sm(node_config: &NodeConfig, objects: &[ODEntry<'static>], reg: &RefCell<u8>) {
-    write_bytes(
-        &[
-            4, // u16 length in little endian
-            0,
-            NodeType::NodeConfig as u8,
-            node_config.node_id,
-            node_config.baud_table,
-            node_config.baud_index,
-        ],
-        reg,
-    )
-    .await;
+async fn serialize_object(obj: &ODEntry<'_>, sub: u8, reg: &RefCell<u8>) {
+    // Unwrap safety: This can only fail if the sub doesn't exist, and we already
+    // checked for that above
+    let data_size = obj.data.current_size(sub).unwrap() as u16;
+    // Serialized node size is the variable length object data, plus node type (u8), index (u16), and sub index (u8)
+    let node_size = data_size + 4;
+
+    println!(
+        "serializing {} bytes for {:x}sub{}",
+        node_size, obj.index, sub
+    );
+    write_bytes(&node_size.to_le_bytes(), reg).await;
+    write_bytes(&[NodeType::ObjectValue as u8], reg).await;
+    write_bytes(&obj.index.to_le_bytes(), reg).await;
+    write_bytes(&[sub], reg).await;
+
+    let mut buf = [0u8];
+    for i in 0..data_size {
+        obj.data.read(sub, i as usize, &mut buf).unwrap();
+        write_bytes(&buf, reg).await;
+    }
+}
+
+async fn serialize_sm(objects: &[ODEntry<'static>], reg: &RefCell<u8>) {
     for obj in objects {
         let max_sub = obj.data.max_sub_number();
         if max_sub > 0 {
@@ -79,35 +89,16 @@ async fn serialize_sm(node_config: &NodeConfig, objects: &[ODEntry<'static>], re
                 if !info.persist {
                     continue;
                 }
-
-                // Unwrap safety: This can only fail if the sub doesn't exist, and we already
-                // checked for that above
-                let data_size = obj.data.current_size(sub).unwrap() as u16;
-                // Serialized node size is the variable length object data, plus node type (u8), index (u16), and sub index (u8)
-                let node_size = data_size + 4;
-
-                write_bytes(&node_size.to_le_bytes(), reg).await;
-                write_bytes(&[NodeType::ObjectValue as u8], reg).await;
-                write_bytes(&obj.index.to_le_bytes(), reg).await;
-                write_bytes(&[sub], reg).await;
-
-                let mut buf = [0u8];
-                for i in 0..data_size {
-                    obj.data.read(sub, i as usize, &mut buf).unwrap();
-                    write_bytes(&buf, reg).await;
-                }
+                serialize_object(obj, sub, reg).await;
             }
+        } else {
+            let info = obj.data.sub_info(0).expect("var object must have sub 0");
+            if !info.persist {
+                continue;
+            }
+            serialize_object(obj, 0, reg).await;
         }
     }
-}
-
-/// A trait for reading data during persist serialization
-pub trait PersistReader {
-    /// Read the next chunk of serialized persist data into buf
-    ///
-    /// Returns the number of bytes written. If the return value is less than buf.len(), this
-    /// indicates that the serialization is complete.
-    fn read(&mut self, buf: &mut [u8]) -> usize;
 }
 
 struct PersistSerializer<'a, 'b, F: Future> {
@@ -121,18 +112,22 @@ impl<'a, 'b, F: Future> PersistSerializer<'a, 'b, F> {
     }
 }
 
-impl<F: Future> PersistReader for PersistSerializer<'_, '_, F> {
-    fn read(&mut self, buf: &mut [u8]) -> usize {
+impl<F: Future> embedded_io::ErrorType for PersistSerializer<'_, '_, F> {
+    type Error = Infallible;
+}
+
+impl<F: Future> embedded_io::Read for PersistSerializer<'_, '_, F> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Infallible> {
         let mut cx = Context::from_waker(noop_waker_ref());
 
         let mut pos = 0;
         loop {
             if pos >= buf.len() {
-                return pos;
+                return Ok(pos);
             }
 
             match self.f.as_mut().poll(&mut cx) {
-                core::task::Poll::Ready(_) => return pos,
+                core::task::Poll::Ready(_) => return Ok(pos),
                 core::task::Poll::Pending => {
                     buf[pos] = *self.reg.borrow();
                     pos += 1;
@@ -142,16 +137,47 @@ impl<F: Future> PersistReader for PersistSerializer<'_, '_, F> {
     }
 }
 
+pub fn serialized_size(objects: &[ODEntry]) -> usize {
+    let mut size = 0;
+    for obj in objects {
+        let max_sub = obj.data.max_sub_number();
+        if max_sub > 0 {
+            // This is an array or record. We don't store sub 0, which holds the max_sub_index, but
+            // will store any remaining subs which are marked as persisted
+            for i in 0..max_sub {
+                let sub = i + 1;
+                let info = obj.data.sub_info(sub);
+                // On a record, some subs may not be present. Just skip these.
+                if info.is_err() {
+                    continue;
+                }
+                let info = info.unwrap();
+                if !info.persist {
+                    continue;
+                }
+                // Unwrap safety: This can only fail if the sub doesn't exist, and we already
+                // checked for that above
+                let data_size = obj.data.current_size(sub).unwrap();
+                // Serialized node size is the variable length object data, plus node type (u8),
+                // index (u16), and sub index (u8), plus a length header (u16)
+                size += data_size + 6;
+            }
+        }
+    }
+
+    size
+}
+
 /// Serialize node data
-pub fn serialize<F: FnMut(&mut dyn PersistReader)>(
-    node_config: &NodeConfig,
+pub fn serialize<F: Fn(&mut dyn embedded_io::Read<Error = Infallible>, usize)>(
     od: &'static [ODEntry],
-    mut callback: F,
+    callback: F,
 ) {
     let reg = RefCell::new(0);
-    let fut = pin!(serialize_sm(node_config, od, &reg));
+    let fut = pin!(serialize_sm(od, &reg));
     let mut serializer = PersistSerializer::new(fut, &reg);
-    callback(&mut serializer)
+    let size = serialized_size(od);
+    callback(&mut serializer, size)
 }
 
 /// Error which can be returned while reading persisted data
@@ -176,8 +202,6 @@ pub struct ObjectValue<'a> {
 /// Returned by the PersistNodeReader iterator.
 #[derive(Debug, PartialEq)]
 pub enum PersistNodeRef<'a> {
-    /// A node config object, holding basic node info like the node ID
-    NodeConfig(NodeConfig),
     /// A saved value for a sub-object
     ObjectValue(ObjectValue<'a>),
     /// An unrecognized node type was encountered. Either the serialized data is malformed, or
@@ -196,16 +220,6 @@ impl<'a> PersistNodeRef<'a> {
         }
 
         match NodeType::from_byte(data[0]) {
-            NodeType::NodeConfig => {
-                if data.len() < 4 {
-                    return Err(PersistReadError::NodeLengthShort);
-                }
-                Ok(Self::NodeConfig(NodeConfig {
-                    node_id: data[1],
-                    baud_table: data[2],
-                    baud_index: data[3],
-                }))
-            }
             NodeType::ObjectValue => {
                 if data.len() < 5 {
                     return Err(PersistReadError::NodeLengthShort);
@@ -216,7 +230,7 @@ impl<'a> PersistNodeRef<'a> {
                     data: &data[4..],
                 }))
             }
-            NodeType::Unknown => Ok(PersistNodeRef::Unknown(&data)),
+            NodeType::Unknown => Ok(PersistNodeRef::Unknown(data)),
         }
     }
 }
@@ -225,7 +239,7 @@ impl<'a> PersistNodeRef<'a> {
 ///
 /// PersistNodeReader provides an Iterator of PersistNodeRef objects, representing all of the nodes
 /// stored in the slice
-pub struct PersistNodeReader<'a> {
+struct PersistNodeReader<'a> {
     buf: &'a [u8],
     pos: usize,
 }
@@ -241,15 +255,58 @@ impl<'a> Iterator for PersistNodeReader<'a> {
     type Item = PersistNodeRef<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.buf.len() - self.pos < 3 {
+        if self.buf.len() - self.pos < 2 {
             return None;
         }
         let length = u16::from_le_bytes(self.buf[self.pos..self.pos + 2].try_into().unwrap());
+        println!("Read node of len {length}");
         self.pos += 2;
         let node_slice = &self.buf[self.pos..self.pos + length as usize];
         self.pos += length as usize;
 
         PersistNodeRef::from_slice(node_slice).ok()
+    }
+}
+
+/// Load values of objects previously persisted in serialized format
+///
+/// # Arguments
+/// - `od`: The object dictionary where objects will be updated
+/// - `stored_data`: A slice of bytes, as previously provided to the store_objects callback.
+pub fn restore_stored_objects(od: &[ODEntry], stored_data: &[u8]) {
+    let reader = PersistNodeReader::new(stored_data);
+    for item in reader {
+        match item {
+            PersistNodeRef::ObjectValue(restore) => {
+                if let Some(obj) = find_object(od, restore.index) {
+                    if let Ok(sub_info) = obj.sub_info(restore.sub) {
+                        info!(
+                            "Restoring 0x{:x}sub{} with {:?}",
+                            restore.index, restore.sub, restore.data
+                        );
+                        if let Err(abort_code) = obj.write(restore.sub, 0, restore.data) {
+                            warn!(
+                                "Error restoring object 0x{:x}sub{}: {:x}",
+                                restore.index, restore.sub, abort_code as u32
+                            );
+                        }
+                        // Null terminate short strings when restoring
+                        if sub_info.data_type.is_str() && restore.data.len() < sub_info.size {
+                            obj.write(restore.sub, restore.data.len(), &[0])
+                                .expect("Error null terminated restored string");
+                        }
+                    } else {
+                        warn!(
+                            "Saved object 0x{:x}sub{} not found in OD",
+                            restore.index, restore.sub
+                        );
+                    }
+                } else {
+                    warn!("Saved object 0x{:x} not found in OD", restore.index);
+                }
+            }
+            PersistNodeRef::Unknown(id) => warn!("Unknown persisted object read: {}", id[0]),
+        }
     }
 }
 
@@ -273,45 +330,61 @@ mod tests {
             value2: u16,
         }
 
+        #[derive(Debug, Default)]
+        #[record_object]
+        struct Object200 {
+            #[record(persist)]
+            string: [u8; 15],
+        }
+
         let inst100 = Box::leak(Box::new(Object100::default()));
-        let od = Box::leak(Box::new([ODEntry {
-            index: 0x100,
-            data: zencan_common::objects::ObjectData::Storage(inst100),
-        }]));
+        let inst200 = Box::leak(Box::new(Object200::default()));
+
+        let od = Box::leak(Box::new([
+            ODEntry {
+                index: 0x100,
+                data: zencan_common::objects::ObjectData::Storage(inst100),
+            },
+            ODEntry {
+                index: 0x200,
+                data: zencan_common::objects::ObjectData::Storage(inst200),
+            },
+        ]));
         inst100.set_value1(42);
-        let node_config = NodeConfig {
-            node_id: 1,
-            baud_table: 0,
-            baud_index: 8,
-        };
+        inst200.set_string("test".as_bytes());
 
-        let mut data = Vec::new();
-
-        serialize(&node_config, od, |reader| {
+        let data = RefCell::new(Vec::new());
+        serialize(od, |reader, _size| {
             const CHUNK_SIZE: usize = 2;
             let mut buf = [0; CHUNK_SIZE];
             loop {
-                let n = reader.read(&mut buf);
-                data.extend_from_slice(&buf[..n]);
+                let n = reader.read(&mut buf).unwrap();
+                data.borrow_mut().extend_from_slice(&buf[..n]);
                 if n < buf.len() {
                     break;
                 }
             }
         });
 
-        assert_eq!(6 + 10, data.len());
+        let data = data.take();
+        assert_eq!(20, data.len());
+        assert_eq!(data.len(), serialized_size(od));
 
         let mut deser = PersistNodeReader::new(&data);
-        assert_eq!(
-            deser.next().unwrap(),
-            PersistNodeRef::NodeConfig(node_config)
-        );
         assert_eq!(
             deser.next().unwrap(),
             PersistNodeRef::ObjectValue(ObjectValue {
                 index: 0x100,
                 sub: 1,
                 data: &42u32.to_le_bytes()
+            })
+        );
+        assert_eq!(
+            deser.next().unwrap(),
+            PersistNodeRef::ObjectValue(ObjectValue {
+                index: 0x200,
+                sub: 1,
+                data: "test".as_bytes()
             })
         );
         assert_eq!(deser.next(), None);

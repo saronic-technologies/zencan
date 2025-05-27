@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zencan-common = { path = "../zencan-common" }
+# local
+zencan-common.workspace = true
+
+# external
 prettyplease = "0.2"
 proc-macro2 = "1.0"
 quote = "1.0"
@@ -13,7 +16,6 @@ syn = "2.0"
 serde = { version = "1.0.219", features = ["derive"] }
 toml = "0.8.20"
 regex = "1.11.1"
-
 
 [dev-dependencies]
 clap = { version = "4.5", features = ["derive"] }

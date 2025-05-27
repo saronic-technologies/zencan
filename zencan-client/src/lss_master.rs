@@ -39,17 +39,19 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
 
     pub async fn configure_by_identity(
         &mut self,
-        vendor_id: u32,
-        product_code: u32,
-        revision: u32,
-        serial: u32,
+        identity: LssIdentity,
         node_id: NodeId,
         baud_rate_table: u8,
         baud_rate_index: u8,
     ) -> Result<(), LssError> {
         // Put the specified node into configuration mode
-        self.enter_config_by_identity(vendor_id, product_code, revision, serial)
-            .await?;
+        self.enter_config_by_identity(
+            identity.vendor_id,
+            identity.product_code,
+            identity.revision,
+            identity.serial,
+        )
+        .await?;
         // set the node ID
         self.set_node_id(node_id).await?;
         // Set the bit rate

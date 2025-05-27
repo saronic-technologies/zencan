@@ -3,316 +3,34 @@
 use zencan_common::{
     lss::LssIdentity,
     messages::{CanId, CanMessage, Heartbeat, NmtCommandCmd, NmtState, ZencanMessage, LSS_RESP_ID},
-    objects::{
-        find_object, AccessType, Context, DataType, ODEntry, ObjectRawAccess, PdoMapping, SubInfo,
-    },
-    sdo::AbortCode,
+    objects::{find_object, ODEntry, ObjectData, ObjectRawAccess},
     NodeId,
 };
 
-use crate::{lss_slave::LssSlave, node_mbox::NodeMbox, node_state::Pdo};
+use crate::{lss_slave::LssSlave, node_mbox::NodeMbox, storage::StoreObjectsCallback};
 use crate::{node_state::NodeStateAccess, sdo_server::SdoServer};
 
 use defmt_or_log::{debug, info};
 
-fn pdo_comm_write_callback(
-    ctx: &Option<&dyn Context>,
-    _od: &[ODEntry],
-    sub: u8,
-    offset: usize,
-    buf: &[u8],
-) -> Result<(), AbortCode> {
-    let pdo: &Pdo = ctx
-        .unwrap()
-        .as_any()
-        .downcast_ref()
-        .expect("invalid context type in pdo_write_callback");
+type StoreNodeConfigCallback = dyn Fn(&NodeId) + Sync;
 
-    if offset != 0 {
-        return Err(AbortCode::UnsupportedAccess);
-    }
-
-    match sub {
-        0 => Err(AbortCode::ReadOnly),
-        1 => {
-            if buf.len() != 4 {
-                return Err(AbortCode::DataTypeMismatch);
-            }
-            let value = u32::from_le_bytes(buf.try_into().unwrap());
-            let valid = (value & (1 << 31)) != 0;
-            let no_rtr = (value & (1 << 30)) != 0;
-            let extended_id = (value & (1 << 29)) != 0;
-
-            let can_id = if extended_id {
-                CanId::Extended(value & 0x1FFFFFFF)
-            } else {
-                CanId::Std((value & 0x7FF) as u16)
-            };
-            pdo.cob_id.store(can_id);
-            pdo.valid.store(valid);
-            pdo.rtr_disabled.store(no_rtr);
-            Ok(())
-        }
-        2 => {
-            if buf.len() != 1 {
-                return Err(AbortCode::DataTypeMismatch);
-            }
-            let value = buf[0];
-            pdo.transmission_type.store(value);
-            Ok(())
-        }
-        _ => Err(AbortCode::NoSuchSubIndex),
-    }
-}
-
-fn pdo_comm_read_callback(
-    ctx: &Option<&dyn Context>,
-    _od: &[ODEntry],
-    sub: u8,
-    offset: usize,
-    buf: &mut [u8],
-) -> Result<(), AbortCode> {
-    let pdo: &Pdo = ctx
-        .unwrap()
-        .as_any()
-        .downcast_ref()
-        .expect("invalid context type in pdo_comm_read_callback");
-    if offset != 0 {
-        return Err(AbortCode::UnsupportedAccess);
-    }
-    match sub {
-        0 => {
-            if buf.len() != 1 {
-                return Err(AbortCode::DataTypeMismatch);
-            }
-            buf[0] = 2;
-            Ok(())
-        }
-        1 => {
-            if buf.len() != 4 {
-                return Err(AbortCode::DataTypeMismatch);
-            }
-
-            let cob_id = pdo.cob_id.load();
-            let mut value = cob_id.raw();
-            if cob_id.is_extended() {
-                value |= 1 << 29;
-            }
-            if pdo.rtr_disabled.load() {
-                value |= 1 << 30;
-            }
-            if pdo.valid.load() {
-                value |= 1 << 31;
-            }
-
-            buf.copy_from_slice(&value.to_le_bytes());
-            Ok(())
-        }
-        2 => {
-            if buf.len() != 1 {
-                return Err(AbortCode::DataTypeMismatch);
-            }
-            let value = pdo.transmission_type.load();
-            buf[0] = value;
-            Ok(())
-        }
-        _ => Err(AbortCode::NoSuchSubIndex),
-    }
-}
-
-fn pdo_comm_info_callback(_ctx: &Option<&dyn Context>, sub: u8) -> Result<SubInfo, AbortCode> {
-    match sub {
-        0 => Ok(SubInfo {
-            data_type: DataType::UInt8,
-            size: 1,
-            access_type: AccessType::Ro,
-            pdo_mapping: PdoMapping::None,
-            persist: false,
-        }),
-        1 => Ok(SubInfo {
-            data_type: DataType::UInt32,
-            size: 4,
-            access_type: AccessType::Rw,
-            pdo_mapping: PdoMapping::None,
-            persist: true,
-        }),
-        2 => Ok(SubInfo {
-            data_type: DataType::UInt8,
-            size: 1,
-            access_type: AccessType::Rw,
-            pdo_mapping: PdoMapping::None,
-            persist: true,
-        }),
-        _ => Err(AbortCode::NoSuchSubIndex),
-    }
-}
-
-fn pdo_mapping_write_callback(
-    ctx: &Option<&dyn Context>,
-    od: &[ODEntry],
-    sub: u8,
-    offset: usize,
-    buf: &[u8],
-) -> Result<(), AbortCode> {
-    let pdo: &Pdo = ctx
-        .unwrap()
-        .as_any()
-        .downcast_ref()
-        .expect("invalid context type in pdo_comm_read_callback");
-
-    if offset != 0 {
-        return Err(AbortCode::UnsupportedAccess);
-    }
-
-    if sub == 0 {
-        Err(AbortCode::ReadOnly)
-    } else if sub <= pdo.mapping_params.len() as u8 {
-        if buf.len() != 4 {
-            return Err(AbortCode::DataTypeMismatch);
-        }
-        let value = u32::from_le_bytes(buf.try_into().unwrap());
-
-        let object_id = (value >> 16) as u16;
-        let sub_index = ((value & 0xFF00) >> 8) as u8;
-        // Rounding up to BYTES, because we do not currently support bit access
-        let length = (value & 0xFF) as usize;
-        if (length % 8) != 0 {
-            // only support byte level access for now
-            return Err(AbortCode::IncompatibleParameter);
-        }
-        let entry = find_object(od, object_id).ok_or(AbortCode::NoSuchObject)?;
-        let sub_info = entry.sub_info(sub_index)?;
-        if sub_info.size < length / 8 {
-            return Err(AbortCode::IncompatibleParameter);
-        }
-        pdo.mapping_params[(sub - 1) as usize].store(value);
-        Ok(())
-    } else {
-        Err(AbortCode::NoSuchSubIndex)
-    }
-}
-fn pdo_mapping_read_callback(
-    ctx: &Option<&dyn Context>,
-    _od: &[ODEntry],
-    sub: u8,
-    offset: usize,
-    buf: &mut [u8],
-) -> Result<(), AbortCode> {
-    let pdo: &Pdo = ctx
-        .unwrap()
-        .as_any()
-        .downcast_ref()
-        .expect("invalid context type in pdo_comm_read_callback");
-
-    if offset != 0 {
-        return Err(AbortCode::UnsupportedAccess);
-    }
-
-    if sub == 0 {
-        if buf.len() != 1 {
-            return Err(AbortCode::DataTypeMismatch);
-        }
-        buf[0] = pdo.mapping_params.len() as u8;
-        Ok(())
-    } else if sub <= pdo.mapping_params.len() as u8 {
-        if buf.len() != 4 {
-            return Err(AbortCode::DataTypeMismatch);
-        }
-        let value = pdo.mapping_params[(sub - 1) as usize].load();
-        buf.copy_from_slice(&value.to_le_bytes());
-        Ok(())
-    } else {
-        Err(AbortCode::NoSuchSubIndex)
-    }
-}
-
-fn pdo_mapping_info_callback(ctx: &Option<&dyn Context>, sub: u8) -> Result<SubInfo, AbortCode> {
-    let pdo: &Pdo = ctx
-        .unwrap()
-        .as_any()
-        .downcast_ref()
-        .expect("invalid context type in pdo_comm_read_callback");
-    if sub == 0 {
-        Ok(SubInfo {
-            size: 1,
-            data_type: DataType::UInt8,
-            access_type: AccessType::Ro,
-            pdo_mapping: PdoMapping::None,
-            persist: false,
-        })
-    } else if sub <= pdo.mapping_params.len() as u8 {
-        Ok(SubInfo {
-            size: 4,
-            data_type: DataType::UInt32,
-            access_type: AccessType::Rw,
-            pdo_mapping: PdoMapping::None,
-            persist: true,
-        })
-    } else {
-        Err(AbortCode::NoSuchSubIndex)
-    }
-}
-
-fn store_pdo_data(data: &[u8], pdo: &Pdo, od: &[ODEntry]) {
-    let mut offset = 0;
-    for i in 0..pdo.mapping_params.len() {
-        let param = pdo.mapping_params[i].load();
-        if param == 0 {
-            break;
-        }
-        let object_id = (param >> 16) as u16;
-        let sub_index = ((param & 0xFF00) >> 8) as u8;
-        // Rounding up to BYTES, because we do not currently support bit access
-        let length = (param & 0xFF).div_ceil(8) as usize;
-        let entry = find_object(od, object_id).expect("Invalid mapping parameter");
-        if offset + length > data.len() {
-            break;
-        }
-        let data_to_write = &data[offset..offset + length];
-        // There's no mechanism to report an error here, so we just ignore it if it fails. We can
-        // check that the PDO mapping is valid when it is written to the object dictionary, to make
-        // it impossible to fail.
-        entry.write(sub_index, 0, data_to_write).ok();
-        offset += length;
-    }
-}
-
-fn read_pdo_data(data: &mut [u8], pdo: &Pdo, od: &[ODEntry]) {
-    let mut offset = 0;
-    for i in 0..pdo.mapping_params.len() {
-        let param = pdo.mapping_params[i].load();
-        if param == 0 {
-            break;
-        }
-        let object_id = (param >> 16) as u16;
-        let sub_index = ((param & 0xFF00) >> 8) as u8;
-        // Rounding up to BYTES, because we do not currently support bit access
-        let length = (param & 0xFF).div_ceil(8) as usize;
-        let entry = find_object(od, object_id).expect("Invalid mapping parameter");
-        if offset + length > data.len() {
-            break;
-        }
-        // There's no mechanism to report an error here, so we just ignore it if it fails. We can
-        // check that the PDO mapping is valid when it is written to the object dictionary, to make
-        // it impossible to fail.
-        entry
-            .read(sub_index, 0, &mut data[offset..offset + length])
-            .ok();
-        offset += length;
-    }
+#[derive(Default)]
+struct Callbacks {
+    store_node_config: Option<&'static StoreNodeConfigCallback>,
 }
 
 /// The main object representing a node
-pub struct Node<'table> {
+pub struct Node {
     node_id: NodeId,
     nmt_state: NmtState,
     sdo_server: SdoServer,
     lss_slave: LssSlave,
     message_count: u32,
-    od: &'table [ODEntry<'table>],
+    od: &'static [ODEntry<'static>],
     mbox: &'static NodeMbox,
     state: &'static dyn NodeStateAccess,
     reassigned_node_id: Option<NodeId>,
+    callbacks: Callbacks,
 }
 
 fn read_identity(od: &[ODEntry]) -> Option<LssIdentity> {
@@ -329,7 +47,7 @@ fn read_identity(od: &[ODEntry]) -> Option<LssIdentity> {
     })
 }
 
-impl<'table> Node<'table> {
+impl Node {
     /// Create a new Node
     ///
     /// # Arguments
@@ -343,84 +61,17 @@ impl<'table> Node<'table> {
         node_id: NodeId,
         mbox: &'static NodeMbox,
         state: &'static dyn NodeStateAccess,
-        od: &'table [ODEntry<'table>],
+        od: &'static [ODEntry<'static>],
     ) -> Self {
         let message_count = 0;
         let sdo_server = SdoServer::new();
 
         let lss_slave = LssSlave::new(read_identity(od).unwrap(), node_id);
         let nmt_state = NmtState::Bootup;
-        let node_id = node_id;
         let reassigned_node_id = None;
 
-        // register RPDO handlers
-        for i in 0..mbox.num_rx_pdos() {
-            let comm_id = 0x1400 + i as u16;
-            let mapping_id = 0x1600 + i as u16;
-            let comm = find_object(od, comm_id).expect("Missing PDO comm object");
-            match comm {
-                zencan_common::objects::ObjectData::Storage(_) => {
-                    panic!("PDO comm object is not a callback")
-                }
-                zencan_common::objects::ObjectData::Callback(callback_object) => {
-                    callback_object.register(
-                        Some(pdo_comm_write_callback),
-                        Some(pdo_comm_read_callback),
-                        Some(pdo_comm_info_callback),
-                        Some(&state.get_rpdos()[i]),
-                    );
-                }
-            }
-            let mapping = find_object(od, mapping_id).expect("Missing PDO mapping object");
-            match mapping {
-                zencan_common::objects::ObjectData::Storage(_) => {
-                    panic!("PDO mapping object is not a callback")
-                }
-                zencan_common::objects::ObjectData::Callback(callback_object) => {
-                    callback_object.register(
-                        Some(pdo_mapping_write_callback),
-                        Some(pdo_mapping_read_callback),
-                        Some(pdo_mapping_info_callback),
-                        Some(&state.get_rpdos()[i]),
-                    );
-                }
-            }
-        }
-
-        // Register TPDO handlers
-        let tpdos = state.get_tpdos();
-        for i in 0..tpdos.len() {
-            let comm_id = 0x1800 + i as u16;
-            let mapping_id = 0x1A00 + i as u16;
-            let comm = find_object(od, comm_id).expect("Missing PDO comm object");
-            match comm {
-                zencan_common::objects::ObjectData::Storage(_) => {
-                    panic!("PDO comm object is not a callback")
-                }
-                zencan_common::objects::ObjectData::Callback(callback_object) => {
-                    callback_object.register(
-                        Some(pdo_comm_write_callback),
-                        Some(pdo_comm_read_callback),
-                        Some(pdo_comm_info_callback),
-                        Some(&tpdos[i]),
-                    );
-                }
-            }
-            let mapping = find_object(od, mapping_id).expect("Missing PDO mapping object");
-            match mapping {
-                zencan_common::objects::ObjectData::Storage(_) => {
-                    panic!("PDO mapping object is not a callback")
-                }
-                zencan_common::objects::ObjectData::Callback(callback_object) => {
-                    callback_object.register(
-                        Some(pdo_mapping_write_callback),
-                        Some(pdo_mapping_read_callback),
-                        Some(pdo_mapping_info_callback),
-                        Some(&tpdos[i]),
-                    );
-                }
-            }
-        }
+        Self::register_pdo_callbacks(od, mbox, state);
+        Self::register_storage_callbacks(od, state);
 
         Self {
             node_id,
@@ -432,6 +83,7 @@ impl<'table> Node<'table> {
             mbox,
             state,
             reassigned_node_id,
+            callbacks: Callbacks::default(),
         }
     }
 
@@ -440,6 +92,16 @@ impl<'table> Node<'table> {
     /// ID is valid. Setting the node ID to 255 will put the node into unconfigured mode.
     pub fn set_node_id(&mut self, node_id: NodeId) {
         self.reassigned_node_id = Some(node_id);
+    }
+
+    /// Register a callback to store node configuration data persistently
+    pub fn register_store_node_config_cb(&mut self, cb: &'static StoreNodeConfigCallback) {
+        self.callbacks.store_node_config = Some(cb);
+    }
+
+    /// Register a callback to store object data persistently
+    pub fn register_store_objects(&mut self, cb: &'static StoreObjectsCallback) {
+        self.state.storage_context().store_callback.store(Some(cb));
     }
 
     /// Run periodic processing
@@ -498,13 +160,13 @@ impl<'table> Node<'table> {
             if transmission_type >= 254 {
                 if pdo.read_events(self.od) {
                     let mut data = [0u8; 8];
-                    read_pdo_data(&mut data, pdo, self.od);
+                    crate::pdo::read_pdo_data(&mut data, pdo, self.od);
                     let msg = CanMessage::new(pdo.cob_id.load(), &data);
                     send_cb(msg);
                 }
             } else if sync && pdo.sync_update() {
                 let mut data = [0u8; 8];
-                read_pdo_data(&mut data, pdo, self.od);
+                crate::pdo::read_pdo_data(&mut data, pdo, self.od);
                 let msg = CanMessage::new(pdo.cob_id.load(), &data);
                 send_cb(msg);
             }
@@ -516,14 +178,18 @@ impl<'table> Node<'table> {
 
         for rpdo in self.state.get_rpdos() {
             if let Some(new_data) = rpdo.buffered_value.take() {
-                store_pdo_data(&new_data, rpdo, self.od);
+                crate::pdo::store_pdo_data(&new_data, rpdo, self.od);
             }
         }
 
         if let Some(event) = self.lss_slave.pending_event() {
             info!("LSS Slave Event: {:?}", event);
             match event {
-                crate::lss_slave::LssEvent::StoreConfiguration => todo!(),
+                crate::lss_slave::LssEvent::StoreConfiguration => {
+                    if let Some(cb) = self.callbacks.store_node_config {
+                        (cb)(&self.node_id)
+                    }
+                }
                 crate::lss_slave::LssEvent::ActivateBitTiming {
                     table: _,
                     index: _,
@@ -631,6 +297,97 @@ impl<'table> Node<'table> {
                 }
                 .into(),
             );
+        }
+    }
+
+    fn register_storage_callbacks(od: &'static [ODEntry], state: &'static dyn NodeStateAccess) {
+        // If the 0x1010 object is present, hook it up
+        if let Some(obj) = find_object(od, 0x1010) {
+            if let ObjectData::Callback(obj) = obj {
+                obj.register(
+                    Some(crate::storage::handle_1010_write),
+                    Some(crate::storage::handle_1010_read),
+                    Some(crate::storage::handle_1010_subinfo),
+                    Some(state.storage_context()),
+                );
+            } else {
+                panic!("Object 1010 must be a callback object")
+            }
+        }
+    }
+
+    fn register_pdo_callbacks(
+        od: &'static [ODEntry],
+        mbox: &'static NodeMbox,
+        state: &'static dyn NodeStateAccess,
+    ) {
+        // register RPDO handlers
+        for i in 0..mbox.num_rx_pdos() {
+            let comm_id = 0x1400 + i as u16;
+            let mapping_id = 0x1600 + i as u16;
+            let comm = find_object(od, comm_id).expect("Missing PDO comm object");
+            match comm {
+                zencan_common::objects::ObjectData::Storage(_) => {
+                    panic!("PDO comm object is not a callback")
+                }
+                zencan_common::objects::ObjectData::Callback(callback_object) => {
+                    callback_object.register(
+                        Some(crate::pdo::pdo_comm_write_callback),
+                        Some(crate::pdo::pdo_comm_read_callback),
+                        Some(crate::pdo::pdo_comm_info_callback),
+                        Some(&state.get_rpdos()[i]),
+                    );
+                }
+            }
+            let mapping = find_object(od, mapping_id).expect("Missing PDO mapping object");
+            match mapping {
+                zencan_common::objects::ObjectData::Storage(_) => {
+                    panic!("PDO mapping object is not a callback")
+                }
+                zencan_common::objects::ObjectData::Callback(callback_object) => {
+                    callback_object.register(
+                        Some(crate::pdo::pdo_mapping_write_callback),
+                        Some(crate::pdo::pdo_mapping_read_callback),
+                        Some(crate::pdo::pdo_mapping_info_callback),
+                        Some(&state.get_rpdos()[i]),
+                    );
+                }
+            }
+        }
+
+        // Register TPDO handlers
+        let tpdos = state.get_tpdos();
+        for (i, tpdo) in tpdos.iter().enumerate() {
+            let comm_id = 0x1800 + i as u16;
+            let mapping_id = 0x1A00 + i as u16;
+            let comm = find_object(od, comm_id).expect("Missing PDO comm object");
+            match comm {
+                zencan_common::objects::ObjectData::Storage(_) => {
+                    panic!("PDO comm object is not a callback")
+                }
+                zencan_common::objects::ObjectData::Callback(callback_object) => {
+                    callback_object.register(
+                        Some(crate::pdo::pdo_comm_write_callback),
+                        Some(crate::pdo::pdo_comm_read_callback),
+                        Some(crate::pdo::pdo_comm_info_callback),
+                        Some(tpdo),
+                    );
+                }
+            }
+            let mapping = find_object(od, mapping_id).expect("Missing PDO mapping object");
+            match mapping {
+                zencan_common::objects::ObjectData::Storage(_) => {
+                    panic!("PDO mapping object is not a callback")
+                }
+                zencan_common::objects::ObjectData::Callback(callback_object) => {
+                    callback_object.register(
+                        Some(crate::pdo::pdo_mapping_write_callback),
+                        Some(crate::pdo::pdo_mapping_read_callback),
+                        Some(crate::pdo::pdo_mapping_info_callback),
+                        Some(tpdo),
+                    );
+                }
+            }
         }
     }
 }

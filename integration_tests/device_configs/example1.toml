@@ -20,6 +20,7 @@ access_type = "rw"
 array_size = 2
 default_value = [123, -1]
 pdo_mapping = "both"
+persist = true
 
 [[objects]]
 index = 0x2001
@@ -43,11 +44,21 @@ access_type = "rw"
 
 [[objects]]
 index = 0x2002
-parameter_name = "String Var"
+parameter_name = "Persisted String Var"
 object_type = "var"
 data_type = "VisibleString(16)"
 access_type = "rw"
 default_value = "Some String"
+persist = true
+
+[[objects]]
+index = 0x2003
+parameter_name = "Non-persisted String Var"
+object_type = "var"
+data_type = "VisibleString(16)"
+access_type = "rw"
+default_value = "Some String"
+persist = false
 
 [[objects]]
 index = 0x3000

@@ -7,9 +7,10 @@ pub trait CanSender {
 }
 
 pub trait CanReceiver {
+    type Error;
     fn try_recv(&mut self) -> Option<CanMessage>;
     /// A blocking receive
-    fn recv(&mut self, timeout: Duration) -> Result<CanMessage, ()>;
+    fn recv(&mut self, timeout: Duration) -> Result<CanMessage, Self::Error>;
 }
 
 pub trait AsyncCanSender {

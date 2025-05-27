@@ -1,4 +1,7 @@
 use crate::device_config::{DataType as DCDataType, DefaultValue, PdoMapping};
+use crate::utils::{
+    scalar_read_snippet, scalar_write_snippet, string_read_snippet, string_write_snippet,
+};
 use crate::{
     device_config::{DeviceConfig, Object, ObjectDefinition, SubDefinition},
     errors::CompileError,
@@ -260,78 +263,14 @@ fn get_object_impls(
     obj: &ObjectDefinition,
     struct_name: &syn::Ident,
 ) -> Result<TokenStream, CompileError> {
-    /// Generate snippet to write scalars
-    ///
-    /// ty: The datatype of the object
-    /// size: The size of the object in bytes
-    fn scalar_write_snippet(field_name: &syn::Ident, ty: &syn::Type, _size: usize) -> TokenStream {
-        let setter_name = format_ident!("set_{}", field_name);
-        quote! {
-            if offset != 0 {
-                return Err(AbortCode::UnsupportedAccess);
-            }
-            let value = #ty::from_le_bytes(data.try_into().map_err(|_| {
-                if data.len() < size_of::<#ty>() {
-                    AbortCode::DataTypeMismatchLengthLow
-                } else {
-                    AbortCode::DataTypeMismatchLengthHigh
-                }
-            })?);
-            self.#setter_name(value);
-        }
-    }
-
-    fn scalar_read_snippet(field_name: &syn::Ident, _ty: &syn::Type, size: usize) -> TokenStream {
-        let getter_name = format_ident!("get_{}", field_name);
-        quote! {
-            if offset != 0 {
-                return Err(AbortCode::UnsupportedAccess);
-            }
-
-            if buf.len() < #size {
-                return Err(AbortCode::DataTypeMismatchLengthLow);
-            }
-            if buf.len() > #size {
-                return Err(AbortCode::DataTypeMismatchLengthHigh);
-            }
-            let value = self.#getter_name();
-            buf.copy_from_slice(&value.to_le_bytes());
-        }
-    }
-
-    fn string_write_snippet(field_name: &syn::Ident, size: usize) -> TokenStream {
-        quote! {
-            if offset + data.len() > #size {
-                return Err(AbortCode::DataTypeMismatchLengthHigh);
-            }
-
-            // Unwrap safety: closure always returns Some(_) so fetch_update will never fail
-            self.#field_name.fetch_update(|old| {
-                let mut new = old.clone();
-                new[offset..offset + data.len()].copy_from_slice(data);
-                Some(new)
-            }).unwrap();
-        }
-    }
-
-    fn string_read_snippet(field_name: &syn::Ident, size: usize) -> TokenStream {
-        quote! {
-            if offset + buf.len() > #size {
-                return Err(AbortCode::DataTypeMismatchLengthHigh);
-            }
-
-            let value = self.#field_name.load();
-            buf.copy_from_slice(&value[offset..offset + buf.len()]);
-        }
-    }
-
     fn get_tpdo_event_snippet(max_sub: usize) -> TokenStream {
         quote! {
             fn set_event_flag(&self, sub: u8) -> Result<(), AbortCode> {
                 if sub as usize > #max_sub {
                     return Err(AbortCode::NoSuchSubIndex);
                 }
-                Ok(self.flags.set_flag(sub))
+                self.flags.set_flag(sub);
+                Ok(())
             }
 
             fn read_event_flag(&self, sub: u8) -> bool {
@@ -356,12 +295,13 @@ fn get_object_impls(
                 write_snippet = string_write_snippet(&field_name, size);
                 read_snippet = string_read_snippet(&field_name, size);
             } else {
-                write_snippet = scalar_write_snippet(&field_name, &field_type, size);
-                read_snippet = scalar_read_snippet(&field_name, &field_type, size);
+                write_snippet = scalar_write_snippet(&field_name, &field_type);
+                read_snippet = scalar_read_snippet(&field_name);
             }
             let data_type = data_type_to_tokens(def.data_type);
             let access_type = access_type_to_tokens(def.access_type.0);
             let pdo_mapping = pdo_mapping_to_tokens(def.pdo_mapping);
+            let persist = def.persist;
 
             let default_value = def
                 .default_value
@@ -374,7 +314,7 @@ fn get_object_impls(
             if def.pdo_mapping.supports_tpdo() {
                 tpdo_event_tokens.extend(get_tpdo_event_snippet(0));
                 tpdo_default_tokens.extend(quote! {
-                    flags: ObjectFlags::<1>::new(&NODE_STATE.pdo_sync()),
+                    flags: ObjectFlags::<1>::new(NODE_STATE.pdo_sync()),
                 });
             }
 
@@ -423,7 +363,7 @@ fn get_object_impls(
                             data_type: #data_type,
                             size: #size,
                             pdo_mapping: #pdo_mapping,
-                            persist: false,
+                            persist: #persist,
                         })
                     }
                     fn object_code(&self) -> zencan_node::common::objects::ObjectCode {
@@ -442,6 +382,7 @@ fn get_object_impls(
             let data_type = data_type_to_tokens(def.data_type);
             let access_type = access_type_to_tokens(def.access_type.0);
             let pdo_mapping = pdo_mapping_to_tokens(def.pdo_mapping);
+            let persist = def.persist;
 
             let default_value =
                 def.default_value
@@ -489,17 +430,12 @@ fn get_object_impls(
                     self.set((sub - 1) as usize, value)?;
                 };
                 read_snippet = quote! {
-                    if offset != 0 {
-                        return Err(AbortCode::UnsupportedAccess);
-                    }
                     let value = self.get((sub - 1) as usize)?;
-                    if buf.len() < size_of::<#field_type>() {
-                        return Err(AbortCode::DataTypeMismatchLengthLow);
-                    }
-                    if buf.len() > size_of::<#field_type>() {
+                    let bytes = value.to_le_bytes();
+                    if offset + buf.len() > size_of::<#field_type>() {
                         return Err(AbortCode::DataTypeMismatchLengthHigh);
                     }
-                    buf.copy_from_slice(&value.to_le_bytes());
+                    buf.copy_from_slice(&bytes[offset..offset+buf.len()]);
                 }
             }
 
@@ -508,7 +444,7 @@ fn get_object_impls(
             if def.pdo_mapping.supports_tpdo() {
                 tpdo_event_tokens.extend(get_tpdo_event_snippet(array_size));
                 tpdo_default_tokens.extend(quote! {
-                    flags: ObjectFlags::<#flag_size>::new(&NODE_STATE.pdo_sync()),
+                    flags: ObjectFlags::<#flag_size>::new(NODE_STATE.pdo_sync()),
                 });
             }
 
@@ -587,7 +523,7 @@ fn get_object_impls(
                             data_type: #data_type,
                             size: #storage_size,
                             pdo_mapping: #pdo_mapping,
-                            persist: false,
+                            persist: #persist,
                         })
                     }
 
@@ -620,11 +556,7 @@ fn get_object_impls(
                     Err(AbortCode::ReadOnly)
                 }
             });
-            let read_snippet = scalar_read_snippet(
-                &format_ident!("sub0"),
-                &syn::parse_str::<syn::Type>("u8").unwrap(),
-                1,
-            );
+            let read_snippet = scalar_read_snippet(&format_ident!("sub0"));
             read_match_statements.extend(quote! {
                 0 => {
                     #read_snippet
@@ -653,6 +585,7 @@ fn get_object_impls(
                 let sub_index = sub.sub_index;
                 let data_type = data_type_to_tokens(sub.data_type);
                 let pdo_mapping = pdo_mapping_to_tokens(sub.pdo_mapping);
+                let persist = sub.persist;
 
                 let default_value = sub
                     .default_value
@@ -665,8 +598,8 @@ fn get_object_impls(
                     write_snippet = string_write_snippet(&field_name, size);
                     read_snippet = string_read_snippet(&field_name, size);
                 } else {
-                    write_snippet = scalar_write_snippet(&field_name, &field_type, size);
-                    read_snippet = scalar_read_snippet(&field_name, &field_type, size);
+                    write_snippet = scalar_write_snippet(&field_name, &field_type);
+                    read_snippet = scalar_read_snippet(&field_name);
                 }
                 accessor_methods.extend(quote! {
                     pub fn #setter_name(&self, value: #field_type) {
@@ -695,7 +628,7 @@ fn get_object_impls(
                             data_type: #data_type,
                             size: #size,
                             pdo_mapping: #pdo_mapping,
-                            persist: false,
+                            persist: #persist,
                         })
                     }
                 });
@@ -709,7 +642,7 @@ fn get_object_impls(
             if object_supports_tpdo(obj) {
                 tpdo_event_tokens.extend(get_tpdo_event_snippet(max_sub as usize));
                 tpdo_default_tokens.extend(quote! {
-                    flags: ObjectFlags::<#flag_size>::new(&NODE_STATE.pdo_sync()),
+                    flags: ObjectFlags::<#flag_size>::new(NODE_STATE.pdo_sync()),
                 })
             }
 

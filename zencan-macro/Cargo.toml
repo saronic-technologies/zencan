@@ -17,4 +17,5 @@ darling = "0.20.11"
 
 [dev-dependencies]
 critical-section.workspace = true
+heapless.workspace = true
 zencan-node.workspace = true

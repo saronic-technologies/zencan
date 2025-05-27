@@ -3,11 +3,11 @@ name = "zencan-node"
 version = "0.0.0"
 edition = "2021"
 authors = ["Jeff McBride <jeff@jeffmcbride.net>"]
-license = "MPL-2"
+license = "MPL-2.0"
 rust-version = "1.81"
 description = "Library for implementing a CAN-BUS node, primarily on an MCU"
 keywords = ["no_std", "embedded", "CAN"]
-categories = ["embedded", "no_std", "no_std::no_alloc"]
+categories = ["embedded", "no-std", "no-std::no-alloc"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -19,8 +19,12 @@ zencan-macro.workspace = true
 # External
 critical-section.workspace = true
 defmt-or-log = { version = "0.2.0", default-features = false }
+embedded-io.workspace = true
 futures.workspace = true
+heapless.workspace = true
 log = { version = "0.4" }
+
+
 
 [features]
 default = ["log", "std"]

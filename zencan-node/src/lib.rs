@@ -10,8 +10,10 @@ mod lss_slave;
 mod node;
 mod node_mbox;
 pub mod node_state;
+mod pdo;
 mod persist;
 mod sdo_server;
+mod storage;
 
 // Re-expore proc macros
 pub use zencan_macro::build_object_dict;
@@ -19,10 +21,12 @@ pub use zencan_macro::record_object;
 
 // Re-export types used by generated code
 pub use critical_section;
+pub use heapless;
 pub use zencan_common as common;
 
 pub use node::Node;
 pub use node_mbox::NodeMbox;
+pub use persist::restore_stored_objects;
 
 #[cfg(feature = "socketcan")]
 pub use common::open_socketcan;

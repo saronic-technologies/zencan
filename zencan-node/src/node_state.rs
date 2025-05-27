@@ -3,11 +3,13 @@ use zencan_common::messages::CanId;
 use zencan_common::objects::{find_object, ODEntry, ObjectFlagSync, ObjectRawAccess as _};
 use zencan_common::AtomicCell;
 
+use crate::storage::StorageContext;
+
 /// Specifies the number of mapping parameters supported per PDO
 ///
 /// Since we do not yet support CAN-FD, or sub-byte mapping, it's not possible to map more than 8
 /// objects to a single PDO
-const N_MAPPING_PARAMS: usize  = 8;
+const N_MAPPING_PARAMS: usize = 8;
 
 /// Represents a single PDO state
 #[derive(Debug)]
@@ -135,6 +137,8 @@ pub trait NodeStateAccess: Sync + Send {
     fn get_tpdos(&self) -> &[Pdo];
     /// Get the PDO flag sync object
     fn get_pdo_sync(&self) -> &ObjectFlagSync;
+    /// Get the storage context object
+    fn storage_context(&self) -> &StorageContext;
 }
 
 /// The NodeState provides config-dependent storage to the [`Node`](crate::Node) object
@@ -146,6 +150,7 @@ pub struct NodeState<const N_RPDO: usize, const N_TPDO: usize> {
     rpdos: [Pdo; N_RPDO],
     tpdos: [Pdo; N_TPDO],
     pdo_sync: ObjectFlagSync,
+    storage_context: StorageContext,
 }
 
 impl<const N_RPDO: usize, const N_TPDO: usize> Default for NodeState<N_RPDO, N_TPDO> {
@@ -160,10 +165,12 @@ impl<const N_RPDO: usize, const N_TPDO: usize> NodeState<N_RPDO, N_TPDO> {
         let rpdos = [const { Pdo::new() }; N_RPDO];
         let tpdos = [const { Pdo::new() }; N_TPDO];
         let pdo_sync = ObjectFlagSync::new();
+        let storage_context = StorageContext::new();
         Self {
             rpdos,
             tpdos,
             pdo_sync,
+            storage_context,
         }
     }
 
@@ -193,5 +200,9 @@ impl<const N_RPDO: usize, const N_TPDO: usize> NodeStateAccess for NodeState<N_R
 
     fn get_pdo_sync(&self) -> &ObjectFlagSync {
         &self.pdo_sync
+    }
+
+    fn storage_context(&self) -> &StorageContext {
+        &self.storage_context
     }
 }

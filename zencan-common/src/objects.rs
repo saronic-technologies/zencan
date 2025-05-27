@@ -131,6 +131,16 @@ pub enum AccessType {
     Const,
 }
 
+impl AccessType {
+    pub fn is_readable(&self) -> bool {
+        matches!(self, AccessType::Ro | AccessType::Rw | AccessType::Const)
+    }
+
+    pub fn is_writable(&self) -> bool {
+        matches!(self, AccessType::Rw | AccessType::Wo)
+    }
+}
+
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub enum PdoMapping {
     #[default]
@@ -196,9 +206,14 @@ pub trait ObjectRawAccess: Sync + Send {
     /// Read raw bytes from a subobject
     ///
     /// If the specified read goes out of range (i.e. offset + buf.len() > current_size) an error is
-    /// returned
+    /// returned. All implementers are required to allow reading a subset of the object bytes, i.e.
+    /// offset may be non-zero, and/or the buf length may be shorter than the object data
     fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode>;
     /// Write raw bytes to a subobject
+    ///
+    /// Implementers MAY require all bytes of the object to be written, in which case, if offset is
+    /// non-zero or `offset + data.len()` is less than the size of the object, it may return an
+    /// error with [AbortCode::DataTypeMismatchLengthLow]
     fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode>;
 
     /// Get the type of this object
@@ -351,7 +366,12 @@ impl CallbackObject {
 impl ObjectRawAccess for CallbackObject {
     fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
         if let Some(read) = self.read_cb.load() {
-            (read)(&self.context.load(), self.od, sub, offset, buf)
+            let caller_ctx = self.context.load();
+            let ctx = ODCallbackContext {
+                ctx: &caller_ctx,
+                od: self.od,
+            };
+            (read)(&ctx, sub, offset, buf)
         } else {
             Err(AbortCode::ResourceNotAvailable)
         }
@@ -359,7 +379,12 @@ impl ObjectRawAccess for CallbackObject {
 
     fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
         if let Some(write) = self.write_cb.load() {
-            (write)(&self.context.load(), self.od, sub, offset, data)
+            let caller_ctx = self.context.load();
+            let ctx = ODCallbackContext {
+                ctx: &caller_ctx,
+                od: self.od,
+            };
+            (write)(&ctx, sub, offset, data)
         } else {
             Err(AbortCode::ResourceNotAvailable)
         }
@@ -367,7 +392,12 @@ impl ObjectRawAccess for CallbackObject {
 
     fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
         if let Some(info) = self.info_cb.load() {
-            (info)(&self.context.load(), sub)
+            let caller_ctx = self.context.load();
+            let ctx = ODCallbackContext {
+                ctx: &caller_ctx,
+                od: self.od,
+            };
+            (info)(&ctx, sub)
         } else {
             Err(AbortCode::ResourceNotAvailable)
         }
@@ -389,24 +419,25 @@ impl<T: Any + Sync + Send + 'static> Context for T {
     }
 }
 
+/// Data to be passed to object callbacks
+pub struct ODCallbackContext<'a> {
+    /// The context object provided when registering the callback
+    ///
+    /// This can be any object which implement Any + Sync + Send
+    pub ctx: &'a Option<&'a dyn Context>,
+
+    /// The object dictionary
+    pub od: &'static [ODEntry<'static>],
+}
+
 /// Object read/write callback function signature
-type ReadHookFn = fn(
-    ctx: &Option<&dyn Context>,
-    od: &[ODEntry],
-    sub: u8,
-    offset: usize,
-    buf: &mut [u8],
-) -> Result<(), AbortCode>;
+type ReadHookFn =
+    fn(ctx: &ODCallbackContext, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode>;
 
-type WriteHookFn = fn(
-    ctx: &Option<&dyn Context>,
-    od: &[ODEntry],
-    sub: u8,
-    offset: usize,
-    buf: &[u8],
-) -> Result<(), AbortCode>;
+type WriteHookFn =
+    fn(ctx: &ODCallbackContext, sub: u8, offset: usize, buf: &[u8]) -> Result<(), AbortCode>;
 
-type InfoHookFn = fn(ctx: &Option<&dyn Context>, sub: u8) -> Result<SubInfo, AbortCode>;
+type InfoHookFn = fn(ctx: &ODCallbackContext, sub: u8) -> Result<SubInfo, AbortCode>;
 
 pub enum ObjectData<'a> {
     Storage(&'a dyn ObjectRawAccess),
@@ -483,6 +514,79 @@ pub struct SubInfo {
     pub pdo_mapping: PdoMapping,
     /// Indicates whether this sub should be persisted when data is saved
     pub persist: bool,
+}
+
+impl SubInfo {
+    /// A shorthand value for sub0 on record and array objects
+    pub const MAX_SUB_NUMBER: SubInfo = SubInfo {
+        size: 1,
+        data_type: DataType::UInt8,
+        access_type: AccessType::Const,
+        pdo_mapping: PdoMapping::None,
+        persist: false,
+    };
+
+    /// Convenience function for creating a new sub-info by type
+    pub const fn new_u32() -> Self {
+        Self {
+            size: 4,
+            data_type: DataType::UInt32,
+            access_type: AccessType::Ro,
+            pdo_mapping: PdoMapping::None,
+            persist: false,
+        }
+    }
+
+    /// Convenience function for creating a new sub-info by type
+    pub const fn new_u16() -> Self {
+        Self {
+            size: 2,
+            data_type: DataType::UInt16,
+            access_type: AccessType::Ro,
+            pdo_mapping: PdoMapping::None,
+            persist: false,
+        }
+    }
+
+    /// Convenience function for creating a new sub-info by type
+    pub const fn new_u8() -> Self {
+        Self {
+            size: 1,
+            data_type: DataType::UInt8,
+            access_type: AccessType::Ro,
+            pdo_mapping: PdoMapping::None,
+            persist: false,
+        }
+    }
+
+    /// Convenience function to set the access_type to read-only
+    pub const fn ro_access(mut self) -> Self {
+        self.access_type = AccessType::Ro;
+        self
+    }
+
+    /// Convenience function to set the access_type to read-write
+    pub const fn rw_access(mut self) -> Self {
+        self.access_type = AccessType::Rw;
+        self
+    }
+
+    /// Convenience function to set the access_type to const
+    pub const fn const_access(mut self) -> Self {
+        self.access_type = AccessType::Const;
+        self
+    }
+
+    /// Convenience function to set the access_type to write-only
+    pub const fn wo_access(mut self) -> Self {
+        self.access_type = AccessType::Wo;
+        self
+    }
+
+    pub const fn persist(mut self, value: bool) -> Self {
+        self.persist = value;
+        self
+    }
 }
 
 pub fn find_object<'a, 'b>(table: &'b [ODEntry<'a>], index: u16) -> Option<&'b ObjectData<'a>> {

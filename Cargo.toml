@@ -25,7 +25,9 @@ zencan-node = { path = "zencan-node" }
 # External
 critical-section = { version = "1.2.0", default-features = false }
 crossbeam = { version = "0.8.4", default-features = false }
+embedded-io = { version = "0.6.1" }
 futures = { version = "0.3.31", default-features = false, features = ["async-await"] }
+heapless = "0.8.0"
 log = "0.4.27"
 snafu = { version = "0.8.5", default-features = false }
 socketcan = { version = "3.5.0", features = ["tokio"], git = "https://github.com/mcbridejc/socketcan-rs" }

@@ -26,7 +26,7 @@ fn setup<'a, S: NodeStateAccess>(
     mbox: &'static NodeMbox,
     state: &'static S,
 ) -> (
-    Node<'static>,
+    Node,
     SdoClient<SimBusSender<'a>, SimBusReceiver>,
     SimBus<'a>,
 ) {
