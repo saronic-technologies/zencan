@@ -9,3 +9,5 @@
       on a lot of systems.
 - Non-async API for zencan-client
 - Implement periodic heartbeat
+- EMCY service
+  - Send EMCY message on receiving PDO of invalid length
