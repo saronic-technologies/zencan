@@ -18,7 +18,6 @@ members = [
 zencan-build = { path = "zencan-build" }
 zencan-client = { path = "zencan-client" }
 zencan-common = { path = "zencan-common", default-features = false }
-zencan-eds = { path = "zencan-eds" }
 zencan-macro = { path = "zencan-macro" }
 zencan-node = { path = "zencan-node" }
 

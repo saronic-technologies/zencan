@@ -1,5 +1,4 @@
-use std::rc::Rc;
-use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 use zencan_common::messages::CanMessage;
 use zencan_common::traits::{AsyncCanReceiver, AsyncCanSender};
@@ -8,22 +7,22 @@ use zencan_node::{Node, NodeMbox};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 pub struct SimBus<'a> {
-    node_states: Rc<RefCell<Vec<&'a NodeMbox>>>,
+    node_states: Arc<Mutex<Vec<&'a NodeMbox>>>,
     /// List of all the open channels for sending recieved messages to
-    receiver_channels: Rc<RefCell<Vec<UnboundedSender<CanMessage>>>>,
+    receiver_channels: Arc<Mutex<Vec<UnboundedSender<CanMessage>>>>,
 }
 
 impl<'a> SimBus<'a> {
     pub fn new(node_states: Vec<&'a NodeMbox>) -> Self {
         Self {
-            node_states: Rc::new(RefCell::new(node_states)),
-            receiver_channels: Rc::new(RefCell::new(Vec::new())),
+            node_states: Arc::new(Mutex::new(node_states)),
+            receiver_channels: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
     pub fn new_receiver(&mut self) -> SimBusReceiver {
         let (tx, rx) = unbounded_channel();
-        self.receiver_channels.borrow_mut().push(tx);
+        self.receiver_channels.lock().unwrap().push(tx);
         SimBusReceiver { channel_rx: rx }
     }
 
@@ -41,7 +40,7 @@ impl<'a> SimBus<'a> {
         }
         for (sender_idx, msg) in &to_deliver {
             // Send the message to all nodes except the one that sent it
-            for (i, n) in self.node_states.borrow().iter().enumerate() {
+            for (i, n) in self.node_states.lock().unwrap().iter().enumerate() {
                 if i != *sender_idx {
                     n.store_message(*msg).ok();
                 }
@@ -51,20 +50,20 @@ impl<'a> SimBus<'a> {
 }
 
 pub struct SimBusSender<'a> {
-    node_states: Rc<RefCell<Vec<&'a NodeMbox>>>,
-    external_channels: Rc<RefCell<Vec<UnboundedSender<CanMessage>>>>,
+    node_states: Arc<Mutex<Vec<&'a NodeMbox>>>,
+    external_channels: Arc<Mutex<Vec<UnboundedSender<CanMessage>>>>,
 }
 
 impl AsyncCanSender for SimBusSender<'_> {
     async fn send(&mut self, msg: CanMessage) -> Result<(), CanMessage> {
         // Send to nodes on the bus
-        for ns in self.node_states.borrow().iter() {
+        for ns in self.node_states.lock().unwrap().iter() {
             // It doesn't matter if store message fails; that just means the node did not
             // recognize/accept the message
             ns.store_message(msg).ok();
         }
         // Send to external listeners on the bus (those created by `new_receiver()``)
-        for rx in self.external_channels.borrow_mut().iter() {
+        for rx in self.external_channels.lock().unwrap().iter() {
             rx.send(msg).unwrap();
         }
 

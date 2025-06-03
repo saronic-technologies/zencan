@@ -81,3 +81,10 @@ object_type = "var"
 data_type = "int16"
 access_type = "ro"
 
+[[objects]]
+index = 0x3005
+parameter_name = "An empty string"
+object_type = "var"
+data_type = "VisibleString(10)"
+access_type = "rw"
+

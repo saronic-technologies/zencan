@@ -255,7 +255,7 @@ async fn test_array_access() {
 #[tokio::test]
 #[serial_test::serial]
 async fn test_store_and_restore_objects() {
-    env_logger::init();
+    let _ = env_logger::try_init();
 
     const SAVE_CMD: u32 = 0x73617665;
 
@@ -327,5 +327,25 @@ async fn test_store_and_restore_objects() {
         assert_eq!(client.upload_u32(0x2000, 1).await.unwrap(), 900);
     };
 
+    test_with_background_process(&mut [&mut node], &mut sender, test_task).await;
+}
+
+#[serial_test::serial]
+#[tokio::test]
+async fn test_empty_string_read() {
+    let _ = env_logger::try_init();
+
+    let od = &object_dict1::OD_TABLE;
+    let (mut node, mut client, mut bus) =
+        setup(od, &object_dict1::NODE_MBOX, &object_dict1::NODE_STATE);
+
+    let mut sender = bus.new_sender();
+
+    let _logger = BusLogger::new(bus.new_receiver());
+
+    let test_task = async move {
+        let empty_string = client.upload_utf8(0x3005, 0).await.unwrap();
+        assert_eq!("", empty_string);
+    };
     test_with_background_process(&mut [&mut node], &mut sender, test_task).await;
 }

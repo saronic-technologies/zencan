@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use snafu::Snafu;
 use zencan_common::{
+    lss::LssIdentity,
     messages::CanId,
+    object_ids::{DEVICE_NAME, HARDWARE_VERSION, IDENTITY, SOFTWARE_VERSION},
     sdo::{AbortCode, SdoRequest, SdoResponse},
     traits::{AsyncCanReceiver, AsyncCanSender},
 };
@@ -418,6 +420,40 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     /// This is a convenience function to allow for a more intuitive API
     pub async fn read_i32(&mut self, index: u16, sub: u8) -> Result<i32> {
         self.upload_i32(index, sub).await
+    }
+
+    /// Read an object as a visible string
+    ///
+    /// It will be read and assumed to contain valid UTF8 characters
+    pub async fn read_visible_string(&mut self, index: u16, sub: u8) -> Result<String> {
+        let bytes = self.upload(index, sub).await?;
+        Ok(String::from_utf8_lossy(&bytes).into())
+    }
+
+    pub async fn read_identity(&mut self) -> Result<LssIdentity> {
+        let vendor_id = self.upload_u32(IDENTITY, 1).await?;
+        let product_code = self.upload_u32(IDENTITY, 2).await?;
+        let revision_number = self.upload_u32(IDENTITY, 3).await?;
+        let serial = self.upload_u32(IDENTITY, 4).await?;
+        Ok(LssIdentity::new(
+            vendor_id,
+            product_code,
+            revision_number,
+            serial,
+        ))
+    }
+
+    pub async fn read_device_name(&mut self) -> Result<String> {
+        let bytes = self.upload(DEVICE_NAME, 0).await?;
+        Ok(String::from_utf8_lossy(&bytes).into())
+    }
+
+    pub async fn read_software_version(&mut self) -> Result<String> {
+        self.read_visible_string(SOFTWARE_VERSION, 0).await
+    }
+
+    pub async fn read_hardware_version(&mut self) -> Result<String> {
+        self.read_visible_string(HARDWARE_VERSION, 0).await
     }
 
     async fn wait_for_response(&mut self, timeout: Duration) -> Result<SdoResponse> {

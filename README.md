@@ -11,3 +11,4 @@
 - Implement periodic heartbeat
 - EMCY service
   - Send EMCY message on receiving PDO of invalid length
+- zencandump needs to display COB-ID, e.g. for SdoRequest messages to distinguish nodes or servers

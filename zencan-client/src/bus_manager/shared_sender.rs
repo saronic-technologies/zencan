@@ -1,0 +1,36 @@
+use std::sync::{Arc, Mutex};
+
+use zencan_common::{traits::AsyncCanSender, CanMessage};
+
+#[derive(Debug)]
+pub struct SharedSender<S: AsyncCanSender> {
+    inner: Arc<Mutex<S>>,
+}
+
+impl<S: AsyncCanSender> Clone for SharedSender<S> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<S: AsyncCanSender> SharedSender<S> {
+    pub fn new(sender: Arc<Mutex<S>>) -> Self {
+        Self { inner: sender }
+    }
+
+    async fn send(&mut self, msg: CanMessage) -> Result<(), CanMessage> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.send(msg).await
+    }
+}
+
+impl<S: AsyncCanSender> AsyncCanSender for SharedSender<S> {
+    fn send(
+        &mut self,
+        msg: CanMessage,
+    ) -> impl core::future::Future<Output = Result<(), CanMessage>> {
+        self.send(msg)
+    }
+}

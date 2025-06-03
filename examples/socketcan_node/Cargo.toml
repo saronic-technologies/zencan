@@ -10,6 +10,7 @@ zencan-node = { workspace = true, features = ["log", "socketcan"] }
 # External
 clap = { version = "4.5.37", features = ["derive"] }
 critical-section = { workspace = true, features = ["std"] }
+embedded-io.workspace = true
 env_logger = "0.11.8"
 log.workspace = true
 tokio = { version = "1.44.2", features = ["macros", "rt-multi-thread", "time", "sync"] }

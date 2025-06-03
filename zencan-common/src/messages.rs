@@ -215,6 +215,17 @@ pub enum NmtState {
     PreOperational = 127,
 }
 
+impl core::fmt::Display for NmtState {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            NmtState::Bootup => write!(f, "Bootup"),
+            NmtState::Stopped => write!(f, "Stopped"),
+            NmtState::Operational => write!(f, "Operational"),
+            NmtState::PreOperational => write!(f, "PreOperational"),
+        }
+    }
+}
+
 pub struct InvalidNmtStateError(u8);
 
 impl TryFrom<u8> for NmtState {

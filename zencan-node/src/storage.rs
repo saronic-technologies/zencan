@@ -13,7 +13,6 @@ use zencan_common::{
 pub type StoreObjectsCallback =
     dyn Fn(&mut dyn embedded_io::Read<Error = Infallible>, usize) + Sync;
 
-
 #[derive(Default)]
 pub struct StorageContext {
     pub(crate) store_callback: AtomicCell<Option<&'static StoreObjectsCallback>>,
@@ -26,7 +25,6 @@ impl StorageContext {
         }
     }
 }
-
 
 /// Magic value used to trigger object storage
 const SAVE_CMD: u32 = 0x73617665;
