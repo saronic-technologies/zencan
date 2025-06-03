@@ -453,12 +453,23 @@ impl SdoResponse {
         let mut msg_data = [0; 4];
         msg_data[0..data.len()].copy_from_slice(data);
 
+        let s;
+        let n;
+        // For 0 length uploads, set the size bit to 0, to indicate that this is an empty response.
+        // It's not clear if this is CiA301 compatible, but it is how zencan does it!
+        if data.len() == 0 {
+            s = false;
+            n = 0;
+        } else {
+            s = true;
+            n = 4 - data.len() as u8;
+        }
         SdoResponse::ConfirmUpload {
             index,
             sub,
             e: true,
-            s: true,
-            n: 4 - data.len() as u8,
+            s,
+            n,
             data: msg_data,
         }
     }
