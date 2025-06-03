@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use futures::future::join_all;
+use tokio::task::JoinHandle;
 use zencan_common::lss::LssIdentity;
 use zencan_common::messages::{NmtState, ZencanMessage};
 use zencan_common::{
@@ -14,13 +15,6 @@ use super::shared_sender::SharedSender;
 use crate::sdo_client::{SdoClient, SdoClientError};
 
 use super::shared_receiver::{SharedReceiver, SharedReceiverChannel};
-
-/// Manage a zencan bus
-pub struct BusManager<S: AsyncCanSender + Sync + Send> {
-    state_rx: SharedReceiverChannel,
-    nodes: HashMap<u8, NodeInfo>,
-    sdo_clients: SdoClientMutex<S>,
-}
 
 #[derive(Debug, Clone)]
 pub struct NodeInfo {
@@ -225,22 +219,59 @@ where
     }
 }
 
+/// Manage a zencan bus
+pub struct BusManager<S: AsyncCanSender + Sync + Send> {
+    nodes: Arc<tokio::sync::Mutex<HashMap<u8, NodeInfo>>>,
+    sdo_clients: SdoClientMutex<S>,
+    _monitor_task: JoinHandle<()>,
+}
+
 impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
     pub fn new(sender: S, receiver: impl AsyncCanReceiver + Sync + 'static) -> Self {
         let mut receiver = SharedReceiver::new(receiver);
-        let state_rx = receiver.create_rx();
         let sender = SharedSender::new(Arc::new(tokio::sync::Mutex::new(sender)));
         let sdo_clients = SdoClientMutex::new(sender.clone(), receiver.create_rx());
+
+        let mut state_rx = receiver.create_rx();
+        let nodes = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+
+        let monitor_task = {
+            let nodes = nodes.clone();
+            tokio::spawn(async move {
+                loop {
+                    if let Ok(msg) = state_rx.recv().await {
+                        if let Ok(ZencanMessage::Heartbeat(heartbeat)) = ZencanMessage::try_from(msg) {
+                            let id_num = heartbeat.node;
+                            if let Ok(node_id) = NodeId::try_from(id_num) {
+                                let mut nodes = nodes.lock().await;
+                                if let std::collections::hash_map::Entry::Vacant(e) = nodes.entry(id_num) {
+                                    e.insert(NodeInfo::new(node_id.raw()));
+                                } else {
+                                    let node = nodes.get_mut(&id_num).unwrap();
+                                    node.nmt_state = Some(heartbeat.state);
+                                    node.last_seen = Instant::now();
+                                }
+                            } else {
+                                log::warn!("Invalid heartbeat node ID {id_num} received");
+                            }
+                        }
+                    }
+                }
+            })
+        };
+
+
         Self {
-            state_rx,
             sdo_clients,
-            nodes: HashMap::new(),
+            nodes,
+            _monitor_task: monitor_task,
         }
     }
 
-    pub fn node_list(&self) -> Vec<NodeInfo> {
-        let mut nodes = Vec::with_capacity(self.nodes.len());
-        for n in self.nodes.values() {
+    pub async fn node_list(&self) -> Vec<NodeInfo> {
+        let node_map = self.nodes.lock().await;
+        let mut nodes = Vec::with_capacity(node_map.len());
+        for n in node_map.values() {
             nodes.push(n.clone());
         }
 
@@ -249,7 +280,7 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
     }
 
     pub async fn scan_nodes(&mut self) -> Vec<NodeInfo> {
-        const N_PARALLEL: usize = 4;
+        const N_PARALLEL: usize = 10;
 
         let ids = Vec::from_iter(1..128u8);
         let mut nodes = Vec::new();
@@ -276,28 +307,12 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
             nodes.extend(r.into_iter().flatten());
         }
 
+        let mut node_map = self.nodes.lock().await;
         // Update our nodes
         for n in &nodes {
-            self.nodes.insert(n.node_id, n.clone());
+            node_map.insert(n.node_id, n.clone());
         }
         nodes
     }
 
-    pub fn process(&mut self) {
-        while let Some(msg) = self.state_rx.try_recv() {
-            if let Ok(ZencanMessage::Heartbeat(heartbeat)) = ZencanMessage::try_from(msg) {
-                let id_num = heartbeat.node;
-                if let Ok(node_id) = NodeId::try_from(id_num) {
-                    if let std::collections::hash_map::Entry::Vacant(e) = self.nodes.entry(id_num) {
-                        e.insert(NodeInfo::new(node_id.raw()));
-                    } else {
-                        self.nodes.get_mut(&id_num).unwrap().last_seen = Instant::now();
-                    }
-                } else {
-                    log::warn!("Invalid heartbeat node ID {id_num} received");
-                }
-            }
-            let _ = msg;
-        }
-    }
 }

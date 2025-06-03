@@ -31,7 +31,7 @@ async fn test_nmt_init() {
         futures::executor::block_on(sender.send(tx_msg)).unwrap();
     };
 
-    node.process(&mut sender_fn);
+    node.process(0, &mut sender_fn);
 
     assert_eq!(NmtState::PreOperational, node.nmt_state());
 
@@ -45,14 +45,14 @@ async fn test_nmt_init() {
     master.nmt_start(0).await.unwrap();
 
     // Run a node process call
-    bus.process([&mut node].as_mut_slice());
+    bus.process([&mut node].as_mut_slice(), 0);
 
     assert_eq!(NmtState::Operational, node.nmt_state());
     assert_eq!(1, node.rx_message_count());
 
     master.nmt_stop(0).await.unwrap();
     // Run a node process call
-    bus.process([&mut node].as_mut_slice());
+    bus.process([&mut node].as_mut_slice(), 0);
 
     assert_eq!(NmtState::Stopped, node.nmt_state());
     assert_eq!(2, node.rx_message_count());

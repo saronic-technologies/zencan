@@ -96,7 +96,7 @@ async fn main() {
                 }
             }
             zencan_cli::command::Commands::Info => {
-                let nodes = manager.node_list();
+                let nodes = manager.node_list().await;
                 for n in &nodes {
                     println!("{n}");
                 }

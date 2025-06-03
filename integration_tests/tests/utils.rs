@@ -1,4 +1,4 @@
-use std::future::Future;
+use std::{future::Future, time::Instant};
 
 use futures::executor::block_on;
 use integration_tests::sim_bus::{SimBusReceiver, SimBusSender};
@@ -16,14 +16,16 @@ pub async fn test_with_background_process<'b>(
 ) {
     // Call process once, to make sure the node is initialized before SDO requests come in
     for node in nodes.iter_mut() {
-        node.process(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
+        node.process(0, &mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
     }
 
+    let epoch = Instant::now();
     let node_process_task = async move {
         loop {
+            let now_us = Instant::now().duration_since(epoch).as_micros() as u64;
             tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
             for node in nodes.iter_mut() {
-                node.process(&mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
+                node.process(now_us, &mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
             }
         }
     };

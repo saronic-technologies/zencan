@@ -33,10 +33,11 @@ impl<'a> SimBus<'a> {
         }
     }
 
-    pub fn process(&mut self, nodes: &mut [&mut Node]) {
+    pub fn process(&mut self, nodes: &mut [&mut Node], now_us: u64) {
         let mut to_deliver = Vec::new();
+
         for (i, n) in nodes.iter_mut().enumerate() {
-            n.process(&mut |msg_to_send| to_deliver.push((i, msg_to_send)));
+            n.process(now_us, &mut |msg_to_send| to_deliver.push((i, msg_to_send)));
         }
         for (sender_idx, msg) in &to_deliver {
             // Send the message to all nodes except the one that sent it

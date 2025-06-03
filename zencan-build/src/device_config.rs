@@ -79,6 +79,18 @@ pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
             }),
         },
         ObjectDefinition {
+            index: 0x1017,
+            parameter_name: "Heartbeat Producer Time (ms)".to_string(),
+            application_callback: false,
+            object: Object::Var(VarDefinition {
+                data_type: DataType::UInt16,
+                access_type: AccessType::Const.into(),
+                default_value: Some(DefaultValue::Integer(config.heartbeat_period as i64)),
+                pdo_mapping: PdoMapping::None,
+                persist: false,
+            }),
+        },
+        ObjectDefinition {
             index: 0x1018,
             parameter_name: "Identity".to_string(),
             application_callback: false,
@@ -229,11 +241,19 @@ impl Default for PdoConfig {
     }
 }
 
+/// The device identity is a unique 128-bit number used for addressing the device on the bus
+///
+/// The configures the three hardcoded components of the identity. The serial number component of
+/// the identity must be set by the application to be unique, e.g. based on a value programmed into
+/// non-volatile memory or from a UID register on the MCU.
 #[derive(Deserialize, Debug, Default, Clone, Copy)]
 #[serde(deny_unknown_fields)]
 pub struct IdentityConfig {
+    /// The 32-bit vendor ID for this device
     pub vendor_id: u32,
+    /// The 32-bit product code for this device
     pub product_code: u32,
+    /// The 32-bit revision number for this device
     pub revision_number: u32,
 }
 
@@ -258,20 +278,28 @@ impl PdoMapping {
 #[serde(deny_unknown_fields)]
 /// Device configuration structure
 pub struct DeviceConfig {
+    /// The name describing the type of device (e.g. a model)
     pub device_name: String,
+
+    /// A version describing the hardware
     #[serde(default)]
     pub hardware_version: String,
+    /// A version describing the software
     #[serde(default)]
     pub software_version: String,
 
+    /// The period at which to transmit heartbeat messages in milliseconds
     #[serde(default)]
     pub heartbeat_period: u16,
 
+    /// Configures the identity object on the device
     pub identity: IdentityConfig,
 
+    /// Configure PDO settings
     #[serde(default)]
     pub pdos: PdoConfig,
 
+    /// A list of application specific objects to define on the device
     #[serde(default)]
     pub objects: Vec<ObjectDefinition>,
 }

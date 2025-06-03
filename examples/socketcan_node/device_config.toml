@@ -1,4 +1,7 @@
 device_name = "SocketCan Example"
+software_version = "v1.2.0"
+hardware_version = "A"
+heartbeat_period = 1000
 
 [identity]
 vendor_id = 123

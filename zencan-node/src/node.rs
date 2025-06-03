@@ -1,8 +1,10 @@
 //! Implements the core Node object
+//!
 
 use zencan_common::{
     lss::LssIdentity,
     messages::{CanId, CanMessage, Heartbeat, NmtCommandCmd, NmtState, ZencanMessage, LSS_RESP_ID},
+    object_ids,
     objects::{find_object, ODEntry, ObjectData, ObjectRawAccess},
     NodeId,
 };
@@ -31,10 +33,12 @@ pub struct Node {
     state: &'static dyn NodeStateAccess,
     reassigned_node_id: Option<NodeId>,
     callbacks: Callbacks,
+    next_heartbeat_time_us: u64,
+    heartbeat_period_ms: u16,
 }
 
 fn read_identity(od: &[ODEntry]) -> Option<LssIdentity> {
-    let obj = find_object(od, 0x1018)?;
+    let obj = find_object(od, object_ids::IDENTITY)?;
     let vendor_id = obj.read_u32(1).ok()?;
     let product_code = obj.read_u32(2).ok()?;
     let revision = obj.read_u32(3).ok()?;
@@ -45,6 +49,11 @@ fn read_identity(od: &[ODEntry]) -> Option<LssIdentity> {
         revision,
         serial,
     })
+}
+
+fn read_heartbeat_period(od: &[ODEntry]) -> Option<u16> {
+    let obj = find_object(od, object_ids::HEARTBEAT_PRODUCER_TIME)?;
+    obj.read_u16(0).ok()
 }
 
 impl Node {
@@ -73,6 +82,8 @@ impl Node {
         Self::register_pdo_callbacks(od, mbox, state);
         Self::register_storage_callbacks(od, state);
 
+        let heartbeat_period_ms = read_heartbeat_period(od).expect("Heartbeat object must exist");
+        let next_heartbeat_time_us = 0;
         Self {
             node_id,
             nmt_state,
@@ -83,6 +94,8 @@ impl Node {
             mbox,
             state,
             reassigned_node_id,
+            next_heartbeat_time_us,
+            heartbeat_period_ms,
             callbacks: Callbacks::default(),
         }
     }
@@ -112,7 +125,12 @@ impl Node {
     /// It is sufficient to call this based on a timer, but the [NodeMbox] object also provides a
     /// notification callback, which can be used by an application to accelerate the call to process
     /// when an action is required
-    pub fn process(&mut self, send_cb: &mut dyn FnMut(CanMessage)) {
+    ///
+    /// # Arguments
+    /// - `now_us`: A monotonic time in microseconds. This is used for measuring time and triggering
+    ///   time-based actions such as heartbeat transmission
+    /// - `send_cb`: A callback function for transmitting can messages
+    pub fn process(&mut self, now_us: u64, send_cb: &mut dyn FnMut(CanMessage)) {
         if let Some(new_node_id) = self.reassigned_node_id.take() {
             self.node_id = new_node_id;
             self.nmt_state = NmtState::Bootup;
@@ -180,6 +198,10 @@ impl Node {
             if let Some(new_data) = rpdo.buffered_value.take() {
                 crate::pdo::store_pdo_data(&new_data, rpdo, self.od);
             }
+        }
+
+        if self.heartbeat_period_ms != 0 && now_us >= self.next_heartbeat_time_us {
+            self.send_heartbeat(send_cb);
         }
 
         if let Some(event) = self.lss_slave.pending_event() {
@@ -289,14 +311,19 @@ impl Node {
             // Reset the LSS slave with the new ID
             self.lss_slave = LssSlave::new(read_identity(self.od).unwrap(), self.node_id);
 
-            sender(
-                Heartbeat {
-                    node: node_id.raw(),
-                    toggle: false,
-                    state: self.nmt_state,
-                }
-                .into(),
-            );
+            self.send_heartbeat(sender);
+        }
+    }
+
+    fn send_heartbeat(&mut self, sender: &mut dyn FnMut(CanMessage)) {
+        if let NodeId::Configured(node_id) = self.node_id {
+            let heartbeat = Heartbeat {
+                node: node_id.raw(),
+                toggle: false,
+                state: self.nmt_state,
+            };
+            sender(heartbeat.into());
+            self.next_heartbeat_time_us += (self.heartbeat_period_ms as u64) * 1000;
         }
     }
 

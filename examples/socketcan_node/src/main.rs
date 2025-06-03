@@ -1,4 +1,9 @@
-use std::{convert::Infallible, io::Write as _, sync::OnceLock, time::Duration};
+use std::{
+    convert::Infallible,
+    io::Write as _,
+    sync::OnceLock,
+    time::{Duration, Instant},
+};
 
 use clap::Parser;
 use tokio::time::timeout;
@@ -93,11 +98,13 @@ async fn main() {
         }
     });
 
+    let epoch = Instant::now();
     loop {
         let mut tx_messages = Vec::new();
 
+        let now_us = Instant::now().duration_since(epoch).as_micros() as u64;
         // Run node processing, collecting messages to send
-        node.process(&mut |msg: CanMessage| {
+        node.process(now_us, &mut |msg: CanMessage| {
             tx_messages.push(msg);
         });
 
