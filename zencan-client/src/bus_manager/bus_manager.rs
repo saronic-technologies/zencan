@@ -229,7 +229,7 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
     pub fn new(sender: S, receiver: impl AsyncCanReceiver + Sync + Send + 'static) -> Self {
         let mut receiver = SharedReceiver::new(receiver);
         let state_rx = receiver.create_rx();
-        let sender = SharedSender::new(Arc::new(Mutex::new(sender)));
+        let sender = SharedSender::new(Arc::new(tokio::sync::Mutex::new(sender)));
         let sdo_clients = SdoClientMutex::new(sender.clone(), receiver.create_rx());
         Self {
             state_rx,

@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use zencan_common::{traits::AsyncCanSender, CanMessage};
 
@@ -21,7 +22,7 @@ impl<S: AsyncCanSender> SharedSender<S> {
     }
 
     async fn send(&mut self, msg: CanMessage) -> Result<(), CanMessage> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().await;
         inner.send(msg).await
     }
 }
