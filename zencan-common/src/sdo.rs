@@ -457,7 +457,7 @@ impl SdoResponse {
         let n;
         // For 0 length uploads, set the size bit to 0, to indicate that this is an empty response.
         // It's not clear if this is CiA301 compatible, but it is how zencan does it!
-        if data.len() == 0 {
+        if data.is_empty() {
             s = false;
             n = 0;
         } else {

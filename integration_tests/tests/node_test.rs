@@ -301,7 +301,7 @@ async fn test_store_and_restore_objects() {
 
         tokio::time::sleep(Duration::from_millis(5)).await;
 
-        assert!(serialized_data.read().unwrap().len() > 0);
+        assert!(!serialized_data.read().unwrap().is_empty());
 
         // Change the values
         client

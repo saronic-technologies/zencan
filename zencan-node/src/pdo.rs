@@ -305,7 +305,7 @@ pub(crate) fn read_pdo_data(data: &mut [u8], pdo: &Pdo, od: &[ODEntry]) {
 
 #[cfg(test)]
 mod tests {
-    use zencan_common::objects::CallbackObject;
+    
 
     #[test]
     fn test_pdo_object_raw_access() {}

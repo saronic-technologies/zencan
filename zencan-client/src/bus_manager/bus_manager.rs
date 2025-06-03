@@ -35,35 +35,35 @@ pub struct NodeInfo {
 
 impl core::fmt::Display for NodeInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
+        writeln!(
             f,
-            "Node {}: {}\n",
+            "Node {}: {}",
             self.node_id,
             self.nmt_state
                 .map(|s| s.to_string())
                 .unwrap_or("Unknown State".into())
         )?;
         match self.identity {
-            Some(id) => write!(
+            Some(id) => writeln!(
                 f,
-                "    Identity vendor: {:X}, product: {:X}, revision: {:X}, serial: {:X}\n",
+                "    Identity vendor: {:X}, product: {:X}, revision: {:X}, serial: {:X}",
                 id.vendor_id, id.product_code, id.revision, id.serial
             )?,
-            None => write!(f, "    Identity: Unknown\n")?,
+            None => writeln!(f, "    Identity: Unknown")?,
         }
-        write!(
+        writeln!(
             f,
-            "    Device Name: '{}'\n",
+            "    Device Name: '{}'",
             self.device_name.as_deref().unwrap_or("Unknown")
         )?;
-        write!(
+        writeln!(
             f,
-            "    Versions: '{}' SW, '{}' HW\n",
+            "    Versions: '{}' SW, '{}' HW",
             self.software_version.as_deref().unwrap_or("Unknown"),
             self.hardware_version.as_deref().unwrap_or("Unknown")
         )?;
         let age = Instant::now().duration_since(self.last_seen);
-        write!(f, "    Last Seen: {}s ago\n", age.as_secs())?;
+        writeln!(f, "    Last Seen: {}s ago", age.as_secs())?;
 
         Ok(())
     }
@@ -88,7 +88,7 @@ impl NodeInfo {
             self.device_name = info.device_name.clone();
         }
         if info.identity.is_some() {
-            self.identity = info.identity.clone();
+            self.identity = info.identity;
         }
         if info.software_version.is_some() {
             self.software_version = info.software_version.clone();
@@ -97,7 +97,7 @@ impl NodeInfo {
             self.hardware_version = info.hardware_version.clone();
         }
         if info.nmt_state.is_some() {
-            self.nmt_state = info.nmt_state.clone();
+            self.nmt_state = info.nmt_state;
         }
         self.last_seen = Instant::now();
     }
@@ -164,7 +164,7 @@ where
     client: SdoClient<S, R>,
 }
 
-impl<'a, S, R> Deref for SdoClientGuarded<'a, S, R>
+impl<S, R> Deref for SdoClientGuarded<'_, S, R>
 where
     S: AsyncCanSender,
     R: AsyncCanReceiver,
@@ -176,7 +176,7 @@ where
     }
 }
 
-impl<'a, S, R> DerefMut for SdoClientGuarded<'a, S, R>
+impl<S, R> DerefMut for SdoClientGuarded<'_, S, R>
 where
     S: AsyncCanSender,
     R: AsyncCanReceiver,
@@ -212,8 +212,8 @@ where
         }
     }
 
-    pub fn lock<'a>(&self, id: u8) -> SdoClientGuarded<SharedSender<S>, SharedReceiverChannel> {
-        if id < 1 || id > 127 {
+    pub fn lock(&self, id: u8) -> SdoClientGuarded<SharedSender<S>, SharedReceiverChannel> {
+        if !(1..=127).contains(&id) {
             panic!("ID {} out of range", id);
         }
         let guard = self.clients.get(&id).unwrap().lock().unwrap();
@@ -226,7 +226,7 @@ where
 }
 
 impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
-    pub fn new(sender: S, receiver: impl AsyncCanReceiver + Sync + Send + 'static) -> Self {
+    pub fn new(sender: S, receiver: impl AsyncCanReceiver + Sync + 'static) -> Self {
         let mut receiver = SharedReceiver::new(receiver);
         let state_rx = receiver.create_rx();
         let sender = SharedSender::new(Arc::new(tokio::sync::Mutex::new(sender)));
@@ -240,7 +240,7 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
 
     pub fn node_list(&self) -> Vec<NodeInfo> {
         let mut nodes = Vec::with_capacity(self.nodes.len());
-        for (_id, n) in &self.nodes {
+        for n in self.nodes.values() {
             nodes.push(n.clone());
         }
 
@@ -273,7 +273,7 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
 
         let results = join_all(futures).await;
         for r in results {
-            nodes.extend(r.into_iter().filter(|n| n.is_some()).map(|n| n.unwrap()));
+            nodes.extend(r.into_iter().flatten());
         }
 
         // Update our nodes
@@ -285,21 +285,16 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
 
     pub fn process(&mut self) {
         while let Some(msg) = self.state_rx.try_recv() {
-            if let Ok(zencan_msg) = ZencanMessage::try_from(msg) {
-                match zencan_msg {
-                    ZencanMessage::Heartbeat(heartbeat) => {
-                        let id_num = heartbeat.node;
-                        if let Ok(node_id) = NodeId::try_from(id_num) {
-                            if !self.nodes.contains_key(&id_num) {
-                                self.nodes.insert(id_num, NodeInfo::new(node_id.raw()));
-                            } else {
-                                self.nodes.get_mut(&id_num).unwrap().last_seen = Instant::now();
-                            }
-                        } else {
-                            log::warn!("Invalid heartbeat node ID {id_num} received");
-                        }
+            if let Ok(ZencanMessage::Heartbeat(heartbeat)) = ZencanMessage::try_from(msg) {
+                let id_num = heartbeat.node;
+                if let Ok(node_id) = NodeId::try_from(id_num) {
+                    if let std::collections::hash_map::Entry::Vacant(e) = self.nodes.entry(id_num) {
+                        e.insert(NodeInfo::new(node_id.raw()));
+                    } else {
+                        self.nodes.get_mut(&id_num).unwrap().last_seen = Instant::now();
                     }
-                    _ => (),
+                } else {
+                    log::warn!("Invalid heartbeat node ID {id_num} received");
                 }
             }
             let _ = msg;

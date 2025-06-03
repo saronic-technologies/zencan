@@ -53,16 +53,13 @@ impl SharedReceiver {
         let inner_clone = inner.clone();
         let task_handle = tokio::spawn(async move {
             loop {
-                match receiver.recv().await {
-                    Ok(msg) => {
-                        let inner = inner_clone.lock().unwrap();
-                        for s in &inner.senders {
-                            if let Err(_e) = s.try_send(msg) {
-                                log::warn!("Dropped received message due to overflow");
-                            }
+                if let Ok(msg) = receiver.recv().await {
+                    let inner = inner_clone.lock().unwrap();
+                    for s in &inner.senders {
+                        if let Err(_e) = s.try_send(msg) {
+                            log::warn!("Dropped received message due to overflow");
                         }
                     }
-                    Err(_) => (),
                 };
             }
         });
