@@ -33,6 +33,10 @@ I like CAN, and I wanted to make it easy to build devices with lots of communica
 - Generate EDS and DBC files for integration into existing tools
 - Support persistence of configuration to flash via application provided callbacks
 
+## Example Projects
+
+[can-io-firmware](https://github.com/mcbridejc/can-io-firmware) - A simple program to read analog inputs and make then available on a CAN bus
+
 ## Building docs
 
 Uses nightly docs features on docs.rs. To build docs locally using nightly features:
