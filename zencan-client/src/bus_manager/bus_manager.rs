@@ -149,6 +149,7 @@ async fn scan_node<S: AsyncCanSender + Sync + Send>(
     })
 }
 
+#[derive(Debug)]
 pub struct SdoClientGuard<'a, S, R>
 where
     S: AsyncCanSender,
@@ -180,6 +181,7 @@ where
     }
 }
 
+#[derive(Debug)]
 struct SdoClientMutex<S>
 where
     S: AsyncCanSender + Sync,
@@ -220,6 +222,7 @@ where
 }
 
 /// Manage a zencan bus
+#[derive(Debug)]
 pub struct BusManager<S: AsyncCanSender + Sync + Send> {
     sender: SharedSender<S>,
     nodes: Arc<tokio::sync::Mutex<HashMap<u8, NodeInfo>>>,
@@ -359,7 +362,8 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
     ///
     /// node - The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_reset_comms(&mut self, node: u8) {
-        self.send_nmt_cmd(NmtCommandSpecifier::ResetComm, node).await
+        self.send_nmt_cmd(NmtCommandSpecifier::ResetComm, node)
+            .await
     }
 
     /// Send start operation command

@@ -10,7 +10,7 @@ use tokio::{
 };
 use zencan_common::{traits::AsyncCanReceiver, CanMessage};
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct NoMsgError;
 
 #[derive(Debug)]
@@ -19,20 +19,6 @@ struct SharedRecieiverInner {
 }
 
 impl SharedRecieiverInner {
-    // pub fn flush(&mut self) {
-    //     while let Some(msg) = self.receiver.try_recv() {
-    //         self.senders.retain(|s| {
-    //             // return true to retain, or false to drop it Since we are using an unbounded
-    //             // channel, the only error should be disconnection of the receiver, which will
-    //             // happen when a receiver is dropped
-    //             match s.try_send(msg) {
-    //                 Err(TrySendError::Closed(_)) => false,
-    //                 _ => true,
-    //             }
-    //         });
-    //     }
-    // }
-
     pub fn create_rx(&mut self) -> Receiver<CanMessage> {
         let (tx, rx) = channel(100);
         self.senders.push(tx);

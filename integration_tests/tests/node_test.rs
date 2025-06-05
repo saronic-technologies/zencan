@@ -10,7 +10,7 @@ use integration_tests::{
 };
 use zencan_client::{RawAbortCode, SdoClient, SdoClientError};
 use zencan_common::{objects::ODEntry, sdo::AbortCode, NodeId};
-use zencan_node::{node_state::NodeStateAccess, Node, NodeMbox};
+use zencan_node::{Node, NodeMbox, NodeStateAccess};
 
 mod utils;
 use utils::{test_with_background_process, BusLogger};

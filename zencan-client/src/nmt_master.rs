@@ -135,7 +135,8 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
     ///
     /// - `node`: The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_reset_comms(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandSpecifier::ResetComm, node).await
+        self.send_nmt_cmd(NmtCommandSpecifier::ResetComm, node)
+            .await
     }
 
     /// Send start operation command

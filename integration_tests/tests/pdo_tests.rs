@@ -9,14 +9,14 @@ use integration_tests::{
 };
 use serial_test::serial;
 use tokio::time::timeout;
-use zencan_client::{SdoClient, PdoConfig, PdoMapping};
+use zencan_client::{PdoConfig, PdoMapping, SdoClient};
 use zencan_common::{
     messages::{CanId, CanMessage, SyncObject},
     objects::{find_object, ODEntry, ObjectRawAccess},
     traits::{AsyncCanReceiver, AsyncCanSender},
     NodeId,
 };
-use zencan_node::{node_state::NodeStateAccess, Node, NodeMbox};
+use zencan_node::{Node, NodeMbox, NodeStateAccess};
 
 mod utils;
 use utils::{test_with_background_process, BusLogger};

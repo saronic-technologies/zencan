@@ -16,3 +16,8 @@ socketcan = { workspace = true, optional = true }
 default = ["socketcan", "std"]
 std = ["critical-section/std", "snafu/std"]
 socketcan = ["dep:socketcan", "std",]
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+# defines the configuration attribute `docsrs`
+rustdoc-args = ["--cfg", "docsrs"]

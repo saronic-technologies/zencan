@@ -19,3 +19,8 @@ regex = "1.11.1"
 
 [dev-dependencies]
 clap = { version = "4.5", features = ["derive"] }
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+# defines the configuration attribute `docsrs`
+rustdoc-args = ["--cfg", "docsrs"]

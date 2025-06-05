@@ -1,10 +1,11 @@
+//! A REPL-style interactive shell for talking to CAN devices via socketcan
 use std::{
     borrow::Cow,
     ffi::OsString,
     marker::PhantomData,
     path::PathBuf,
     str::FromStr,
-sync::{Arc, Mutex},
+    sync::{Arc, Mutex},
 };
 
 use clap::Parser;
@@ -77,7 +78,7 @@ struct Completer<C: Parser + Send + Sync + 'static> {
 impl<C: Parser + Send + Sync + 'static> Completer<C> {
     pub fn new() -> Self {
         Self {
-            c_phantom: PhantomData::<C>
+            c_phantom: PhantomData::<C>,
         }
     }
 }

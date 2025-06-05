@@ -390,7 +390,6 @@ pub trait ObjectRawAccess: Sync + Send {
     }
 }
 
-
 /// Implements an object which relies on provided callback functions for implementing access
 ///
 /// This is used for objects which have extra logic in their access, such as PDOs. Some callbacks

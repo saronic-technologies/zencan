@@ -1,3 +1,11 @@
+## Building docs
+
+Uses nightly docs features on docs.rs. To build docs locally using nightly features:
+
+```
+RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --no-deps
+```
+
 ## Missing Features
 
 - Support for multiple SDO servers
@@ -16,3 +24,4 @@
   - print returned errors with Display
 - Add better validity checking on PDO configuration
   - Don't allow changing things while operating
+- zencan-build should probably be exported and documented via zencan-node

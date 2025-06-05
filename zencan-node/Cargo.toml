@@ -24,11 +24,14 @@ futures.workspace = true
 heapless.workspace = true
 log = { version = "0.4" }
 
-
-
 [features]
 default = ["log", "std"]
 std = ["critical-section/std", "zencan-common/std"]
 log = ["defmt-or-log/log"]
 defmt = ["defmt-or-log/defmt"]
 socketcan = ["zencan-common/socketcan", "std"]
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+# defines the configuration attribute `docsrs`
+rustdoc-args = ["--cfg", "docsrs"]

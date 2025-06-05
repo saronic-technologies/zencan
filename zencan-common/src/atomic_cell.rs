@@ -8,7 +8,6 @@
 use core::{cell::Cell, ops::Add};
 use critical_section::Mutex;
 
-
 /// A container to allow atomic access to the contained object
 #[derive(Debug)]
 pub struct AtomicCell<T: Copy> {

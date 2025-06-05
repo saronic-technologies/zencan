@@ -4,6 +4,7 @@
 //! `zencan-node` and `zencan-client`.
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs, missing_copy_implementations)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod atomic_cell;
 pub use atomic_cell::AtomicCell;
@@ -19,6 +20,7 @@ pub mod traits;
 mod socketcan;
 
 #[cfg(feature = "socketcan")]
+#[cfg_attr(docsrs, doc(cfg(feature = "socketcan")))]
 pub use socketcan::open_socketcan;
 
 pub use node_id::NodeId;

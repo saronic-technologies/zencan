@@ -102,6 +102,7 @@ impl AsyncCanSender for SocketCanSender {
 ///
 /// A key benefit of this is that by creating both sender and receiver objects from a shared socket,
 /// the receiver will not receive messages sent by the sender.
+#[cfg_attr(docsrs, doc(cfg(feature = "socketcan")))]
 pub fn open_socketcan<S: AsRef<str>>(
     device: S,
 ) -> Result<(SocketCanSender, SocketCanReceiver), socketcan::IoError> {

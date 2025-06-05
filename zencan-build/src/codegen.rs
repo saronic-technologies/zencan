@@ -771,7 +771,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
         #[allow(unused_imports)]
         use zencan_node::NodeMbox;
         #[allow(unused_imports)]
-        use zencan_node::node_state::{NodeState, NodeStateAccess};
+        use zencan_node::{NodeState, NodeStateAccess};
         #object_defs
         #object_instantiations
         pub static OD_TABLE: [ODEntry; #table_len] = [

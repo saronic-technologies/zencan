@@ -84,7 +84,6 @@ pub struct SdoClient<S, R> {
 }
 
 impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
-
     /// Create a new SdoClient using a node ID
     ///
     /// Nodes have a default SDO server, which uses a COB ID based on the node ID. This is a

@@ -1,3 +1,4 @@
+//! Utility for sharing a single socket among tasks
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

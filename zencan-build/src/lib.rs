@@ -21,7 +21,7 @@
 //!
 //! In build.rs:
 //!
-//! ```rust
+//! ```ignore
 //! if let Err(e) =
 //!     zencan_build::build_node_from_device_config("EXAMPLE", "example_device_config.toml")
 //! {
@@ -32,7 +32,7 @@
 //!
 //! Then, in main.rs:
 //!
-//! ```rust
+//! ```ignore
 //! mod zencan {
 //!     zencan_node::include_modules!(EXAMPLE);
 //! }
@@ -42,7 +42,7 @@
 //!
 //! The generated code looks something like this:
 //!
-//! ```rust
+//! ```ignore
 //! pub static OBJECT1000: Object1000 = Object1000::default();
 //! pub static OBJECT1001: Object1001 = Object1001::default();
 //! pub static OBJECT1008: Object1008 = Object1008::default();
@@ -118,7 +118,7 @@ pub fn compile_device_config(
 ///
 /// # Example
 ///
-/// ```rust
+/// ```ignore
 /// if let Err(e) =
 ///     zencan_build::build_node_from_device_config("EXAMPLE", "example_device_config.toml")
 /// {

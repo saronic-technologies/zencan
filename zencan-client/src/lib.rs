@@ -14,7 +14,12 @@
 //!
 //! This should be considered very alpha, with important missing features, and potentially frequent
 //! breaking API changes.
-#![warn(missing_docs, missing_debug_implementations, missing_copy_implementations)]
+#![warn(
+    missing_docs,
+    missing_debug_implementations,
+    missing_copy_implementations
+)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod bus_manager;
 mod lss_master;
@@ -25,6 +30,6 @@ pub use zencan_common as common;
 
 pub use bus_manager::BusManager;
 pub use common::open_socketcan;
-pub use lss_master::{LssMaster, LssError};
+pub use lss_master::{LssError, LssMaster};
 pub use node_configuration::{NodeConfig, PdoConfig, PdoMapping};
 pub use sdo_client::{RawAbortCode, SdoClient, SdoClientError};

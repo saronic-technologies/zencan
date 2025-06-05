@@ -368,7 +368,7 @@ pub enum LssResponse {
         /// The manufacturer special error code
         ///
         /// Valid when error is 255, otherwise it's a don't care
-        spec_error: u8
+        spec_error: u8,
     },
     /// Send in response to a [`LssRequest::ConfigureBitTiming`]
     ConfigureBitTimingAck {
@@ -377,32 +377,32 @@ pub enum LssResponse {
         /// The manufacturer special error code
         ///
         /// Valid when error is 255, otherwise it's a don't care
-        spec_error: u8
+        spec_error: u8,
     },
     /// Sent in response to a [`LssRequest::InquireVendor`]
     InquireVendorAck {
         /// The vendor id of the responding node
-        vendor_id: u32
+        vendor_id: u32,
     },
     /// Sent in response to a [`LssRequest::InquireProduct`]
     InquireProductAck {
         /// The product code of the responding node
-        product_code: u32
+        product_code: u32,
     },
     /// Sent in response to a [`LssRequest::InquireRev`]
     InquireRevAck {
         /// The revision number of the responding node
-        revision: u32
+        revision: u32,
     },
     /// Sent in response to a [`LssRequest::InquireSerial`]
     InquireSerialAck {
         /// The serial number of the responding node
-        serial_number: u32
+        serial_number: u32,
     },
     /// Sent in response to a [`LssRequest::InquireNodeId`]
     InquireNodeIdAck {
         /// The node ID of the responding node
-        node_id: u8
+        node_id: u8,
     },
 }
 

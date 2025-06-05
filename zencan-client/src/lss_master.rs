@@ -38,7 +38,7 @@ pub enum LssError {
         /// Manufacturer specific error code
         ///
         /// Only supposed to be valid when error is 255
-        spec_error: u8
+        spec_error: u8,
     },
     /// The LSS slave returned an error code in response to a ConfigNodeId command
     #[snafu(display(
@@ -55,7 +55,7 @@ pub enum LssError {
         /// Manufacturer specific error code
         ///
         /// Only supposed to be valid when error is 255
-        spec_error: u8
+        spec_error: u8,
     },
 }
 
