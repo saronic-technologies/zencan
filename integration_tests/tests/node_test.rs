@@ -8,7 +8,7 @@ use integration_tests::{
     object_dict1,
     sim_bus::{SimBus, SimBusReceiver, SimBusSender},
 };
-use zencan_client::sdo_client::{RawAbortCode, SdoClient, SdoClientError};
+use zencan_client::{RawAbortCode, SdoClient, SdoClientError};
 use zencan_common::{objects::ODEntry, sdo::AbortCode, NodeId};
 use zencan_node::{node_state::NodeStateAccess, Node, NodeMbox};
 

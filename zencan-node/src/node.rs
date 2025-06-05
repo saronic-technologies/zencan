@@ -3,7 +3,7 @@
 
 use zencan_common::{
     lss::LssIdentity,
-    messages::{CanId, CanMessage, Heartbeat, NmtCommandCmd, NmtState, ZencanMessage, LSS_RESP_ID},
+    messages::{CanId, CanMessage, Heartbeat, NmtCommandSpecifier, NmtState, ZencanMessage, LSS_RESP_ID},
     object_ids,
     objects::{find_object, ODEntry, ObjectData, ObjectRawAccess},
     NodeId,
@@ -156,8 +156,8 @@ impl Node {
 
                 if let NodeId::Configured(node_id) = self.node_id {
                     if cmd.node == 0 || cmd.node == node_id.raw() {
-                        debug!("Received NMT command: {:?}", cmd.cmd);
-                        self.handle_nmt_command(cmd.cmd);
+                        debug!("Received NMT command: {:?}", cmd.cs);
+                        self.handle_nmt_command(cmd.cs);
                     }
                 }
             }
@@ -224,20 +224,20 @@ impl Node {
         }
     }
 
-    fn handle_nmt_command(&mut self, cmd: NmtCommandCmd) {
+    fn handle_nmt_command(&mut self, cmd: NmtCommandSpecifier) {
         let prev_state = self.nmt_state;
 
         match cmd {
-            NmtCommandCmd::Start => self.nmt_state = NmtState::Operational,
-            NmtCommandCmd::Stop => self.nmt_state = NmtState::Stopped,
-            NmtCommandCmd::EnterPreOp => self.nmt_state = NmtState::PreOperational,
-            NmtCommandCmd::ResetApp => {
+            NmtCommandSpecifier::Start => self.nmt_state = NmtState::Operational,
+            NmtCommandSpecifier::Stop => self.nmt_state = NmtState::Stopped,
+            NmtCommandSpecifier::EnterPreOp => self.nmt_state = NmtState::PreOperational,
+            NmtCommandSpecifier::ResetApp => {
                 // if let Some(cb) = self.app_reset_callback.as_mut() {
                 //     cb();
                 // }
                 self.nmt_state = NmtState::Bootup;
             }
-            NmtCommandCmd::ResetComm => self.nmt_state = NmtState::Bootup,
+            NmtCommandSpecifier::ResetComm => self.nmt_state = NmtState::Bootup,
         }
 
         debug!(

@@ -1,12 +1,21 @@
-// pub enum ObjectAccess {
-
-// }
+//! Object Dictionary Implementation
+//!
+//! The object dictionary is typically generated using `zencan-build`, using the types provided
+//! here.
+//!
+//!
+//! ## Topics
+//!
+//! ### PDO event triggering
+//!
 
 use crate::sdo::AbortCode;
 use crate::AtomicCell;
 use core::any::Any;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+/// A struct used for synchronizing the A/B event flags of all objects, which are used for
+/// triggering PDO events
 #[derive(Debug)]
 pub struct ObjectFlagSync {
     toggle: AtomicBool,
@@ -19,21 +28,31 @@ impl Default for ObjectFlagSync {
 }
 
 impl ObjectFlagSync {
+    /// Create a new ObjectFlagSync
     pub const fn new() -> Self {
         Self {
             toggle: AtomicBool::new(false),
         }
     }
 
+    /// Toggle the flag
     pub fn toggle(&self) {
         critical_section::with(|_| {
             self.toggle
-                .store(!self.toggle.load(Ordering::Relaxed), Ordering::Relaxed);
+                .store(!self.toggle.load(Ordering::SeqCst), Ordering::SeqCst);
         });
     }
 }
 
-/// Store an event flag for each sub object in an object
+/// Stores an event flag for each sub object in an object
+///
+/// PDO transmission can be triggered by events, but PDOs are runtime configurable. An application
+/// needs to be able to signal that an object has changed, and if that object is mapped to a TPDO,
+/// that PDO should be scheduled for transmission.
+///
+/// In order to achieve this in a synchronized way without long critical sections, each object
+/// holds two sets of flags, and they are swapped atomically using a global `ObjectFlagSync` shared by
+/// all `ObjectFlags` instances.
 #[derive(Debug)]
 pub struct ObjectFlags<const N: usize> {
     sync: &'static ObjectFlagSync,
@@ -42,6 +61,7 @@ pub struct ObjectFlags<const N: usize> {
 }
 
 impl<const N: usize> ObjectFlags<N> {
+    /// Create a new ObjectFlags
     pub const fn new(sync: &'static ObjectFlagSync) -> Self {
         Self {
             sync,
@@ -50,6 +70,9 @@ impl<const N: usize> ObjectFlags<N> {
         }
     }
 
+    /// Set the flag for the specified sub object
+    ///
+    /// The flag is set on the currently active flag set
     pub fn set_flag(&self, sub: u8) {
         if sub as usize >= N * 8 {
             return;
@@ -67,11 +90,15 @@ impl<const N: usize> ObjectFlags<N> {
             .unwrap();
     }
 
+    /// Read the flag for the specified object
+    ///
+    /// The flag is read from the currently inactive flag set, i.e. the flag value from before the
+    /// last sync toggle is returned
     pub fn get_flag(&self, sub: u8) -> bool {
         if sub as usize >= N * 8 {
             return false;
         }
-        let flags = if self.sync.toggle.load(Ordering::Acquire) {
+        let flags = if self.sync.toggle.load(Ordering::SeqCst) {
             &self.flags1.load()
         } else {
             &self.flags0.load()
@@ -79,17 +106,22 @@ impl<const N: usize> ObjectFlags<N> {
         flags[(sub / 8) as usize] & (1 << (sub & 7)) != 0
     }
 
+    /// Clear all flags in the currently inactive set
     pub fn clear(&self) {
-        if self.sync.toggle.load(Ordering::Relaxed) {
-            self.flags0.store([0; N]);
-        } else {
+        if self.sync.toggle.load(Ordering::SeqCst) {
             self.flags1.store([0; N]);
+        } else {
+            self.flags0.store([0; N]);
         }
     }
 }
 
+/// Object Code value
+///
+/// Defines the type of an object or sub object
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
+#[allow(missing_docs)]
 pub enum ObjectCode {
     Null = 0,
     Domain = 2,
@@ -118,6 +150,7 @@ impl TryFrom<u8> for ObjectCode {
     }
 }
 
+/// Access type enum
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub enum AccessType {
     /// Read-only
@@ -132,26 +165,35 @@ pub enum AccessType {
 }
 
 impl AccessType {
+    /// Returns true if an object with this access type can be read
     pub fn is_readable(&self) -> bool {
         matches!(self, AccessType::Ro | AccessType::Rw | AccessType::Const)
     }
 
+    /// Returns true if an object with this access type can be written
     pub fn is_writable(&self) -> bool {
         matches!(self, AccessType::Rw | AccessType::Wo)
     }
 }
 
+/// Possible PDO mapping values for an object
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub enum PdoMapping {
+    /// Object cannot be mapped to PDOs
     #[default]
     None,
+    /// Object can be mapped to RPDOs only
     Rpdo,
+    /// Object can be mapped to TPDOs only
     Tpdo,
+    /// Object can be mapped to both RPDOs and TPDOs
     Both,
 }
 
+/// Indicate the type of data stored in an object
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[repr(u16)]
+#[allow(missing_docs)]
 pub enum DataType {
     Boolean = 1,
     #[default]
@@ -202,6 +244,9 @@ impl DataType {
     }
 }
 
+/// A trait for accessing objects
+///
+/// Any struct which implements an object in the object dictionary must implement this trait
 pub trait ObjectRawAccess: Sync + Send {
     /// Read raw bytes from a subobject
     ///
@@ -235,20 +280,32 @@ pub trait ObjectRawAccess: Sync + Send {
         }
     }
 
+    /// Set an event flag for the specified sub object on this object
+    ///
+    /// Event flags are used for triggering PDOs to which they are mapped. This is optional, as not
+    /// all objects support PDOs or PDO triggering.
     fn set_event_flag(&self, _sub: u8) -> Result<(), AbortCode> {
         Err(AbortCode::UnsupportedAccess)
     }
 
+    /// Read an event flag for the specified sub object
+    ///
+    /// This is optional as not all objects support events
     fn read_event_flag(&self, _sub: u8) -> bool {
         false
     }
 
+    /// Clear event flags for all sub objects
+    ///
+    /// This is optional as not all objects support events
     fn clear_events(&self) {}
 
+    /// Get the access type of a specific sub object
     fn access_type(&self, sub: u8) -> Result<AccessType, AbortCode> {
         Ok(self.sub_info(sub)?.access_type)
     }
 
+    /// Get the data type of a specific sub object
     fn data_type(&self, sub: u8) -> Result<DataType, AbortCode> {
         Ok(self.sub_info(sub)?.data_type)
     }
@@ -290,36 +347,42 @@ pub trait ObjectRawAccess: Sync + Send {
         Ok(size)
     }
 
+    /// Read a sub object as a u32
     fn read_u32(&self, sub: u8) -> Result<u32, AbortCode> {
         let mut buf = [0; 4];
         self.read(sub, 0, &mut buf)?;
         Ok(u32::from_le_bytes(buf))
     }
 
+    /// Read a sub object as a u16
     fn read_u16(&self, sub: u8) -> Result<u16, AbortCode> {
         let mut buf = [0; 2];
         self.read(sub, 0, &mut buf)?;
         Ok(u16::from_le_bytes(buf))
     }
 
+    /// Read a sub object as a u8
     fn read_u8(&self, sub: u8) -> Result<u8, AbortCode> {
         let mut buf = [0; 1];
         self.read(sub, 0, &mut buf)?;
         Ok(buf[0])
     }
 
+    /// Read a sub object as an i32
     fn read_i32(&self, sub: u8) -> Result<i32, AbortCode> {
         let mut buf = [0; 4];
         self.read(sub, 0, &mut buf)?;
         Ok(i32::from_le_bytes(buf))
     }
 
+    /// Read a sub object as an i16
     fn read_i16(&self, sub: u8) -> Result<i16, AbortCode> {
         let mut buf = [0; 2];
         self.read(sub, 0, &mut buf)?;
         Ok(i16::from_le_bytes(buf))
     }
 
+    /// Read a sub object as an i8
     fn read_i8(&self, sub: u8) -> Result<i8, AbortCode> {
         let mut buf = [0; 1];
         self.read(sub, 0, &mut buf)?;
@@ -327,6 +390,11 @@ pub trait ObjectRawAccess: Sync + Send {
     }
 }
 
+
+/// Implements an object which relies on provided callback functions for implementing access
+///
+/// This is used for objects which have extra logic in their access, such as PDOs. Some callbacks
+/// are implemented by `zencan-node`, but they can also be implemented by the application.
 pub struct CallbackObject {
     write_cb: AtomicCell<Option<WriteHookFn>>,
     read_cb: AtomicCell<Option<ReadHookFn>>,
@@ -338,6 +406,12 @@ pub struct CallbackObject {
 }
 
 impl CallbackObject {
+    /// Create a new CallbackObject
+    ///
+    /// # Arguments
+    /// - `od`: The object dictionary. This is required so it can be passed to callbacks.
+    /// - `object_code`: The object code for this record. Although the sub object types are all
+    ///   defined by the info callback, the object code must be determined at build time.
     pub const fn new(od: &'static [ODEntry<'static>], object_code: ObjectCode) -> Self {
         Self {
             write_cb: AtomicCell::new(None),
@@ -349,6 +423,7 @@ impl CallbackObject {
         }
     }
 
+    /// Register callbacks on this object
     pub fn register(
         &self,
         write: Option<WriteHookFn>,
@@ -356,6 +431,8 @@ impl CallbackObject {
         info: Option<InfoHookFn>,
         context: Option<&'static dyn Context>,
     ) {
+        // TODO: Think about which of these should actually be optional. e.g. I don't think you can
+        // not implement info.
         self.write_cb.store(write);
         self.read_cb.store(read);
         self.info_cb.store(info);
@@ -408,8 +485,9 @@ impl ObjectRawAccess for CallbackObject {
     }
 }
 
-// Trait to define requirements for opaque callback context references
+/// Trait to define requirements for opaque callback context references
 pub trait Context: Any + Sync + Send + 'static {
+    /// Get context as an Any ref
     fn as_any<'a, 'b: 'a>(&'b self) -> &'a dyn Any;
 }
 
@@ -439,8 +517,12 @@ type WriteHookFn =
 
 type InfoHookFn = fn(ctx: &ODCallbackContext, sub: u8) -> Result<SubInfo, AbortCode>;
 
+/// Object enum to be stored in the dictionary
 pub enum ObjectData<'a> {
+    /// This is a normal object with allocated storage, e.g. as created by `zencan-build`
     Storage(&'a dyn ObjectRawAccess),
+    /// This is a callback object which must have callback functions registered at runtime for
+    /// access
     Callback(&'a CallbackObject),
 }
 
@@ -499,9 +581,11 @@ impl ObjectRawAccess for ObjectData<'_> {
 pub struct ODEntry<'a> {
     /// The object index
     pub index: u16,
+    /// The object implementation
     pub data: ObjectData<'a>,
 }
 
+/// Information about a sub object
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SubInfo {
     /// The size (or max size) of this sub object, in bytes
@@ -583,12 +667,14 @@ impl SubInfo {
         self
     }
 
+    /// Convenience function to set the persist value
     pub const fn persist(mut self, value: bool) -> Self {
         self.persist = value;
         self
     }
 }
 
+/// Lookup an object from the Object dictionary table
 pub fn find_object<'a, 'b>(table: &'b [ODEntry<'a>], index: u16) -> Option<&'b ObjectData<'a>> {
     // TODO: Table is sorted, so we could use binary search
     for entry in table {

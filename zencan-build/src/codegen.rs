@@ -714,6 +714,7 @@ pub fn generate_state_inst(dev: &DeviceConfig) -> Result<TokenStream, CompileErr
     })
 }
 
+/// Generate code for a node from a [`DeviceConfig`] as a TokenStream
 pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, CompileError> {
     let mut object_defs = TokenStream::new();
     let mut object_instantiations = TokenStream::new();
@@ -779,6 +780,11 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
     })
 }
 
+/// Generate code for a node from a [`DeviceConfig`] as a string
+///
+/// # Arguments
+/// * `dev` - The device config
+/// * `format` - If true, generated code will be formatted with `prettyplease`
 pub fn device_config_to_string(dev: &DeviceConfig, format: bool) -> Result<String, CompileError> {
     let tokens = device_config_to_tokens(dev)?;
 

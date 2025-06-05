@@ -1,31 +1,62 @@
+//! Core implementation of the LSS protocol
+//!
+//! This module includes definitions of all the relevant constants, and message serialization for
+//! the Layer Setting Services (LSS) protocol. The LSS protocol is used for configuring the node ID
+//! on unconfigured nodes, and for discovering the identity of unconfigured nodes.
 use crate::messages::{CanId, CanMessage, MessageError, LSS_REQ_ID, LSS_RESP_ID};
 
+/// Defines all possible values for the LSS command specifier field
 #[derive(Debug, Clone, Copy)]
 pub enum LssCommandSpecifier {
+    /// Used to change the LSS mode for all nodes on the bus
     SwitchModeGlobal = 0x04,
+    /// Used to set the Node ID of the node(s) currently in *Configuration* mode
     ConfigureNodeId = 0x11,
+    /// Used to set the bit timing (baud rate) of the node(s) currently in *Configuration* mode
     ConfigureBitTiming = 0x13,
+    /// Used to command nodes to activate a new bit rate setting
     ActivateBitTiming = 0x15,
+    /// Used to command nodes to store their config (node ID and bit rate) persistently
     StoreConfiguration = 0x17,
+    /// Sends Vendor ID for activating an LSS node via its identity
     SwitchStateVendor = 0x40,
+    /// Sends Product Code for activating an LSS node via its identity
     SwitchStateProduct = 0x41,
+    /// Sends Revision Number for activating an LSS node via its identity
     SwitchStateRev = 0x42,
+    /// Sends Serial Number for activating an LSS node via its identity
+    ///
+    /// This command should come last (after vendor, product, rev), as a node which recognizes its
+    /// own identity will respond on receipt of this message
     SwitchStateSerial = 0x43,
+    /// Response by a node to indicate it has recognized its identity and is entering *Configuration* mode
     SwitchStateResponse = 0x44,
+    /// Response to a FastScan message
     IdentifySlave = 0x4F,
+    /// Message used for fast scan protocol to discover unconfigured nodes without knowing their identity
     FastScan = 0x51,
+    /// Used to inquire the vendor ID of a node in *Configuration* mode
     InquireVendor = 0x5A,
+    /// Used to inquire the product code of a node in *Configuration* mode
     InquireProduct = 0x5B,
+    /// Used to inquire the revision number of a node in *Configuration* mode
     InquireRev = 0x5C,
+    /// Used to inquire the serial number of a node in *Configuration* mode
     InquireSerial = 0x5D,
+    /// Used to inquire the node ID of a node in *Configuration* mode
     InquireNodeId = 0x5E,
 }
 
+/// Represents the possible values of the error field returned in response to a ConfigureNodeId
+/// command
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum LssConfigureError {
+    /// Success
     Ok = 0,
+    /// The node ID is not value (outside of range 1 to 127)
     NodeIdOutOfRange = 1,
+    /// A manufacturer specific error is stored in the `spec_error` field
     Manufacturer = 0xff,
 }
 
@@ -33,6 +64,7 @@ pub enum LssConfigureError {
 pub const LSS_FASTSCAN_CONFIRM: u8 = 0x80;
 
 impl LssCommandSpecifier {
+    /// Attempt to create an [`LssCommandSpecifier`] from a byte code
     pub fn from_byte(b: u8) -> Result<Self, MessageError> {
         match b {
             0x04 => Ok(Self::SwitchModeGlobal),
@@ -57,15 +89,20 @@ impl LssCommandSpecifier {
     }
 }
 
+/// An LSS request send by the master to the slave
 #[derive(Debug, Clone, Copy)]
 pub enum LssRequest {
+    /// Switch the mode of all LSS slaves
     SwitchModeGlobal {
+        /// The mode -- 0 = *Waiting*, 1 = *Configuring*
         mode: u8,
     },
+    /// Set the node ID of the node currently in *Configuring* state
     ConfigureNodeId {
         /// The new node ID to set
         node_id: u8,
     },
+    /// Set the bit time (baud rate) of the node currently in *Configuring* state
     ConfigureBitTiming {
         /// Defines what baudrate table is used to lookup the bit timing
         /// 0 means use the default table
@@ -86,22 +123,30 @@ pub enum LssRequest {
         /// The index into the baudrate table for the baudrate to select
         index: u8,
     },
+    /// Command a new bitrate to be activated
     ActivateBitTiming {
         /// Duration in ms to delay before activating the new baudrate
         delay: u16,
     },
+    /// Send the vendor ID to activate by idenity
     SwitchStateVendor {
         /// The vendor ID to match against (32-bit value)
         vendor_id: u32,
     },
+    /// Send the producte code to activate by identity
     SwitchStateProduct {
         /// The product code to match against (32-bit value)
         product_code: u32,
     },
+    /// Send the revision number to active by identity
     SwitchStateRevision {
         /// The revision number to match against (32-bit value)
         revision: u32,
     },
+    /// Send the serial number to active by identity
+    ///
+    /// This should be sent last, as it triggers the slave to check its identity against the
+    /// recieved values and respond if they match
     SwitchStateSerial {
         /// The serial number to match against (32-bit value)
         serial: u32,
@@ -117,8 +162,11 @@ pub enum LssRequest {
     /// Request the node ID from a node in LSS Configuring state
     InquireNodeId,
 
+    /// Send a FastScan query
     FastScan {
+        /// The ID field
         id: u32,
+        /// The bit_check field
         bit_check: u8,
         /// The sub index of the identity to check
         /// 0 - Vendor ID
@@ -305,17 +353,57 @@ impl From<LssRequest> for CanMessage {
     }
 }
 
+/// An LSS response message sent from the Slave to Master
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LssResponse {
+    /// Sent when a slave's identity matches a FastScan request
     IdentifySlave,
+    /// Sent  in response to a [`LssRequest::SwitchStateSerial`] when it recognizes its
+    /// identity
     SwitchStateResponse,
-    ConfigureNodeIdAck { error: u8, spec_error: u8 },
-    ConfigureBitTimingAck { error: u8, spec_error: u8 },
-    InquireVendorAck { vendor_id: u32 },
-    InquireProductAck { product_code: u32 },
-    InquireRevAck { revision: u32 },
-    InquireSerialAck { serial_number: u32 },
-    InquireNodeIdAck { node_id: u8 },
+    /// Sent in response to a [`LssRequest::ConfigureNodeId`]
+    ConfigureNodeIdAck {
+        /// The error code
+        error: u8,
+        /// The manufacturer special error code
+        ///
+        /// Valid when error is 255, otherwise it's a don't care
+        spec_error: u8
+    },
+    /// Send in response to a [`LssRequest::ConfigureBitTiming`]
+    ConfigureBitTimingAck {
+        /// The error code
+        error: u8,
+        /// The manufacturer special error code
+        ///
+        /// Valid when error is 255, otherwise it's a don't care
+        spec_error: u8
+    },
+    /// Sent in response to a [`LssRequest::InquireVendor`]
+    InquireVendorAck {
+        /// The vendor id of the responding node
+        vendor_id: u32
+    },
+    /// Sent in response to a [`LssRequest::InquireProduct`]
+    InquireProductAck {
+        /// The product code of the responding node
+        product_code: u32
+    },
+    /// Sent in response to a [`LssRequest::InquireRev`]
+    InquireRevAck {
+        /// The revision number of the responding node
+        revision: u32
+    },
+    /// Sent in response to a [`LssRequest::InquireSerial`]
+    InquireSerialAck {
+        /// The serial number of the responding node
+        serial_number: u32
+    },
+    /// Sent in response to a [`LssRequest::InquireNodeId`]
+    InquireNodeIdAck {
+        /// The node ID of the responding node
+        node_id: u8
+    },
 }
 
 impl TryFrom<&[u8]> for LssResponse {
@@ -405,6 +493,7 @@ impl TryFrom<CanMessage> for LssResponse {
 }
 
 impl LssResponse {
+    /// Convert an LssReponse to a CanMessage
     pub fn to_can_message(self: &LssResponse, id: CanId) -> CanMessage {
         // LSS messages are required to always be 8 bytes long. For...some reason.
         let mut msg = CanMessage::new(id, &[0; 8]);
@@ -450,14 +539,19 @@ impl LssResponse {
     }
 }
 
+/// The possible LSS states
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum LssState {
+    /// The default state of a node.
     Waiting = 0,
+    /// The state of a node which has been "activated" and is ready for configuring or querying via
+    /// LSS
     Configuring = 1,
 }
 
 impl LssState {
+    /// Create an LSS state from a mode byte
     pub fn from_byte(b: u8) -> Result<Self, MessageError> {
         match b {
             0x00 => Ok(Self::Waiting),
@@ -467,15 +561,29 @@ impl LssState {
     }
 }
 
+/// Represents the 128-bit identity in its four components
+///
+/// The node identity is stored in the 0x1018 record object, and it is used for the LSS protocol
+///
+/// The vendor_id, product_code, and revision are configured in the device config file. The serial
+/// number must be set by the application to a unique value. This can be done, e.g., using a UID
+/// register on the MCU, or by loading a previously programmed value from flash. It is important
+/// that each device on the bus have a unique identity.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LssIdentity {
+    /// A number indicating the vendor of the device
     pub vendor_id: u32,
+    /// A number indicating a product / model of the device
     pub product_code: u32,
+    /// A number indicating the revision of the product
     pub revision: u32,
+    /// A serial number which should be unique among all devices for a given vendor/product/revision
+    /// combination
     pub serial: u32,
 }
 
 impl LssIdentity {
+    /// Create a new LssIdentity object
     pub fn new(vendor_id: u32, product_code: u32, revision: u32, serial: u32) -> Self {
         Self {
             vendor_id,
@@ -485,6 +593,7 @@ impl LssIdentity {
         }
     }
 
+    /// Read the LssIdentity by offset as if it were a [u32; 4] array
     pub fn by_addr(&self, addr: u8) -> u32 {
         match addr {
             0 => self.vendor_id,

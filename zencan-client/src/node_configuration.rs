@@ -120,8 +120,11 @@ struct NodeConfigSerializer {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PdoConfig {
+    /// The COB ID this PDO will use to send/receive
     pub cob: u32,
+    /// The PDO is active
     pub enabled: bool,
+    /// List of mapping specifying what sub objects are mapped to this PDO
     pub mappings: Vec<PdoMapping>,
     /// Specifies when a PDO is sent or latched
     ///
@@ -138,8 +141,11 @@ pub struct PdoConfig {
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PdoMapping {
+    /// The object index
     pub index: u16,
+    /// The object sub index
     pub sub: u8,
+    /// The size of the object to map, in **bits**
     pub size: u8,
 }
 

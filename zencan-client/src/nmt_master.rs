@@ -1,16 +1,21 @@
+//! Simple interface for sending NMT commands to a bus
 use std::time::Instant;
 
 use zencan_common::{
-    messages::{CanMessage, NmtCommand, NmtCommandCmd, NmtState, ZencanMessage},
+    messages::{CanMessage, NmtCommand, NmtCommandSpecifier, NmtState, ZencanMessage},
     traits::{AsyncCanReceiver, AsyncCanSender},
 };
 
 type Result<T> = std::result::Result<T, ()>;
 
+/// Represents the information about a single node detected on the bus by the [NmtMaster]
 #[derive(Copy, Clone, Debug)]
 pub struct Node {
+    /// The ID of the node
     pub id: u8,
+    /// The last NMT state reported by the node
     pub state: NmtState,
+    /// The time when the last heartbeat message from received from the node
     pub last_status: Instant,
     last_toggle: bool,
 }
@@ -28,13 +33,24 @@ impl Default for Node {
 
 const MAX_NODES: usize = 127;
 
-pub struct Master<S, R> {
+#[derive(Debug)]
+/// An NMT master which allows monitoring the bus for heartbeats and commanding state changes
+pub struct NmtMaster<S, R> {
     sender: S,
     receiver: R,
     nodes: [Node; MAX_NODES],
 }
 
-impl<S: AsyncCanSender, R: AsyncCanReceiver> Master<S, R> {
+impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
+    /// Create a new NmtMaster
+    ///
+    /// # Arguments
+    /// - `sender`: An object which implements [`AsyncCanSender`] to be used for sending messages to
+    ///   the bus
+    /// - `receiver`: An object which implements [`AsyncCanReceiver`] to be used for receiving
+    ///   messages from the bus
+    ///
+    /// When using socketcan, these can be created with [`crate::open_socketcan`].
     pub fn new(sender: S, receiver: R) -> Self {
         let nodes = [Node::default(); MAX_NODES];
         Self {
@@ -44,7 +60,8 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> Master<S, R> {
         }
     }
 
-    pub async fn process_rx(&mut self) {
+    /// Receive and process all messages available from the message receiver
+    pub fn process_rx(&mut self) {
         while let Some(msg) = self.receiver.try_recv() {
             self.handle_message(msg);
         }
@@ -64,8 +81,8 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> Master<S, R> {
     }
 
     /// Get a list of all nodes detected on the bus via heartbeat/reset messages
-    pub async fn get_nodes(&mut self) -> &[Node] {
-        self.process_rx().await;
+    pub fn get_nodes(&mut self) -> &[Node] {
+        self.process_rx();
 
         // Find the first empty slot; this indicates the end of the list
         let n = self
@@ -105,34 +122,42 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> Master<S, R> {
 
     /// Send application reset command
     ///
-    /// node - The node ID to command, or 0 to broadcast to all nodes
+    /// # Arguments
+    ///
+    /// - `node`: The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_reset_app(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandCmd::ResetApp, node).await
+        self.send_nmt_cmd(NmtCommandSpecifier::ResetApp, node).await
     }
 
     /// Send communications reset command
     ///
-    /// node - The node ID to command, or 0 to broadcast to all nodes
+    /// # Arguments
+    ///
+    /// - `node`: The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_reset_comms(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandCmd::ResetComm, node).await
+        self.send_nmt_cmd(NmtCommandSpecifier::ResetComm, node).await
     }
 
     /// Send start operation command
     ///
-    /// node - The node ID to command, or 0 to broadcast to all nodes
+    /// # Arguments
+    ///
+    /// - `node`: The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_start(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandCmd::Start, node).await
+        self.send_nmt_cmd(NmtCommandSpecifier::Start, node).await
     }
 
     /// Send start operation command
     ///
-    /// node - The node ID to command, or 0 to broadcast to all nodes
+    /// # Arguments
+    ///
+    /// - `node`: The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_stop(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandCmd::Stop, node).await
+        self.send_nmt_cmd(NmtCommandSpecifier::Stop, node).await
     }
 
-    async fn send_nmt_cmd(&mut self, cmd: NmtCommandCmd, node: u8) -> Result<()> {
-        let message = NmtCommand { cmd, node };
+    async fn send_nmt_cmd(&mut self, cmd: NmtCommandSpecifier, node: u8) -> Result<()> {
+        let message = NmtCommand { cs: cmd, node };
         self.sender.send(message.into()).await.map_err(|_| ())?;
         Ok(())
     }

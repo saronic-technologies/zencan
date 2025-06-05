@@ -13,17 +13,23 @@ use crate::node_configuration::PdoConfig;
 
 const RESPONSE_TIMEOUT: Duration = Duration::from_millis(100);
 
+/// A wrapper around the AbortCode enum to allow for unknown values
+///
+/// Although the library should "know" all the abort codes, it is possible to receive other values
+/// and this allows those to be captured and exposed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RawAbortCode {
+    /// A recognized abort code
     Valid(AbortCode),
-    Uknown(u32),
+    /// An unrecognized abort code
+    Unknown(u32),
 }
 
 impl std::fmt::Display for RawAbortCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RawAbortCode::Valid(abort_code) => write!(f, "{abort_code:?}"),
-            RawAbortCode::Uknown(code) => write!(f, "{code:X}"),
+            RawAbortCode::Unknown(code) => write!(f, "{code:X}"),
         }
     }
 }
@@ -32,23 +38,33 @@ impl From<u32> for RawAbortCode {
     fn from(value: u32) -> Self {
         match AbortCode::try_from(value) {
             Ok(code) => Self::Valid(code),
-            Err(_) => Self::Uknown(value),
+            Err(_) => Self::Unknown(value),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Snafu)]
+/// Error returned by [`SdoClient`] methods
+#[derive(Clone, Copy, Debug, PartialEq, Snafu)]
 pub enum SdoClientError {
+    /// Timeout while awaiting an expected response
     NoResponse,
+    /// Received a response that could not be interpreted
     MalformedResponse,
+    /// Received a valid SdoResponse, but with an unexpected command specifier
     UnexpectedResponse,
+    /// Received a ServerAbort response from the node
     #[snafu(display("Received abort accessing object 0x{index:X}sub{sub}: {abort_code}"))]
     ServerAbort {
+        /// Index of the SDO access which was aborted
         index: u16,
+        /// Sub index of the SDO access which was aborted
         sub: u8,
+        /// Reason for the abort
         abort_code: RawAbortCode,
     },
+    /// Received a response with the wrong toggle bit
     ToggleNotAlternated,
+    /// An SDO upload response had a size that did not match the expected size
     UnexpectedSize,
     /// An error occured reading from the socket
     SocketError,
@@ -56,6 +72,10 @@ pub enum SdoClientError {
 
 type Result<T> = std::result::Result<T, SdoClientError>;
 
+#[derive(Debug)]
+/// A client for accessing a node's SDO server
+///
+/// A single server can talk to a single client at a time.
 pub struct SdoClient<S, R> {
     req_cob_id: CanId,
     resp_cob_id: CanId,
@@ -64,10 +84,25 @@ pub struct SdoClient<S, R> {
 }
 
 impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
+
+    /// Create a new SdoClient using a node ID
+    ///
+    /// Nodes have a default SDO server, which uses a COB ID based on the node ID. This is a
+    /// shortcut to create a client that that default SDO server.
+    ///
+    /// It is possible for nodes to have other SDO servers on other COB IDs, and clients for these
+    /// can be created using [`Self::new()`]
     pub fn new_std(server_node_id: u8, sender: S, receiver: R) -> Self {
+        let req_cob_id = CanId::Std(0x600 + server_node_id as u16);
+        let resp_cob_id = CanId::Std(0x580 + server_node_id as u16);
+        Self::new(req_cob_id, resp_cob_id, sender, receiver)
+    }
+
+    /// Create a new SdoClient from request and response COB IDs
+    pub fn new(req_cob_id: CanId, resp_cob_id: CanId, sender: S, receiver: R) -> Self {
         Self {
-            req_cob_id: CanId::Std(0x600 + server_node_id as u16),
-            resp_cob_id: CanId::Std(0x580 + server_node_id as u16),
+            req_cob_id,
+            resp_cob_id,
             sender,
             receiver,
         }
@@ -369,7 +404,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         self.upload_u8(index, sub).await
     }
 
-    // Read a sub-object from the SDO server, assuming it is an u16
+    /// Read a sub-object from the SDO server, assuming it is an u16
     pub async fn upload_u16(&mut self, index: u16, sub: u8) -> Result<u16> {
         let data = self.upload(index, sub).await?;
         if data.len() != 2 {
@@ -457,6 +492,9 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         Ok(String::from_utf8_lossy(&bytes).into())
     }
 
+    /// Read the identity object
+    ///
+    /// All nodes should implement this object
     pub async fn read_identity(&mut self) -> Result<LssIdentity> {
         let vendor_id = self.upload_u32(IDENTITY, 1).await?;
         let product_code = self.upload_u32(IDENTITY, 2).await?;
@@ -470,25 +508,41 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         ))
     }
 
+    /// Read the device name object
+    ///
+    /// All nodes should implement this object
     pub async fn read_device_name(&mut self) -> Result<String> {
-        let bytes = self.upload(DEVICE_NAME, 0).await?;
-        Ok(String::from_utf8_lossy(&bytes).into())
+        self.read_visible_string(DEVICE_NAME, 0).await
     }
 
+    /// Read the software version object
+    ///
+    /// All nodes should implement this object
     pub async fn read_software_version(&mut self) -> Result<String> {
         self.read_visible_string(SOFTWARE_VERSION, 0).await
     }
 
+    /// Read the hardware version object
+    ///
+    /// All nodes should implement this object
     pub async fn read_hardware_version(&mut self) -> Result<String> {
         self.read_visible_string(HARDWARE_VERSION, 0).await
     }
 
+    /// Configure a transmit PDO on the device
+    ///
+    /// This is a convenience function to write the PDO comm and mapping objects based on a
+    /// [`PdoConfig`].
     pub async fn configure_tpdo(&mut self, pdo_num: usize, cfg: &PdoConfig) -> Result<()> {
         let comm_index = 0x1800 + pdo_num as u16;
         let mapping_index = 0x1a00 + pdo_num as u16;
         self.store_pdo(comm_index, mapping_index, cfg).await
     }
 
+    /// Configure a receive PDO on the device
+    ///
+    /// This is a convenience function to write the PDO comm and mapping objects based on a
+    /// [`PdoConfig`].
     pub async fn configure_rpdo(&mut self, pdo_num: usize, cfg: &PdoConfig) -> Result<()> {
         let comm_index = 0x1400 + pdo_num as u16;
         let mapping_index = 0x1600 + pdo_num as u16;

@@ -1,7 +1,7 @@
 use zencan_common::{messages::NmtState, traits::AsyncCanSender, NodeId};
 
 use integration_tests::sim_bus::SimBus;
-use zencan_client::nmt_master::Master;
+use zencan_client::nmt_master::NmtMaster;
 use zencan_node::Node;
 
 mod utils;
@@ -22,7 +22,7 @@ async fn test_nmt_init() {
     let _logger = BusLogger::new(bus.new_receiver());
     let sender = bus.new_sender();
     let receiver = bus.new_receiver();
-    let mut master = Master::new(sender, receiver);
+    let mut master = NmtMaster::new(sender, receiver);
     let mut sender = bus.new_sender();
 
     assert_eq!(NmtState::Bootup, node.nmt_state());
@@ -36,7 +36,7 @@ async fn test_nmt_init() {
     assert_eq!(NmtState::PreOperational, node.nmt_state());
 
     // Master should have received a boot up message
-    let nodes = master.get_nodes().await;
+    let nodes = master.get_nodes();
     assert_eq!(1, nodes.len());
     assert_eq!(SLAVE_NODE_ID, nodes[0].id);
     assert_eq!(NmtState::PreOperational, nodes[0].state);

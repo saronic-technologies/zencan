@@ -1,5 +1,5 @@
 use integration_tests::sim_bus::SimBus;
-use zencan_client::sdo_client::SdoClient;
+use zencan_client::SdoClient;
 use zencan_common::NodeId;
 use zencan_node::Node;
 

@@ -1,10 +1,15 @@
+//! Device configuration support
+//!
+//! Includes code for reading device config files and for implementing the "standard" objects in a
+//! node.
+
 use serde::{de::Error, Deserialize};
 use zencan_common::objects::{AccessType, ObjectCode};
 
 use crate::errors::*;
 use snafu::ResultExt as _;
 
-pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
+fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
     vec![
         ObjectDefinition {
             index: 0x1000,
@@ -148,7 +153,7 @@ pub fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
     ]
 }
 
-pub fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
+fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
     let mut objects = Vec::new();
 
     fn add_objects(objects: &mut Vec<ObjectDefinition>, i: usize, tx: bool) {
@@ -222,13 +227,14 @@ fn default_num_tpdo() -> u8 {
     4
 }
 
+/// Configuration options for PDOs
 #[derive(Deserialize, Debug, Clone, Copy)]
 pub struct PdoConfig {
     #[serde(default = "default_num_rpdo")]
-    /// The number of TX PDO slots available in the device
+    /// The number of TX PDO slots available in the device. Defaults to 4.
     pub num_tpdo: u8,
     #[serde(default = "default_num_tpdo")]
-    /// The number of RX PDO slots available in the device
+    /// The number of RX PDO slots available in the device. Defaults to 4.
     pub num_rpdo: u8,
 }
 
@@ -261,16 +267,26 @@ pub struct IdentityConfig {
 #[derive(Deserialize, Debug, Default, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum PdoMapping {
+    /// Cannot be mapped to any PDOs
     #[default]
     None,
+    /// Can be mapped only to TPDOs
     Tpdo,
+    /// Can be mapped only to RPDOs
     Rpdo,
+    /// Can be mapped to any PDO
     Both,
 }
 
 impl PdoMapping {
+    /// Can be mapped to a TPDO
     pub fn supports_tpdo(&self) -> bool {
         matches!(self, PdoMapping::Tpdo | PdoMapping::Both)
+    }
+
+    /// Can be mapped to an RPDO
+    pub fn supports_rpdo(&self) -> bool {
+        matches!(self, PdoMapping::Rpdo | PdoMapping::Both)
     }
 }
 
@@ -339,17 +355,25 @@ pub struct SubDefinition {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum DefaultValue {
+    /// A default value for integer fields
     Integer(i64),
+    /// A default value for float fields
     Float(f64),
+    /// A default value for string fields
     String(String),
 }
 
+/// An enum representing the different types of objects which can be defined in a device config
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "object_type", rename_all = "lowercase")]
 pub enum Object {
+    /// A var object is just a single value
     Var(VarDefinition),
+    /// An array object is an array of values, all with the same type
     Array(ArrayDefinition),
+    /// A record is a collection of sub objects all with different types
     Record(RecordDefinition),
+    /// A domain is a chunk of bytes which can be accessed via the object
     Domain(DomainDefinition),
 }
 
@@ -375,13 +399,19 @@ pub struct VarDefinition {
 #[derive(Default, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct ArrayDefinition {
+    /// The datatype of array fields
     pub data_type: DataType,
+    /// Access type for all array fields
     pub access_type: AccessTypeDeser,
+    /// The number of elements in the array
     pub array_size: usize,
+    /// Default values for all array fields
     pub default_value: Option<Vec<DefaultValue>>,
     #[serde(default)]
+    /// Whether fields in this array can be mapped to PDOs
     pub pdo_mapping: PdoMapping,
     #[serde(default)]
+    /// Whether this array should be saved to flash on command
     pub persist: bool,
 }
 
@@ -389,11 +419,14 @@ pub struct ArrayDefinition {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RecordDefinition {
+    /// The sub object definitions for this record object
     pub subs: Vec<SubDefinition>,
 }
 
 /// Descriptor for a domain object
-#[derive(Deserialize, Debug, Clone)]
+///
+/// Not yet implemented
+#[derive(Clone, Copy, Deserialize, Debug)]
 pub struct DomainDefinition {}
 
 /// Descriptor for an object in the object dictionary
@@ -426,6 +459,7 @@ impl ObjectDefinition {
 }
 
 impl DeviceConfig {
+    /// Try to read a device config from a file
     pub fn load(config_path: impl AsRef<std::path::Path>) -> Result<Self, CompileError> {
         let config_str = std::fs::read_to_string(&config_path).context(IoSnafu)?;
         let mut config: DeviceConfig = toml::from_str(&config_str).context(ParseTomlSnafu {
@@ -443,6 +477,7 @@ impl DeviceConfig {
         Ok(config)
     }
 
+    /// Try to read a config from a &str
     pub fn load_from_str(config_str: &str) -> Result<Self, CompileError> {
         let mut config: DeviceConfig = toml::from_str(config_str).context(ParseTomlSnafu {
             message: "Error parsing device config string".to_string(),
@@ -461,7 +496,7 @@ impl DeviceConfig {
 }
 
 /// A newtype for ObjectCode to implement deserialization so we can use it in toml files
-#[derive(Debug, Default, Clone)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct ObjectCodeDeser(pub ObjectCode);
 impl<'de> serde::Deserialize<'de> for ObjectCodeDeser {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -497,7 +532,8 @@ impl From<ObjectCode> for ObjectCodeDeser {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+/// A newtype on AccessType to implement serialization
+#[derive(Clone, Copy, Debug, Default)]
 pub struct AccessTypeDeser(pub AccessType);
 impl<'de> serde::Deserialize<'de> for AccessTypeDeser {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -523,7 +559,11 @@ impl From<AccessType> for AccessTypeDeser {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+/// A type to represent data_type fields in a device config
+///
+/// This is similar, but slightly different from the DataType defined in `zencan_common`
+#[derive(Clone, Copy, Debug, Default)]
+#[allow(missing_docs)]
 pub enum DataType {
     Boolean,
     Int8,
@@ -543,6 +583,7 @@ pub enum DataType {
 }
 
 impl DataType {
+    /// Returns true if the type is one of the stringy types
     pub fn is_str(&self) -> bool {
         matches!(
             self,
@@ -550,6 +591,7 @@ impl DataType {
         )
     }
 
+    /// Get the storage size of the data type
     pub fn size(&self) -> usize {
         match self {
             DataType::Boolean => 1,

@@ -1,24 +1,20 @@
+//! Error types for crate
+//!
 use snafu::Snafu;
 
+/// Error returned when loading a device config
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]
+#[allow(missing_docs)]
 pub enum CompileError {
+    /// General error with context
+    #[snafu(display("General error '{message}'. source: {source}"))]
     General {
         message: String,
         source: Box<dyn std::error::Error>,
     },
     InvalidFieldName {
         field_name: String,
-    },
-    MissingSub0 {
-        obj_num: u32,
-    },
-    MissingSub1 {
-        obj_num: u32,
-    },
-    MissingSub {
-        obj_num: u32,
-        sub_num: u32,
     },
     ParseInt {
         message: String,

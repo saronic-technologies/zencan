@@ -9,7 +9,7 @@ use integration_tests::{
 };
 use serial_test::serial;
 use tokio::time::timeout;
-use zencan_client::{sdo_client::SdoClient, PdoConfig, PdoMapping};
+use zencan_client::{SdoClient, PdoConfig, PdoMapping};
 use zencan_common::{
     messages::{CanId, CanMessage, SyncObject},
     objects::{find_object, ODEntry, ObjectRawAccess},

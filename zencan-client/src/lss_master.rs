@@ -1,3 +1,4 @@
+//! A
 use core::time::Duration;
 
 use tokio::time::timeout_at;
@@ -9,34 +10,72 @@ use zencan_common::{
 
 use snafu::Snafu;
 
+#[derive(Debug)]
+/// Struct to interact with nodes using the LSS protocol
 pub struct LssMaster<S, R> {
     sender: S,
     receiver: R,
 }
 
+/// Error returned by [`LssMaster`]
 #[derive(Debug, Snafu, Clone, Copy)]
 pub enum LssError {
+    /// Timed out while waiting for an expected LSS response
     #[snafu(display("Timed out waiting for LSS response"))]
     Timeout,
+    /// The LSS slave returned an error code in response to a ConfigBitTiming command
     #[snafu(display(
         "LSS slave returned an error in response to ConfigBitTiming command. error: {}, Spec error: {}",
         error,
         spec_error
     ))]
-    BitTimingConfigError { error: u8, spec_error: u8 },
+    BitTimingConfigError {
+        /// Error code
+        ///
+        /// 1 - Baudrate not supported
+        /// 255 - Special error code in spec_error
+        error: u8,
+        /// Manufacturer specific error code
+        ///
+        /// Only supposed to be valid when error is 255
+        spec_error: u8
+    },
+    /// The LSS slave returned an error code in response to a ConfigNodeId command
     #[snafu(display(
         "LSS slave returned an error in response to ConfigNodeId command. error: {}, Spec error: {}",
         error,
         spec_error
     ))]
-    NodeIdConfigError { error: u8, spec_error: u8 },
+    NodeIdConfigError {
+        /// Error code
+        ///
+        /// 1 - Node address is invalid
+        /// 255 - Special error code in spec_error
+        error: u8,
+        /// Manufacturer specific error code
+        ///
+        /// Only supposed to be valid when error is 255
+        spec_error: u8
+    },
 }
 
 impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
+    /// Create a new LssMaster
+    ///
+    /// # Arguments
+    /// - `sender`: An object which implements [`AsyncCanSender`] to be used for sending messages to
+    ///   the bus
+    /// - `receiver`: An object which implements [`AsyncCanReceiver`] to be used for receiving
+    ///   messages from the bus
+    ///
+    /// When using socketcan, these can be created with [`crate::open_socketcan`].
     pub fn new(sender: S, receiver: R) -> Self {
         Self { sender, receiver }
     }
 
+    /// Configure an LSS slave with known identity
+    ///
+    /// If you know the 128-bit identity value for a node, you can configure it this way.
     pub async fn configure_by_identity(
         &mut self,
         identity: LssIdentity,
@@ -226,7 +265,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
         })
     }
 
-    pub async fn send_and_receive(
+    async fn send_and_receive(
         &mut self,
         msg: LssRequest,
         timeout: Duration,

@@ -1,6 +1,10 @@
+//! Utilities
+//!
+//!
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
+/// Utility for generating code snippet
 pub fn scalar_write_snippet(field_name: &syn::Ident, ty: &syn::Type) -> TokenStream {
     let setter_name = format_ident!("set_{}", field_name);
     quote! {
@@ -18,6 +22,7 @@ pub fn scalar_write_snippet(field_name: &syn::Ident, ty: &syn::Type) -> TokenStr
     }
 }
 
+/// Utility for generating code snippet
 pub fn scalar_read_snippet(field_name: &syn::Ident) -> TokenStream {
     let getter_name = format_ident!("get_{}", field_name);
     quote! {
@@ -29,6 +34,7 @@ pub fn scalar_read_snippet(field_name: &syn::Ident) -> TokenStream {
     }
 }
 
+/// Utility for generating code snippet
 pub fn string_write_snippet(field_name: &syn::Ident, size: usize) -> TokenStream {
     quote! {
         if offset + data.len() > #size {
@@ -44,6 +50,7 @@ pub fn string_write_snippet(field_name: &syn::Ident, size: usize) -> TokenStream
     }
 }
 
+/// Utility for generating code snippet
 pub fn string_read_snippet(field_name: &syn::Ident, size: usize) -> TokenStream {
     quote! {
         if offset + buf.len() > #size {

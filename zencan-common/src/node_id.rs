@@ -1,14 +1,23 @@
+//! Types for representing node IDs
+//!
+
 /// An enum representing the node ID of a CANopen node. The node ID must be between 1 and 127 for
 /// configured devices, with the special value of 255 used to represent an unconfigured device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeId {
+    /// A special node ID indicating the node is not configured (255)
     Unconfigured,
+    /// A valid node ID for a configured node
     Configured(ConfiguredId),
 }
 
+/// A newtype on u8 to enforce valid node ID (1-127)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConfiguredId(u8);
 impl ConfiguredId {
+    /// Try to create a new ConfiguredId
+    ///
+    /// It will fail if value is invalid (i.e. <1 or >127)
     pub fn new(value: u8) -> Result<Self, InvalidNodeIdError> {
         if (value > 0 && value < 128) || value == 255 {
             Ok(ConfiguredId(value))
@@ -17,6 +26,7 @@ impl ConfiguredId {
         }
     }
 
+    /// Get the raw node ID as a u8
     pub fn raw(&self) -> u8 {
         self.0
     }
@@ -29,6 +39,9 @@ impl From<ConfiguredId> for u8 {
 }
 
 impl NodeId {
+    /// Try to create a new NodeId from a u8
+    ///
+    /// Will fail if the value is not a valid node ID
     pub fn new(value: u8) -> Result<Self, InvalidNodeIdError> {
         if value == 255 {
             Ok(NodeId::Unconfigured)
@@ -37,6 +50,7 @@ impl NodeId {
         }
     }
 
+    /// Get the raw node ID as a u8
     pub fn raw(&self) -> u8 {
         match self {
             NodeId::Unconfigured => 255,
@@ -45,6 +59,7 @@ impl NodeId {
     }
 }
 
+/// Error for converting u8 to a NodeId
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidNodeIdError;
 

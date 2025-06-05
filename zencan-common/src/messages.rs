@@ -1,3 +1,5 @@
+//! Message definitions
+
 use snafu::Snafu;
 
 use crate::{
@@ -5,21 +7,29 @@ use crate::{
     sdo::{SdoRequest, SdoResponse},
 };
 
+/// Yet another CanId enum
+///
+/// TODO: Consider if this should use the CanId from embedded_can?
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum CanId {
+    /// An extended 28-bit identifier
     Extended(u32),
+    /// A std 11-bit identifier
     Std(u16),
 }
 
 impl CanId {
+    /// Create a new extended ID
     pub const fn extended(id: u32) -> CanId {
         CanId::Extended(id)
     }
 
+    /// Create a new standard ID
     pub const fn std(id: u16) -> CanId {
         CanId::Std(id)
     }
 
+    /// Get the raw ID as a u32
     pub fn raw(&self) -> u32 {
         match self {
             CanId::Extended(id) => *id,
@@ -27,6 +37,7 @@ impl CanId {
         }
     }
 
+    /// Returns true if this ID is an extended ID
     pub fn is_extended(&self) -> bool {
         match self {
             CanId::Extended(_) => true,
@@ -37,11 +48,18 @@ impl CanId {
 
 const MAX_DATA_LENGTH: usize = 8;
 
+/// A struct to contain a CanMessage
 #[derive(Clone, Copy, Debug)]
 pub struct CanMessage {
+    /// The data payload of the message
+    ///
+    /// Note, some bytes may be unused. Check dlc.
     pub data: [u8; MAX_DATA_LENGTH],
+    /// The length of the data payload
     pub dlc: u8,
+    /// Indicates this message is a remote transmission request
     pub rtr: bool,
+    /// The id of this message
     pub id: CanId,
 }
 
@@ -57,6 +75,7 @@ impl Default for CanMessage {
 }
 
 impl CanMessage {
+    /// Create a new CAN message
     pub fn new(id: CanId, data: &[u8]) -> Self {
         let dlc = data.len() as u8;
         if dlc > MAX_DATA_LENGTH as u8 {
@@ -77,6 +96,9 @@ impl CanMessage {
         }
     }
 
+    /// Create a new RTR message
+    ///
+    /// RTR messages have no data payload
     pub fn new_rtr(id: CanId) -> Self {
         Self {
             id,
@@ -85,14 +107,17 @@ impl CanMessage {
         }
     }
 
+    /// Get the id of the message
     pub fn id(&self) -> CanId {
         self.id
     }
 
+    /// Get a slice containing the data payload
     pub fn data(&self) -> &[u8] {
         &self.data[0..self.dlc as usize]
     }
 
+    /// Returns true if this message is a remote transmission request
     pub fn is_rtr(&self) -> bool {
         self.rtr
     }
@@ -102,7 +127,7 @@ impl CanMessage {
 ///
 /// These are set by a receiver when it detects an error in a received frame, and received globally
 /// by all nodes on the bus
-#[derive(Debug, Snafu)]
+#[derive(Clone, Copy, Debug, Snafu)]
 #[repr(u8)]
 pub enum CanError {
     /// The transmitter detected a different value on the bus than the value is was transmitting at
@@ -122,6 +147,7 @@ pub enum CanError {
 }
 
 impl CanError {
+    /// Create a CanError from the on-bus error code
     pub fn from_raw(raw: u8) -> Self {
         match raw {
             1 => Self::Bit,
@@ -134,17 +160,24 @@ impl CanError {
     }
 }
 
+/// The NMT state transition command specifier
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
-pub enum NmtCommandCmd {
+pub enum NmtCommandSpecifier {
+    /// Indicates device should transition to the Operation state
     Start = 1,
+    /// Indicates device should transition to the Stopped state
     Stop = 2,
+    /// Indicates device should transition to the PreOperational state
     EnterPreOp = 128,
+    /// Indicates device should perform an application reset
     ResetApp = 129,
+    /// Indicates device should perform a communications reset
     ResetComm = 130,
 }
 
-impl NmtCommandCmd {
+impl NmtCommandSpecifier {
+    /// Create an NmtCommandCmd from the byte value transmitted in the message
     pub fn from_byte(b: u8) -> Result<Self, MessageError> {
         match b {
             1 => Ok(Self::Start),
@@ -157,19 +190,27 @@ impl NmtCommandCmd {
     }
 }
 
+/// The COB ID used for sending NMT commands
 pub const NMT_CMD_ID: CanId = CanId::Std(0);
+/// The COB ID used for sending SYNC commands
 pub const SYNC_ID: CanId = CanId::Std(0x80);
+/// The COB ID used for LSS slave responses
 pub const LSS_RESP_ID: CanId = CanId::Std(0x7E4);
+/// The COB ID used for LSS master requests
 pub const LSS_REQ_ID: CanId = CanId::Std(0x7E5);
+/// The COB ID used for heartbeat messages
 pub const HEARTBEAT_ID: u16 = 0x700;
 /// The default base ID for sending SDO requests (server node ID is added)
 pub const SDO_REQ_BASE: u16 = 0x600;
 /// The default base ID for sending SDO responses (server node ID is added)
 pub const SDO_RESP_BASE: u16 = 0x580;
 
+/// An NmtCommand message
 #[derive(Debug, Clone, Copy)]
 pub struct NmtCommand {
-    pub cmd: NmtCommandCmd,
+    /// Specifies the type of command
+    pub cs: NmtCommandSpecifier,
+    /// Indicates the node it applies to. A node of 0 indicates a broadcast command to all nodes.
     pub node: u8,
 }
 
@@ -184,9 +225,9 @@ impl TryFrom<CanMessage> for NmtCommand {
                 expected: NMT_CMD_ID,
             })
         } else if payload.len() >= 2 {
-            let cmd = NmtCommandCmd::from_byte(payload[0])?;
+            let cmd = NmtCommandSpecifier::from_byte(payload[0])?;
             let node = payload[1];
-            Ok(NmtCommand { cmd, node })
+            Ok(NmtCommand { cs: cmd, node })
         } else {
             Err(MessageError::MessageTooShort)
         }
@@ -200,18 +241,25 @@ impl From<NmtCommand> for CanMessage {
             dlc: 2,
             ..Default::default()
         };
-        msg.data[0] = cmd.cmd as u8;
+        msg.data[0] = cmd.cs as u8;
         msg.data[1] = cmd.node;
         msg
     }
 }
 
+/// Possible NMT states for a node
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum NmtState {
+    /// Bootup
+    ///
+    /// A node never remains in this state, as all nodes should transition automatically into PreOperational
     Bootup = 0,
+    /// Node has been stopped
     Stopped = 4,
+    /// Normal operational state
     Operational = 5,
+    /// Node is awaiting command to enter operation
     PreOperational = 127,
 }
 
@@ -226,6 +274,8 @@ impl core::fmt::Display for NmtState {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+/// An error for [`NmtState::try_from()`]
 pub struct InvalidNmtStateError(u8);
 
 impl TryFrom<u8> for NmtState {
@@ -246,10 +296,14 @@ impl TryFrom<u8> for NmtState {
     }
 }
 
+/// A Heartbeat message
 #[derive(Debug, Clone, Copy)]
 pub struct Heartbeat {
+    /// The ID of the node transmitting the heartbeat
     pub node: u8,
+    /// A toggle value which is flipped on every heartbeat
     pub toggle: bool,
+    /// The current NMT state of the node
     pub state: NmtState,
 }
 
@@ -278,6 +332,7 @@ pub struct SyncObject {
 }
 
 impl SyncObject {
+    /// Create a new SyncObjectd
     pub fn new(count: u8) -> Self {
         Self { count }
     }
@@ -304,38 +359,6 @@ impl From<CanMessage> for SyncObject {
             panic!("Invalid message ID for SyncObject");
         }
     }
-}
-
-// pub struct SdoRequest {
-//     pub ccs: ClientCommand,
-//     pub index: u16,
-//     pub sub: u8,
-//     pub data: [u8; 4],
-//     pub len: u8,
-// }
-
-// pub struct SdoResponse {
-//     pub scs: ServerCommand,
-//     pub index: u16,
-//     pub sub: u8,
-//     /// Expedited flag
-//     pub e: bool,
-//     /// size indicator
-//     pub s: bool,
-//     /// If e=1 and s=1, indicates the number of bytes in data which do not contain valid data
-//     pub n: u8,
-//     pub data: [u8; 4],
-// }
-
-pub fn is_std_sdo_request(can_id: CanId, node_id: u8) -> bool {
-    if let CanId::Std(id) = can_id {
-        let base = id & 0xff80;
-        let msg_id = id & 0x7f;
-        if base == SDO_REQ_BASE && (msg_id == node_id as u16 || msg_id == 0) {
-            return true;
-        }
-    }
-    false
 }
 
 impl TryFrom<CanMessage> for ZencanMessage {
@@ -389,7 +412,9 @@ impl TryFrom<CanMessage> for ZencanMessage {
     }
 }
 
-#[derive(Debug)]
+/// An enum representing all of the standard messages
+#[derive(Clone, Copy, Debug)]
+#[allow(missing_docs)]
 pub enum ZencanMessage {
     NmtCommand(NmtCommand),
     Sync(SyncObject),
@@ -400,29 +425,42 @@ pub enum ZencanMessage {
     LssResponse(LssResponse),
 }
 
+/// An error for problems converting CanMessages to zencan types
 #[derive(Debug, Clone, Copy, PartialEq, Snafu)]
 pub enum MessageError {
+    /// Not enough bytes were present in the message
     MessageTooShort,
+    /// The message was malformed in some way
     MalformedMsg {
+        /// The COB ID of the malformed message
         cob_id: CanId,
     },
     /// The message ID was not the expected value
     #[snafu(display("Unexpected message ID found: {cob_id:?}, expected: {expected:?}"))]
     UnexpectedId {
+        /// Received ID
         cob_id: CanId,
+        /// Expected ID
         expected: CanId,
     },
+    /// A field in the message contained an unallowed value for that field
     InvalidField,
+    /// The COB ID of the message does not correspond to an expected ZencanMessag
+    ///
+    /// This isn't particular surprising, many messages on the bus will not (e.g. PDOs)
     UnrecognizedId {
+        /// The unrecognized COB
         cob_id: CanId,
     },
     /// The NMT state integer in the message is not a valid NMT state
     InvalidNmtState {
+        /// The invalid byte
         value: u8,
     },
     /// An invalid LSS command specifier was found in the message
     #[snafu(display("Unexpected LSS command: {value}"))]
     UnexpectedLssCommand {
+        /// The invalid byte
         value: u8,
     },
 }

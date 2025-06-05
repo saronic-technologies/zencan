@@ -1,17 +1,15 @@
+//! Common SDO implementation
+//!
+//! Defines messages, constants, etc for SDO protocol
 use int_enum::IntEnum;
 
 use crate::messages::{CanId, CanMessage};
 
-pub enum SdoError {
-    Abort(AbortCode),
-}
-
 /// Specifies the possible server command specifier (SCS) values in SDO response packets
-pub enum ServerCommand {
+enum ServerCommand {
     SegmentUpload = 0,
     SegmentDownload = 1,
     Upload = 2,
-    /// Acknowledge a download command
     Download = 3,
     Abort = 4,
 }
@@ -32,6 +30,9 @@ impl TryFrom<u8> for ServerCommand {
     }
 }
 
+/// SDO Abort Code
+///
+/// Defines the various reasons an SDO transfer can be aborted
 #[derive(Clone, Copy, Debug, PartialEq, IntEnum)]
 #[repr(u32)]
 pub enum AbortCode {
@@ -79,7 +80,9 @@ pub enum AbortCode {
     ValueTooHigh = 0x0609_0031,
     /// Value of parameter too low (download only)
     ValueTooLow = 0x0609_0032,
+    /// Resource isn't available
     ResourceNotAvailable = 0x060A_0023,
+    /// General error
     GeneralError = 0x0800_0000,
     /// Data cannot be transferred or stored to the application
     CantStore = 0x0800_0020,
@@ -93,7 +96,7 @@ pub enum AbortCode {
     NoData = 0x0800_0024,
 }
 
-pub enum ClientCommand {
+enum ClientCommand {
     DownloadSegment = 0,
     InitiateDownload = 1,
     InitiateUpload = 2,
@@ -121,60 +124,79 @@ impl TryFrom<u8> for ClientCommand {
     }
 }
 
+/// An SDO Request
+///
+/// This represents the possible request messages which can be send from client to server
 #[derive(Debug, Clone, Copy)]
 pub enum SdoRequest {
+    /// Begin a download, writing data to an object on the server
     InitiateDownload {
-        // Number of unused bytes in data
+        /// Number of unused bytes in data
         n: u8,
-        // Expedited
+        /// Expedited
         e: bool,
-        // size valid
+        /// size valid
         s: bool,
-        // Object index
+        /// Object index
         index: u16,
-        // Object sub-index
+        /// Object sub-index
         sub: u8,
-        // data (value on expedited, size when e=1 and s=1)
+        /// data (value on expedited, size when e=1 and s=1)
         data: [u8; 4],
     },
+    /// Send a segment of data to the server
     DownloadSegment {
-        // Toggle flag
+        /// Toggle flag
         t: bool,
-        // Number of unused bytes in data
+        /// Number of unused bytes in data
         n: u8,
-        // When set, indicates there are no more segments to be sent
+        /// When set, indicates there are no more segments to be sent
         c: bool,
-        // Segment data
+        /// Segment data
         data: [u8; 7],
     },
+    /// Begin an upload of data from an object on the server
     InitiateUpload {
+        /// The requested object index
         index: u16,
+        /// The requested sub object
         sub: u8,
     },
+    /// Request the next segment in an upload
     ReqUploadSegment {
+        /// Toggle flag
         t: bool,
     },
+    /// Initiate a block download
     InitiateBlockDownload {
-        // Client CRC supported flag
+        /// Client CRC supported flag
         cc: bool,
-        // size flag
+        /// size flag
         s: bool,
-        // client sub command
+        /// client sub command
         cs: bool,
+        /// Index of object to download to
         index: u16,
+        /// Sub object to download to
         sub: u8,
-        // If s=1, contains the number of bytes to be downloaded
+        /// If s=1, contains the number of bytes to be downloaded
         size: u32,
     },
+    /// Initiate a block upload
     InitiateBlockUpload {},
+    /// Sent by client to abort an ongoing transaction
     Abort {
+        /// The object index of the active transaction
         index: u16,
+        /// The sub object of the active transaction
         sub: u8,
+        /// The abort reason
         abort_code: u32,
     },
 }
 
 impl SdoRequest {
+    /// Create an abort message
     pub fn abort(index: u16, sub: u8, abort_code: AbortCode) -> Self {
         SdoRequest::Abort {
             index,
@@ -183,7 +205,7 @@ impl SdoRequest {
         }
     }
 
-    /// Create an initiate download message
+    /// Create an initiate download request
     pub fn initiate_download(index: u16, sub: u8, size: Option<u32>) -> Self {
         let data = size.unwrap_or(0).to_le_bytes();
 
@@ -197,6 +219,7 @@ impl SdoRequest {
         }
     }
 
+    /// Creat a `DownloadSegment` requests
     pub fn download_segment(toggle: bool, last_segment: bool, segment_data: &[u8]) -> Self {
         let mut data = [0; 7];
         data[0..segment_data.len()].copy_from_slice(segment_data);
@@ -223,14 +246,17 @@ impl SdoRequest {
         }
     }
 
+    /// Creata an `InitiateUpload` request
     pub fn initiate_upload(index: u16, sub: u8) -> Self {
         SdoRequest::InitiateUpload { index, sub }
     }
 
+    /// Create a `ReqUploadSegment` request
     pub fn upload_segment_request(toggle: bool) -> Self {
         SdoRequest::ReqUploadSegment { t: toggle }
     }
 
+    /// Convert the request to a CanMessage using the provided COB ID
     pub fn to_can_message(self, id: CanId) -> CanMessage {
         let mut payload = [0; 8];
 
@@ -296,16 +322,16 @@ impl SdoRequest {
 }
 
 impl TryFrom<&[u8]> for SdoRequest {
-    type Error = SdoError;
+    type Error = AbortCode;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if value.len() < 8 {
-            return Err(SdoError::Abort(AbortCode::DataTypeMismatchLengthLow));
+            return Err(AbortCode::DataTypeMismatchLengthLow);
         }
         let ccs = value[0] >> 5;
         let ccs: ClientCommand = match ccs.try_into() {
             Ok(ccs) => ccs,
-            Err(_) => return Err(SdoError::Abort(AbortCode::InvalidCommandSpecifier)),
+            Err(_) => return Err(AbortCode::InvalidCommandSpecifier),
         };
 
         match ccs {
@@ -357,39 +383,59 @@ impl TryFrom<&[u8]> for SdoRequest {
     }
 }
 
+/// Represents a response from SDO server to client
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum SdoResponse {
+    /// Response to an [`SdoRequest::InitiateUpload`]
     ConfirmUpload {
-        // Number of unused bytes in data
+        /// Number of unused bytes in data
         n: u8,
-        // Expedited flag
+        /// Expedited flag
         e: bool,
-        // size flag
+        /// size flag
         s: bool,
+        /// The index of the object being uploaded
         index: u16,
+        /// The sub object being uploaded
         sub: u8,
-        // Value if e=1, or size if s=1
+        /// Value if e=1, or size if s=1
         data: [u8; 4],
     },
+    /// Send an upload segment
     UploadSegment {
+        /// The toggle bit
         t: bool,
+        /// The number of unused bytes in data
         n: u8,
+        /// Flag indicating this is the final segment
         c: bool,
+        /// object data
         data: [u8; 7],
     },
+    /// Response to a [`SdoRequest::InitiateDownload`]
     ConfirmDownload {
+        /// The index of the object to be written to
         index: u16,
+        /// The sub object to be written to
         sub: u8,
     },
+    /// Response to a [`SdoRequest::DownloadSegment`]
     ConfirmDownloadSegment {
+        /// Toggle flag
         t: bool,
     },
+    /// Confirm a block download
     ConfirmBlockDownload {
+        /// Flag indicating server supports CRC generation
         sc: bool,
     },
+    /// Sent by server to abort an ongoing transaction
     Abort {
+        /// Object index of the active transfer
         index: u16,
+        /// Sub object of the active transfer
         sub: u8,
+        /// Abort reason
         abort_code: u32,
     },
 }
@@ -447,6 +493,7 @@ impl TryFrom<CanMessage> for SdoResponse {
     }
 }
 impl SdoResponse {
+    /// Create a `ConfirmUpload` response for an expedited upload
     pub fn expedited_upload(index: u16, sub: u8, data: &[u8]) -> SdoResponse {
         if data.len() > 4 {
             panic!("Cannot create expedited upload with more than 4 bytes");
@@ -476,6 +523,7 @@ impl SdoResponse {
         }
     }
 
+    /// Create a `ConfirmUpload` response for a segmented upload
     pub fn upload_acknowledge(index: u16, sub: u8, size: u32) -> SdoResponse {
         SdoResponse::ConfirmUpload {
             n: 0,
@@ -487,6 +535,7 @@ impl SdoResponse {
         }
     }
 
+    /// Create an `UploadSegment` response
     pub fn upload_segment(t: bool, c: bool, data: &[u8]) -> SdoResponse {
         let n = (7 - data.len()) as u8;
         let mut buf = [0; 7];
@@ -494,14 +543,17 @@ impl SdoResponse {
         SdoResponse::UploadSegment { t, n, c, data: buf }
     }
 
+    /// Create a `ConfirmDownload` response
     pub fn download_acknowledge(index: u16, sub: u8) -> SdoResponse {
         SdoResponse::ConfirmDownload { index, sub }
     }
 
+    /// Create a `ConfirmDownloadSegment` response
     pub fn download_segment_acknowledge(t: bool) -> SdoResponse {
         SdoResponse::ConfirmDownloadSegment { t }
     }
 
+    /// Create an abort response
     pub fn abort(index: u16, sub: u8, abort_code: AbortCode) -> SdoResponse {
         let abort_code = abort_code as u32;
         SdoResponse::Abort {
@@ -511,6 +563,7 @@ impl SdoResponse {
         }
     }
 
+    /// Convert the response to a [CanMessage] using the provided COB ID
     pub fn to_can_message(self, id: CanId) -> CanMessage {
         let mut payload = [0; 8];
 

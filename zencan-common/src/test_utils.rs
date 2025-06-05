@@ -1,5 +1,9 @@
+//! Test utils
+//!
+//! Only available with `#[cfg(test)]`
 use crate::{objects::ObjectRawAccess, sdo::AbortCode};
 
+/// Utility to test some basic properties of structs implementing the [`ObjectRawAccess`] trait
 pub fn test_raw_object_access(obj: &dyn ObjectRawAccess, sub: u8, size: u16) {
     // Can read sub info
     let sub_info = obj.sub_info(sub).expect("Missing sub info for sub {sub}");

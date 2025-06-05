@@ -3,35 +3,47 @@
 //! Since Crossbeam does not support thumbv6m due to lack of CAS, this is a fallback option.
 //!
 //! TODO: This can be made more efficient by using core::sync::atomic types for types which can
-//! transmute into the base integer types
+//! transmute into the base integer types.
 
 use core::{cell::Cell, ops::Add};
 use critical_section::Mutex;
 
+
+/// A container to allow atomic access to the contained object
 #[derive(Debug)]
 pub struct AtomicCell<T: Copy> {
     inner: Mutex<Cell<T>>,
 }
 
 impl<T: Send + Copy> AtomicCell<T> {
+    /// Create a new AtomicCell with the provided value
     pub const fn new(value: T) -> Self {
         Self {
             inner: Mutex::new(Cell::new(value)),
         }
     }
 
+    /// Read the value of the AtomicCell
     pub fn load(&self) -> T {
         critical_section::with(|cs| self.inner.borrow(cs).get())
     }
 
+    /// Replace the value of the AtomicCell
     pub fn store(&self, value: T) {
         critical_section::with(|cs| self.inner.borrow(cs).set(value));
     }
 
+    /// Borrow a reference to the contained value
+    ///
+    /// A critical section must be obtained by the called and provided
     pub fn borrow<'a>(&'a self, cs: critical_section::CriticalSection<'a>) -> &'a Cell<T> {
         self.inner.borrow(cs)
     }
 
+    /// Perform atomic modification of the contained value
+    ///
+    /// This operation will be performed in a critical section, so it will block all IRQs until the
+    /// function returns.
     pub fn fetch_update(&self, mut f: impl FnMut(T) -> Option<T>) -> Result<T, T> {
         critical_section::with(|cs| {
             let old_value = self.inner.borrow(cs).get();
@@ -46,12 +58,14 @@ impl<T: Send + Copy> AtomicCell<T> {
 }
 
 impl<T: Send + Copy + Default> AtomicCell<T> {
+    /// Return the contained value, and replace it with a default value
     pub fn take(&self) -> T {
         critical_section::with(|cs| self.inner.borrow(cs).take())
     }
 }
 
 impl<T: Copy + Add<Output = T>> AtomicCell<T> {
+    /// Atomically add value to the contained value
     pub fn fetch_add(&self, value: T) -> T {
         critical_section::with(|cs| {
             let old_value = self.inner.borrow(cs).get();

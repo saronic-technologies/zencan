@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 use futures::future::join_all;
 use tokio::task::JoinHandle;
 use zencan_common::lss::LssIdentity;
-use zencan_common::messages::{NmtCommand, NmtCommandCmd, NmtState, ZencanMessage};
+use zencan_common::messages::{NmtCommand, NmtCommandSpecifier, NmtState, ZencanMessage};
 use zencan_common::{
     traits::{AsyncCanReceiver, AsyncCanSender},
     NodeId,
@@ -228,6 +228,15 @@ pub struct BusManager<S: AsyncCanSender + Sync + Send> {
 }
 
 impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
+    /// Create a new bus manager
+    ///
+    /// # Arguments
+    /// - `sender`: An object which implements [`AsyncCanSender`] to be used for sending messages to
+    ///   the bus
+    /// - `receiver`: An object which implements [`AsyncCanReceiver`] to be used for receiving
+    ///   messages from the bus
+    ///
+    /// When using socketcan, these can be created with [`crate::open_socketcan`]
     pub fn new(sender: S, receiver: impl AsyncCanReceiver + Sync + 'static) -> Self {
         let mut receiver = SharedReceiver::new(receiver);
         let sender = SharedSender::new(Arc::new(tokio::sync::Mutex::new(sender)));
@@ -284,6 +293,7 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
         self.sdo_clients.lock(node_id)
     }
 
+    /// Get a list of known nodes
     pub async fn node_list(&self) -> Vec<NodeInfo> {
         let node_map = self.nodes.lock().await;
         let mut nodes = Vec::with_capacity(node_map.len());
@@ -295,6 +305,13 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
         nodes
     }
 
+    /// Perform a scan of all possible node IDs
+    ///
+    /// Will find all configured devices, and read metadata from required objects, including:
+    /// - Identity
+    /// - Device Name
+    /// - Software Version
+    /// - Hardware Version
     pub async fn scan_nodes(&mut self) -> Vec<NodeInfo> {
         const N_PARALLEL: usize = 10;
 
@@ -335,32 +352,32 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
     ///
     /// node - The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_reset_app(&mut self, node: u8) {
-        self.send_nmt_cmd(NmtCommandCmd::ResetApp, node).await
+        self.send_nmt_cmd(NmtCommandSpecifier::ResetApp, node).await
     }
 
     /// Send communications reset command
     ///
     /// node - The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_reset_comms(&mut self, node: u8) {
-        self.send_nmt_cmd(NmtCommandCmd::ResetComm, node).await
+        self.send_nmt_cmd(NmtCommandSpecifier::ResetComm, node).await
     }
 
     /// Send start operation command
     ///
     /// node - The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_start(&mut self, node: u8) {
-        self.send_nmt_cmd(NmtCommandCmd::Start, node).await
+        self.send_nmt_cmd(NmtCommandSpecifier::Start, node).await
     }
 
     /// Send start operation command
     ///
     /// node - The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_stop(&mut self, node: u8) {
-        self.send_nmt_cmd(NmtCommandCmd::Stop, node).await
+        self.send_nmt_cmd(NmtCommandSpecifier::Stop, node).await
     }
 
-    async fn send_nmt_cmd(&mut self, cmd: NmtCommandCmd, node: u8) {
-        let message = NmtCommand { cmd, node };
+    async fn send_nmt_cmd(&mut self, cmd: NmtCommandSpecifier, node: u8) {
+        let message = NmtCommand { cs: cmd, node };
         self.sender.send(message.into()).await.ok();
     }
 }
