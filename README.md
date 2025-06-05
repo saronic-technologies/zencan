@@ -1,3 +1,36 @@
+# Zencan
+
+Easily build and control CANOpen nodes in Rust.
+
+Zencan's goal is to enable rapid creation of a CANOpen node in a `no_std` embedded context using a
+TOML configuration file and code generation. It also provides utilities for communicating with the
+nodes from a linux environment.
+
+**This project is still in the prototype stage, so it's lacking some features and may yet go through a
+lot of API churn.**
+
+## Components
+
+- [`zencan-node`](zencan-node/README.md): Implements a zencan node. `no_std` compatible.
+- ['zencan-build`](zencan-build/README.md): Code generation for generating the static data associated with a node, based on a *device config* TOML file.
+- [`zencan-client`](zencan-client/README.md): Client library for communicating with nodes
+- [`zencan-cli`](zencan-cli/README.md): Command line tools for interacting with devices
+- [`zencan-common`](zencan-common/README.md): Shared library used by both node and client
+
+## Why
+
+I like CAN, and I wanted to make it easy to build devices with lots of communication features in Rust -- mostly so I would use that, instead of like, hard-coding that one CAN message I need my device to send.
+
+## Goals
+
+- Support embedded targets with `no_std`/`no_alloc` with statically allocated object storage
+- Support enumeration of devices on a bus
+- Support software version reporting and bootloading over the bus
+- Support CAN-FD
+- Support bulk data transfer
+- Generate EDS and DBC files for integration into existing tools
+- Support persistence of configuration to flash via application provided callbacks
+
 ## Building docs
 
 Uses nightly docs features on docs.rs. To build docs locally using nightly features:
@@ -24,4 +57,9 @@ RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --no-deps
   - print returned errors with Display
 - Add better validity checking on PDO configuration
   - Don't allow changing things while operating
-- zencan-build should probably be exported and documented via zencan-node
+- zencan-build should maybe be exported and documented via zencan-node (?)
+- Bootloader protocol
+
+## License
+
+This project is licensed uder the [MPL-2.0](LICENSE) license.
