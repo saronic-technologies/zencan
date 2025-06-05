@@ -1,5 +1,7 @@
 # Zencan
 
+![Build](https://github.com/mcbridejc/zencan/actions/workflows/rust.yml/badge.svg)
+
 Easily build and control CANOpen nodes in Rust.
 
 Zencan's goal is to enable rapid creation of a CANOpen node in a `no_std` embedded context using a
@@ -58,7 +60,7 @@ RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --no-deps
 - Add better validity checking on PDO configuration
   - Don't allow changing things while operating
 - zencan-build should maybe be exported and documented via zencan-node (?)
-- Bootloader protocol
+- Bootload support
 
 ## License
 
