@@ -8,7 +8,7 @@ use integration_tests::{
     object_dict1,
     sim_bus::{SimBus, SimBusReceiver, SimBusSender},
 };
-use zencan_client::sdo_client::{SdoClient, SdoClientError};
+use zencan_client::sdo_client::{RawAbortCode, SdoClient, SdoClientError};
 use zencan_common::{objects::ODEntry, sdo::AbortCode, NodeId};
 use zencan_node::{node_state::NodeStateAccess, Node, NodeMbox};
 
@@ -206,7 +206,7 @@ async fn test_record_access() {
             SdoClientError::ServerAbort {
                 index: OBJECT_ID,
                 sub: 3,
-                abort_code: AbortCode::ReadOnly as u32
+                abort_code: RawAbortCode::Valid(AbortCode::ReadOnly)
             }
         );
     };

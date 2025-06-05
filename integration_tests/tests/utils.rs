@@ -9,11 +9,11 @@ use zencan_common::{
 use zencan_node::Node;
 
 #[allow(dead_code)]
-pub async fn test_with_background_process<'b>(
+pub async fn test_with_background_process<'b, T>(
     nodes: &mut [&mut Node],
     sender: &mut SimBusSender<'b>,
-    test_task: impl Future<Output = ()> + 'static,
-) {
+    test_task: impl Future<Output = T> + 'static,
+) -> T {
     // Call process once, to make sure the node is initialized before SDO requests come in
     for node in nodes.iter_mut() {
         node.process(0, &mut |tx_msg| block_on(sender.send(tx_msg)).unwrap());
@@ -31,9 +31,9 @@ pub async fn test_with_background_process<'b>(
     };
 
     tokio::select! {
-        _ = node_process_task => {}
-        _ = test_task => {}
-    };
+        _ = node_process_task => panic!("Node process task exited"),
+        test_result = test_task => test_result
+    }
 }
 
 pub struct BusLogger {

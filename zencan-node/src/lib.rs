@@ -10,7 +10,7 @@ mod lss_slave;
 mod node;
 mod node_mbox;
 pub mod node_state;
-mod pdo;
+pub(crate) mod pdo;
 mod persist;
 mod sdo_server;
 mod storage;

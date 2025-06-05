@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 critical-section.workspace = true
 crossbeam.workspace = true
+int-enum = "1.2.0"
 snafu.workspace = true
 socketcan = { workspace = true, optional = true }
 

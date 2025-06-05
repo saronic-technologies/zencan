@@ -9,17 +9,44 @@ use zencan_common::{
     traits::{AsyncCanReceiver, AsyncCanSender},
 };
 
+use crate::node_configuration::PdoConfig;
+
 const RESPONSE_TIMEOUT: Duration = Duration::from_millis(100);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RawAbortCode {
+    Valid(AbortCode),
+    Uknown(u32),
+}
+
+impl std::fmt::Display for RawAbortCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RawAbortCode::Valid(abort_code) => write!(f, "{abort_code:?}"),
+            RawAbortCode::Uknown(code) => write!(f, "{code:X}"),
+        }
+    }
+}
+
+impl From<u32> for RawAbortCode {
+    fn from(value: u32) -> Self {
+        match AbortCode::try_from(value) {
+            Ok(code) => Self::Valid(code),
+            Err(_) => Self::Uknown(value),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Snafu)]
 pub enum SdoClientError {
     NoResponse,
     MalformedResponse,
     UnexpectedResponse,
+    #[snafu(display("Received abort accessing object 0x{index:X}sub{sub}: {abort_code}"))]
     ServerAbort {
         index: u16,
         sub: u8,
-        abort_code: u32,
+        abort_code: RawAbortCode,
     },
     ToggleNotAlternated,
     UnexpectedSize,
@@ -454,6 +481,48 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
 
     pub async fn read_hardware_version(&mut self) -> Result<String> {
         self.read_visible_string(HARDWARE_VERSION, 0).await
+    }
+
+    pub async fn configure_tpdo(&mut self, pdo_num: usize, cfg: &PdoConfig) -> Result<()> {
+        let comm_index = 0x1800 + pdo_num as u16;
+        let mapping_index = 0x1a00 + pdo_num as u16;
+        self.store_pdo(comm_index, mapping_index, cfg).await
+    }
+
+    pub async fn configure_rpdo(&mut self, pdo_num: usize, cfg: &PdoConfig) -> Result<()> {
+        let comm_index = 0x1400 + pdo_num as u16;
+        let mapping_index = 0x1600 + pdo_num as u16;
+        self.store_pdo(comm_index, mapping_index, cfg).await
+    }
+
+    async fn store_pdo(
+        &mut self,
+        comm_index: u16,
+        mapping_index: u16,
+        cfg: &PdoConfig,
+    ) -> Result<()> {
+        assert!(cfg.mappings.len() < 0x40);
+        for (i, m) in cfg.mappings.iter().enumerate() {
+            let mapping_value = ((m.index as u32) << 16) | ((m.sub as u32) << 8) | (m.size as u32);
+            self.write_u32(mapping_index, (i + 1) as u8, mapping_value)
+                .await?;
+        }
+
+        let num_mappings = cfg.mappings.len() as u8;
+        self.write_u8(mapping_index, 0, num_mappings).await?;
+
+        let extended = cfg.cob > 0x7ff;
+        let mut cob_value = cfg.cob & 0xFFFFFFF;
+        if !cfg.enabled {
+            cob_value |= 1 << 31;
+        }
+        if extended {
+            cob_value |= 1 << 29;
+        }
+        self.write_u8(comm_index, 2, cfg.transmission_type).await?;
+        self.write_u32(comm_index, 1, cob_value).await?;
+
+        Ok(())
     }
 
     async fn wait_for_response(&mut self, timeout: Duration) -> Result<SdoResponse> {

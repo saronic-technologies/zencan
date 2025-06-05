@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 use futures::future::join_all;
 use tokio::task::JoinHandle;
 use zencan_common::lss::LssIdentity;
-use zencan_common::messages::{NmtState, ZencanMessage};
+use zencan_common::messages::{NmtCommand, NmtCommandCmd, NmtState, ZencanMessage};
 use zencan_common::{
     traits::{AsyncCanReceiver, AsyncCanSender},
     NodeId,
@@ -149,7 +149,7 @@ async fn scan_node<S: AsyncCanSender + Sync + Send>(
     })
 }
 
-struct SdoClientGuarded<'a, S, R>
+pub struct SdoClientGuard<'a, S, R>
 where
     S: AsyncCanSender,
     R: AsyncCanReceiver,
@@ -158,7 +158,7 @@ where
     client: SdoClient<S, R>,
 }
 
-impl<S, R> Deref for SdoClientGuarded<'_, S, R>
+impl<S, R> Deref for SdoClientGuard<'_, S, R>
 where
     S: AsyncCanSender,
     R: AsyncCanReceiver,
@@ -170,7 +170,7 @@ where
     }
 }
 
-impl<S, R> DerefMut for SdoClientGuarded<'_, S, R>
+impl<S, R> DerefMut for SdoClientGuard<'_, S, R>
 where
     S: AsyncCanSender,
     R: AsyncCanReceiver,
@@ -206,13 +206,13 @@ where
         }
     }
 
-    pub fn lock(&self, id: u8) -> SdoClientGuarded<SharedSender<S>, SharedReceiverChannel> {
+    pub fn lock(&self, id: u8) -> SdoClientGuard<SharedSender<S>, SharedReceiverChannel> {
         if !(1..=127).contains(&id) {
             panic!("ID {} out of range", id);
         }
         let guard = self.clients.get(&id).unwrap().lock().unwrap();
         let client = SdoClient::new_std(id, self.sender.clone(), self.receiver.clone());
-        SdoClientGuarded {
+        SdoClientGuard {
             _guard: guard,
             client,
         }
@@ -221,6 +221,7 @@ where
 
 /// Manage a zencan bus
 pub struct BusManager<S: AsyncCanSender + Sync + Send> {
+    sender: SharedSender<S>,
     nodes: Arc<tokio::sync::Mutex<HashMap<u8, NodeInfo>>>,
     sdo_clients: SdoClientMutex<S>,
     _monitor_task: JoinHandle<()>,
@@ -240,11 +241,15 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
             tokio::spawn(async move {
                 loop {
                     if let Ok(msg) = state_rx.recv().await {
-                        if let Ok(ZencanMessage::Heartbeat(heartbeat)) = ZencanMessage::try_from(msg) {
+                        if let Ok(ZencanMessage::Heartbeat(heartbeat)) =
+                            ZencanMessage::try_from(msg)
+                        {
                             let id_num = heartbeat.node;
                             if let Ok(node_id) = NodeId::try_from(id_num) {
                                 let mut nodes = nodes.lock().await;
-                                if let std::collections::hash_map::Entry::Vacant(e) = nodes.entry(id_num) {
+                                if let std::collections::hash_map::Entry::Vacant(e) =
+                                    nodes.entry(id_num)
+                                {
                                     e.insert(NodeInfo::new(node_id.raw()));
                                 } else {
                                     let node = nodes.get_mut(&id_num).unwrap();
@@ -260,12 +265,23 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
             })
         };
 
-
         Self {
+            sender,
             sdo_clients,
             nodes,
             _monitor_task: monitor_task,
         }
+    }
+
+    /// Get an SDO client for a particular node
+    ///
+    /// This function may block if another task is using the required SDO client, as it ensures
+    /// exclusive access to each node's SDO server.
+    pub fn sdo_client(
+        &self,
+        node_id: u8,
+    ) -> SdoClientGuard<SharedSender<S>, SharedReceiverChannel> {
+        self.sdo_clients.lock(node_id)
     }
 
     pub async fn node_list(&self) -> Vec<NodeInfo> {
@@ -315,4 +331,36 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
         nodes
     }
 
+    /// Send application reset command
+    ///
+    /// node - The node ID to command, or 0 to broadcast to all nodes
+    pub async fn nmt_reset_app(&mut self, node: u8) {
+        self.send_nmt_cmd(NmtCommandCmd::ResetApp, node).await
+    }
+
+    /// Send communications reset command
+    ///
+    /// node - The node ID to command, or 0 to broadcast to all nodes
+    pub async fn nmt_reset_comms(&mut self, node: u8) {
+        self.send_nmt_cmd(NmtCommandCmd::ResetComm, node).await
+    }
+
+    /// Send start operation command
+    ///
+    /// node - The node ID to command, or 0 to broadcast to all nodes
+    pub async fn nmt_start(&mut self, node: u8) {
+        self.send_nmt_cmd(NmtCommandCmd::Start, node).await
+    }
+
+    /// Send start operation command
+    ///
+    /// node - The node ID to command, or 0 to broadcast to all nodes
+    pub async fn nmt_stop(&mut self, node: u8) {
+        self.send_nmt_cmd(NmtCommandCmd::Stop, node).await
+    }
+
+    async fn send_nmt_cmd(&mut self, cmd: NmtCommandCmd, node: u8) {
+        let message = NmtCommand { cmd, node };
+        self.sender.send(message.into()).await.ok();
+    }
 }

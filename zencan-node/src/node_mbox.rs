@@ -6,7 +6,7 @@ use zencan_common::{
     AtomicCell,
 };
 
-use crate::{lss_slave::LssReceiver, node_state::Pdo};
+use crate::{lss_slave::LssReceiver, pdo::Pdo};
 
 /// A data structure to be shared between a receiving thread (e.g. a CAN controller IRQ) and the
 /// [`Node`](crate::Node) object.

@@ -8,7 +8,11 @@
       fastscan messages, regardless of process timing. It isn't required, but could be implemented
       on a lot of systems.
 - Non-async API for zencan-client
-- Implement periodic heartbeat
 - EMCY service
   - Send EMCY message on receiving PDO of invalid length
 - zencandump needs to display COB-ID, e.g. for SdoRequest messages to distinguish nodes or servers
+- integration test wrapper
+  - DRY up the node process task creation
+  - print returned errors with Display
+- Add better validity checking on PDO configuration
+  - Don't allow changing things while operating

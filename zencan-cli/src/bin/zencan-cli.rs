@@ -1,14 +1,21 @@
 use std::{
     borrow::Cow,
-    sync::{Arc, Mutex},
+    ffi::OsString,
+    marker::PhantomData,
+    path::PathBuf,
+    str::FromStr,
+sync::{Arc, Mutex},
 };
 
 use clap::Parser;
-use clap_repl::reedline::{
-    FileBackedHistory, Prompt, PromptHistorySearch, PromptHistorySearchStatus,
+use reedline::{
+    default_emacs_keybindings, Emacs, FileBackedHistory, KeyModifiers, MenuBuilder, Prompt,
+    PromptHistorySearch, PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu, Signal,
+    Span,
 };
-use clap_repl::ClapEditor;
-use zencan_client::{open_socketcan, BusManager};
+use shlex::Shlex;
+use zencan_cli::command::{Cli, Commands, NmtAction};
+use zencan_client::{open_socketcan, BusManager, NodeConfig};
 
 #[derive(Parser)]
 struct Args {
@@ -40,7 +47,7 @@ impl Prompt for ZencanPrompt {
 
     fn render_prompt_indicator(
         &self,
-        _prompt_mode: clap_repl::reedline::PromptEditMode,
+        _prompt_mode: reedline::PromptEditMode,
     ) -> std::borrow::Cow<str> {
         Cow::Borrowed(">")
     }
@@ -57,12 +64,73 @@ impl Prompt for ZencanPrompt {
             PromptHistorySearchStatus::Passing => "",
             PromptHistorySearchStatus::Failing => "failing ",
         };
-        // NOTE: magic strings, given there is logic on how these compose I am not sure if it
-        // is worth extracting in to static constant
         Cow::Owned(format!(
             "({}reverse-search: {}) ",
             prefix, history_search.term
         ))
+    }
+}
+
+struct Completer<C: Parser + Send + Sync + 'static> {
+    c_phantom: PhantomData<C>,
+}
+impl<C: Parser + Send + Sync + 'static> Completer<C> {
+    pub fn new() -> Self {
+        Self {
+            c_phantom: PhantomData::<C>
+        }
+    }
+}
+
+impl<C: Parser + Send + Sync + 'static> reedline::Completer for Completer<C> {
+    fn complete(&mut self, line: &str, pos: usize) -> Vec<reedline::Suggestion> {
+        let mut cmd = C::command();
+        //let mut cmd = clap_complete::engine::complete()::CompleteCommand::augment_subcommands(cmd);
+
+        let args = Shlex::new(line);
+        let mut args = std::iter::once("".to_owned())
+            .chain(args)
+            .map(OsString::from)
+            .collect::<Vec<_>>();
+        if line.ends_with(' ') {
+            args.push(OsString::new());
+        }
+
+        let arg_index = args.len() - 1;
+        let span = Span::new(pos - args[arg_index].len(), pos);
+
+        if line.is_empty() {
+            return cmd
+                .get_subcommands()
+                .map(|cmd| reedline::Suggestion {
+                    value: cmd.get_name().to_owned(),
+                    description: cmd.get_after_help().map(|x| x.to_string()),
+                    style: None,
+                    extra: None,
+                    span,
+                    append_whitespace: true,
+                })
+                .collect();
+        }
+        let Ok(candidates) = clap_complete::engine::complete(
+            &mut cmd,
+            args,
+            arg_index,
+            PathBuf::from_str(".").ok().as_deref(),
+        ) else {
+            return vec![];
+        };
+        candidates
+            .into_iter()
+            .map(|c| reedline::Suggestion {
+                value: c.get_value().to_string_lossy().into_owned(),
+                description: c.get_help().map(|x| x.to_string()),
+                style: None,
+                extra: None,
+                span,
+                append_whitespace: false,
+            })
+            .collect()
     }
 }
 
@@ -77,33 +145,117 @@ async fn main() {
     let (tx, rx) = open_socketcan(&args.socket).expect("Failed to open bus socket");
     let mut manager = BusManager::new(tx, rx);
 
-    let rl = ClapEditor::<zencan_cli::command::Cli>::builder()
-        .with_prompt(Box::new(prompt))
-        .with_editor_hook(|reed| {
-            // Do custom things with `Reedline` instance here
-            reed.with_history(Box::new(
-                FileBackedHistory::with_file(10000, "/tmp/zencan-cli-history".into()).unwrap(),
-            ))
-        })
-        .build();
+    let completion_menu = Box::new(
+        reedline::IdeMenu::default()
+            .with_default_border()
+            .with_name("completion_menu"),
+    );
+    let mut keybindings = default_emacs_keybindings();
+    keybindings.add_binding(
+        KeyModifiers::NONE,
+        reedline::KeyCode::Tab,
+        ReedlineEvent::UntilFound(vec![
+            ReedlineEvent::Menu("completion_menu".to_string()),
+            ReedlineEvent::MenuNext,
+        ]),
+    );
+    let edit_mode = Box::new(Emacs::new(keybindings));
 
-    rl.repl_async(async |command| {
-        match command.command {
-            zencan_cli::command::Commands::Scan => {
+    let mut rl = Reedline::create()
+        .with_completer(Box::new(Completer::<Cli>::new()))
+        .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
+        .with_history(Box::new(
+            FileBackedHistory::with_file(10000, "/tmp/zencan-cli-history".into()).unwrap(),
+        ))
+        .with_edit_mode(edit_mode);
+
+    loop {
+        let nodes = manager.node_list().await;
+        *node_state.lock().unwrap() = nodes.len();
+        let line = match rl.read_line(&prompt) {
+            Ok(Signal::Success(line)) => line,
+            Ok(Signal::CtrlC) => continue,
+            Ok(Signal::CtrlD) => {
+                println!("Exiting...");
+                break;
+            }
+            Err(e) => panic!("Reedline error: {e}"),
+        };
+
+        let cmd = match shlex::split(&line) {
+            Some(split) => {
+                match Cli::try_parse_from(
+                    std::iter::once("").chain(split.iter().map(String::as_str)),
+                ) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        println!("{e}");
+                        continue;
+                    }
+                }
+            }
+            None => {
+                panic!("shlex!");
+            }
+        };
+
+        match cmd.command {
+            Commands::Scan => {
                 let nodes = manager.scan_nodes().await;
                 for n in &nodes {
                     println!("{n}");
                 }
             }
-            zencan_cli::command::Commands::Info => {
+            Commands::Info => {
                 let nodes = manager.node_list().await;
                 for n in &nodes {
                     println!("{n}");
                 }
             }
-            zencan_cli::command::Commands::Lss(_lss_commands) => todo!(),
+            Commands::Nmt(cmd) => match cmd.action {
+                NmtAction::ResetApp => manager.nmt_reset_app(cmd.node.raw()).await,
+                NmtAction::ResetComms => manager.nmt_reset_comms(cmd.node.raw()).await,
+                NmtAction::Start => manager.nmt_start(cmd.node.raw()).await,
+                NmtAction::Stop => manager.nmt_stop(cmd.node.raw()).await,
+            },
+            Commands::LoadConfig(args) => {
+                let config = match NodeConfig::load_from_file(&args.path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        println!("Error reading config file: ");
+                        println!("{e}");
+                        return;
+                    }
+                };
+                let mut client = manager.sdo_client(args.node_id);
+                for (pdo_num, cfg) in config.tpdos() {
+                    if let Err(e) = client.configure_tpdo(*pdo_num, cfg).await {
+                        println!("Error configuring TPDO {pdo_num}:");
+                        println!("{e}");
+                        continue;
+                    }
+                }
+                for (pdo_num, cfg) in config.rpdos() {
+                    if let Err(e) = client.configure_rpdo(*pdo_num, cfg).await {
+                        println!("Error configuring RPDO {pdo_num}:");
+                        println!("{e}");
+                        continue;
+                    }
+                }
+                for store in config.stores() {
+                    if let Err(e) = client
+                        .download(store.index, store.sub, &store.raw_value())
+                        .await
+                    {
+                        println!(
+                            "Error storing object at index {:04X} sub {}: {e}",
+                            store.index, store.sub
+                        );
+                        continue;
+                    }
+                }
+            }
+            Commands::Lss(_lss_commands) => todo!(),
         }
-        println!("{:?}", command);
-    })
-    .await;
+    }
 }

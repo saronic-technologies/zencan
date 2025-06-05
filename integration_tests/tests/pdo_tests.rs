@@ -9,7 +9,7 @@ use integration_tests::{
 };
 use serial_test::serial;
 use tokio::time::timeout;
-use zencan_client::sdo_client::SdoClient;
+use zencan_client::{sdo_client::SdoClient, PdoConfig, PdoMapping};
 use zencan_common::{
     messages::{CanId, CanMessage, SyncObject},
     objects::{find_object, ODEntry, ObjectRawAccess},
@@ -248,4 +248,59 @@ async fn test_tpdo_event_flags() {
     };
 
     test_with_background_process(&mut [&mut node], &mut bus.new_sender(), test_task).await;
+}
+
+#[serial]
+#[tokio::test]
+async fn test_pdo_configuration() {
+    let od = &integration_tests::object_dict1::OD_TABLE;
+    let state = &integration_tests::object_dict1::NODE_STATE;
+    let mbox = &integration_tests::object_dict1::NODE_MBOX;
+    let (mut node, mut client, mut bus) = setup(od, mbox, state);
+
+    let _logger = BusLogger::new(bus.new_receiver());
+
+    let test_task = async move {
+        let config = PdoConfig {
+            cob: 0x301,
+            enabled: true,
+            mappings: vec![
+                PdoMapping {
+                    index: 0x2000,
+                    sub: 1,
+                    size: 32,
+                },
+                PdoMapping {
+                    index: 0x2001,
+                    sub: 1,
+                    size: 32,
+                },
+            ],
+            transmission_type: 254,
+        };
+
+        client.configure_tpdo(0, &config).await?;
+
+        // Check that the expected objects got the expected values
+        assert_eq!(2, client.upload_u8(0x1A00, 0).await?);
+        assert_eq!(
+            (0x2000 << 16) | 1 << 8 | 32,
+            client.upload_u32(0x1A00, 1).await?
+        );
+        assert_eq!(
+            (0x2001 << 16) | 1 << 8 | 32,
+            client.upload_u32(0x1A00, 2).await?
+        );
+        assert_eq!(254, client.upload_u8(0x1800, 2).await?);
+        assert_eq!(0x301, client.upload_u32(0x1800, 1).await?);
+
+        Ok::<_, Box<dyn std::error::Error>>(())
+    };
+
+    let result =
+        test_with_background_process(&mut [&mut node], &mut bus.new_sender(), test_task).await;
+
+    if let Err(e) = result {
+        panic!("{}", e);
+    }
 }

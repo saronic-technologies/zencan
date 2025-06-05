@@ -304,10 +304,13 @@ pub struct DeviceConfig {
     pub objects: Vec<ObjectDefinition>,
 }
 
+/// Defines a sub-object in a record
 #[derive(Deserialize, Debug, Default, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct SubDefinition {
+    /// Sub index for the sub-object being defined
     pub sub_index: u8,
+    /// A human readable name for the value stored in this sub-object
     #[serde(default)]
     pub parameter_name: String,
     /// Used to name the struct field associated with this sub object
@@ -316,17 +319,23 @@ pub struct SubDefinition {
     /// will be `sub[index]`, where index is the uppercase hex representation of the sub index
     #[serde(default)]
     pub field_name: Option<String>,
+    /// The data type of the sub object
     pub data_type: DataType,
+    /// Access permissions for the sub object
     #[serde(default)]
     pub access_type: AccessTypeDeser,
+    /// The default value for the sub object
     #[serde(default)]
     pub default_value: Option<DefaultValue>,
+    /// Indicates whether this sub object can be mapped to PDOs
     #[serde(default)]
     pub pdo_mapping: PdoMapping,
+    /// Indicates if this sub object should be saved when the save command is sent
     #[serde(default)]
     pub persist: bool,
 }
 
+/// An enum to represent object default values
 #[derive(Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum DefaultValue {
@@ -344,6 +353,7 @@ pub enum Object {
     Domain(DomainDefinition),
 }
 
+/// Descriptor for a var object
 #[derive(Default, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct VarDefinition {
@@ -361,6 +371,7 @@ pub struct VarDefinition {
     pub persist: bool,
 }
 
+/// Descriptor for an array object
 #[derive(Default, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct ArrayDefinition {
@@ -374,29 +385,36 @@ pub struct ArrayDefinition {
     pub persist: bool,
 }
 
+/// Descriptor for a record object
 #[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RecordDefinition {
     pub subs: Vec<SubDefinition>,
 }
 
+/// Descriptor for a domain object
 #[derive(Deserialize, Debug, Clone)]
 pub struct DomainDefinition {}
 
+/// Descriptor for an object in the object dictionary
 #[derive(Deserialize, Debug, Clone)]
 pub struct ObjectDefinition {
+    /// The index of the object
     pub index: u16,
+    /// A human readable name to describe the contents of the object
     #[serde(default)]
     pub parameter_name: String,
     #[serde(default)]
     /// If true, this object is implemented by an application callback, and no storage will be
     /// allocated for it in the object dictionary.
     pub application_callback: bool,
+    /// The descriptor for the object
     #[serde(flatten)]
     pub object: Object,
 }
 
 impl ObjectDefinition {
+    /// Get the object code specifying the type of this object
     pub fn object_code(&self) -> ObjectCode {
         match self.object {
             Object::Var(_) => ObjectCode::Var,

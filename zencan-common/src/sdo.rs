@@ -1,3 +1,5 @@
+use int_enum::IntEnum;
+
 use crate::messages::{CanId, CanMessage};
 
 pub enum SdoError {
@@ -30,7 +32,7 @@ impl TryFrom<u8> for ServerCommand {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, IntEnum)]
 #[repr(u32)]
 pub enum AbortCode {
     /// Toggle bit not alternated

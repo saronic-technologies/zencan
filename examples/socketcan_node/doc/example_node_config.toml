@@ -1,0 +1,13 @@
+[tpdo.0]
+enabled = true
+cob = 0x200
+transmission_type = 254
+mappings = [
+    { index=0x2000, sub=0, size=16 },
+]
+
+[[store]]
+index = 0x2001
+sub = 1
+type = "u16"
+value = 42

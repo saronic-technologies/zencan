@@ -29,6 +29,7 @@ parameter_name = "first"
 field_name = "field_a"
 data_type = "uint16"
 access_type = "rw"
+persist = true
 [[objects.subs]]
 sub_index = 2
 parameter_name = "second"
