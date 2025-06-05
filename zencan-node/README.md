@@ -137,7 +137,7 @@ Received messages can be passed in using the `NODE_MBOX` struct, e.g.:
 zencan::NODE_MBOX.store_message(msg)?;
 ```
 
-The node `process()` method must be called from time to time. It isn't critical how fast, but your node's response time depend on it. The NODE_MBOX also provides the `set_process_notify_callback` method, to register a callback which will be called whenever there is new information to be processed so that the process call can be accelerated.
+The node `process()` method must be called from time to time. It isn't critical how fast, but your node's response time depend on it. The NODE_MBOX also provides the `set_process_notify_callback` method, to register a callback which will be called whenever there is new information to be processed so that the `process()` call can be accelerated.
 
 ```rust
 /// A task for running the CAN node processing periodically, or when triggered by the CAN receive
