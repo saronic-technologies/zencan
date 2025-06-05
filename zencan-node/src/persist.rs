@@ -56,10 +56,6 @@ async fn serialize_object(obj: &ODEntry<'_>, sub: u8, reg: &RefCell<u8>) {
     // Serialized node size is the variable length object data, plus node type (u8), index (u16), and sub index (u8)
     let node_size = data_size + 4;
 
-    println!(
-        "serializing {} bytes for {:x}sub{}",
-        node_size, obj.index, sub
-    );
     write_bytes(&node_size.to_le_bytes(), reg).await;
     write_bytes(&[NodeType::ObjectValue as u8], reg).await;
     write_bytes(&obj.index.to_le_bytes(), reg).await;
@@ -259,7 +255,6 @@ impl<'a> Iterator for PersistNodeReader<'a> {
             return None;
         }
         let length = u16::from_le_bytes(self.buf[self.pos..self.pos + 2].try_into().unwrap());
-        println!("Read node of len {length}");
         self.pos += 2;
         let node_slice = &self.buf[self.pos..self.pos + length as usize];
         self.pos += length as usize;

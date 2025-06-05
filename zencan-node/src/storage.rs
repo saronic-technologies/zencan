@@ -37,7 +37,6 @@ pub(crate) fn handle_1010_write(
 ) -> Result<(), AbortCode> {
     match sub {
         0 => {
-            println!("1010 sub0 write");
             Err(AbortCode::ReadOnly)
         }
         1 => {
