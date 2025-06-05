@@ -13,6 +13,5 @@
 //!
 //! A REPL-style interactive shell for controlling CAN devices.
 //!
-#![warn(missing_docs)]
 
 pub mod command;

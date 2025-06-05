@@ -186,7 +186,6 @@ fn generate_object_raw_access_impl(receiver: &RecordObjectReceiver) -> TokenStre
                 access_type: zencan_node::common::objects::AccessType::Rw,
                 persist: #persist,
                 pdo_mapping: #pdo_mapping,
-                ..Default::default()
             }),
         });
 
