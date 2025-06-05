@@ -1,9 +1,12 @@
 [package]
 name = "zencan-cli"
 version = "0.1.0"
-edition = "2021"
 authors = ["Jeff McBride <jeff@jeffmcbride.net>"]
-license = "MPL-2.0"
+description = "Command line interface for interacting with CANOpen devices"
+
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "zencandump"

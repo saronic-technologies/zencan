@@ -1,7 +1,12 @@
 [package]
 name = "zencan-build"
 version = "0.1.0"
-edition = "2021"
+authors = ["Jeff McBride <jeff@jeffmcbride.net>"]
+description = "Library for generating code for zencan-node crate"
+
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 # local

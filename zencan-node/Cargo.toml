@@ -1,15 +1,15 @@
 [package]
 name = "zencan-node"
 version = "0.0.0"
-edition = "2021"
 authors = ["Jeff McBride <jeff@jeffmcbride.net>"]
-license = "MPL-2.0"
 rust-version = "1.81"
-description = "Library for implementing a CAN-BUS node, primarily on an MCU"
-keywords = ["no_std", "embedded", "CAN"]
+description = "Library for implementing an OPENCan node, primarily on an MCU"
+keywords = ["no_std", "embedded", "CAN", "CANOpen"]
 categories = ["embedded", "no-std", "no-std::no-alloc"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 # Local

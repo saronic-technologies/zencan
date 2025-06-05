@@ -1,7 +1,13 @@
 [package]
 name = "zencan-client"
 version = "0.1.0"
-edition = "2021"
+authors = ["Jeff McBride <jeff@jeffmcbride.net>"]
+description = "Library for communicating with CANOpen devices on a CAN bus"
+keywords = ["embedded", "CAN", "CANOpen"]
+
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

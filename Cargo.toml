@@ -13,6 +13,13 @@ members = [
     "zencan-node",
 ]
 
+
+# Defaults for all crates to share
+[workspace.package]
+edition = "2021"
+license = "MPL-2.0"
+repository = "https://github.com/mcbridejc/zencan"
+
 [workspace.dependencies]
 # Local
 zencan-build = { path = "zencan-build" }
