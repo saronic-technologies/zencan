@@ -13,11 +13,11 @@ lot of API churn.**
 
 ## Components
 
-- [`zencan-node`](zencan-node/README.md): Implements a zencan node. `no_std` compatible.
-- ['zencan-build`](zencan-build/README.md): Code generation for generating the static data associated with a node, based on a *device config* TOML file.
-- [`zencan-client`](zencan-client/README.md): Client library for communicating with nodes
-- [`zencan-cli`](zencan-cli/README.md): Command line tools for interacting with devices
-- [`zencan-common`](zencan-common/README.md): Shared library used by both node and client
+- [`zencan-node`](zencan-node/): Implements a zencan node. `no_std` compatible.
+- [`zencan-build`](zencan-build/): Code generation for generating the static data associated with a node, based on a *device config* TOML file.
+- [`zencan-client`](zencan-client/): Client library for communicating with nodes
+- [`zencan-cli`](zencan-cli/): Command line tools for interacting with devices
+- [`zencan-common`](zencan-common/): Shared library used by both node and client
 
 ## Why
 
@@ -41,7 +41,9 @@ Uses nightly docs features on docs.rs. To build docs locally using nightly featu
 RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --no-deps
 ```
 
-## Missing Features
+## Some TODOs
+
+No doubt this is a very incomplete list...
 
 - Support for multiple SDO servers
 - Support for SYNC driven RPDO
@@ -61,6 +63,7 @@ RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --no-deps
   - Don't allow changing things while operating
 - zencan-build should maybe be exported and documented via zencan-node (?)
 - Bootload support
+- Implement domain objects
 
 ## License
 
