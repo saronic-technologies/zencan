@@ -33,7 +33,7 @@ fn store_objects_callback(reader: &mut dyn embedded_io::Read<Error = Infallible>
     let path = OBJECT_STORE_PATH.get().unwrap();
     log::info!("Storing objects to {path}");
 
-    match std::fs::OpenOptions::new().write(true).open(path) {
+    match std::fs::OpenOptions::new().create(true).write(true).open(path) {
         Ok(mut f) => {
             let mut buf = [0; 32];
             loop {
