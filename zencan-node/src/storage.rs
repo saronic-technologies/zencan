@@ -5,9 +5,7 @@
 use core::convert::Infallible;
 
 use zencan_common::{
-    objects::{ODCallbackContext, SubInfo},
-    sdo::AbortCode,
-    AtomicCell,
+    constants::values::SAVE_CMD, objects::{ODCallbackContext, SubInfo}, sdo::AbortCode, AtomicCell
 };
 
 pub type StoreObjectsCallback =
@@ -25,9 +23,6 @@ impl StorageContext {
         }
     }
 }
-
-/// Magic value used to trigger object storage
-const SAVE_CMD: u32 = 0x73617665;
 
 pub(crate) fn handle_1010_write(
     ctx: &ODCallbackContext,
@@ -59,7 +54,7 @@ pub(crate) fn handle_1010_write(
                         Err(AbortCode::CantStore)
                     }
                 } else {
-                    Err(AbortCode::CantStore)
+                    Err(AbortCode::IncompatibleParameter)
                 }
             }
         }

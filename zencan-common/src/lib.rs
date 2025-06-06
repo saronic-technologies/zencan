@@ -11,7 +11,7 @@ pub use atomic_cell::AtomicCell;
 pub mod lss;
 pub mod messages;
 pub mod node_id;
-pub mod object_ids;
+pub mod constants;
 pub mod objects;
 pub mod sdo;
 pub mod traits;

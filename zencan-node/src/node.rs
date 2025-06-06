@@ -6,7 +6,7 @@ use zencan_common::{
     messages::{
         CanId, CanMessage, Heartbeat, NmtCommandSpecifier, NmtState, ZencanMessage, LSS_RESP_ID,
     },
-    object_ids,
+    constants::object_ids,
     objects::{find_object, ODEntry, ObjectData, ObjectRawAccess},
     NodeId,
 };

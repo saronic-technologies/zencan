@@ -1,11 +1,6 @@
 //! A REPL-style interactive shell for talking to CAN devices via socketcan
 use std::{
-    borrow::Cow,
-    ffi::OsString,
-    marker::PhantomData,
-    path::PathBuf,
-    str::FromStr,
-    sync::{Arc, Mutex},
+    array::TryFromSliceError, borrow::Cow, ffi::OsString, marker::PhantomData, path::PathBuf, str::FromStr, sync::{Arc, Mutex}
 };
 
 use clap::Parser;
@@ -15,8 +10,8 @@ use reedline::{
     Span,
 };
 use shlex::Shlex;
-use zencan_cli::command::{Cli, Commands, NmtAction};
-use zencan_client::{open_socketcan, BusManager, NodeConfig};
+use zencan_cli::command::{Cli, Commands, NmtAction, SdoDataType};
+use zencan_client::{common::NodeId, open_socketcan, BusManager, NodeConfig};
 
 #[derive(Parser)]
 struct Args {
@@ -132,6 +127,87 @@ impl<C: Parser + Send + Sync + 'static> reedline::Completer for Completer<C> {
                 append_whitespace: false,
             })
             .collect()
+    }
+}
+
+pub struct MismatchedSizeError {}
+impl From<TryFromSliceError> for MismatchedSizeError {
+    fn from(_value: TryFromSliceError) -> Self {
+        Self {}
+    }
+}
+
+fn convert_write_value_to_bytes(data_type: SdoDataType, value: &str) -> Result<Vec<u8>, String> {
+    match data_type {
+        SdoDataType::U32 => {
+            let num = clap_num::maybe_hex::<u32>(value)?;
+            Ok(num.to_le_bytes().to_vec())
+        }
+        SdoDataType::U16 => {
+            let num = clap_num::maybe_hex::<u16>(value)?;
+            Ok(num.to_le_bytes().to_vec())
+        }
+        SdoDataType::U8 => {
+            let num = clap_num::maybe_hex::<u8>(value)?;
+            Ok(vec![num])
+        }
+        SdoDataType::I32 => {
+            let num = value.parse::<i32>().map_err(|e| e.to_string())?;
+            Ok(num.to_le_bytes().to_vec())
+        }
+        SdoDataType::I16 => {
+            let num = value.parse::<i16>().map_err(|e| e.to_string())?;
+            Ok(num.to_le_bytes().to_vec())
+        }
+        SdoDataType::I8 => {
+            let num = value.parse::<i8>().map_err(|e| e.to_string())?;
+            Ok(vec![num as u8])
+        }
+        SdoDataType::F32 => {
+            let num = value.parse::<f32>().map_err(|e| e.to_string())?;
+            Ok(num.to_le_bytes().to_vec())
+        }
+        SdoDataType::Utf8 => {
+            Ok(value.as_bytes().to_vec())
+        }
+    }
+}
+
+/// Attempt to print a byte slice based on data type and return true if successful
+fn convert_read_bytes_to_string(data_type: SdoDataType, bytes: &[u8]) -> Result<String, MismatchedSizeError> {
+    match data_type {
+        SdoDataType::U32 => {
+            Ok(u32::from_le_bytes(bytes.try_into()?).to_string())
+        }
+        SdoDataType::U16 => {
+            Ok(u16::from_le_bytes(bytes.try_into()?).to_string())
+        }
+        SdoDataType::U8 => {
+            if bytes.len() == 0 {
+                Ok(bytes[0].to_string())
+            } else {
+                Err(MismatchedSizeError {})
+            }
+        }
+        SdoDataType::I32 => {
+            Ok(i32::from_le_bytes(bytes.try_into()?).to_string())
+        }
+        SdoDataType::I16 => {
+            Ok(i16::from_le_bytes(bytes.try_into()?).to_string())
+        }
+        SdoDataType::I8 => {
+            if bytes.len() == 0 {
+                Ok((bytes[0] as i8).to_string())
+            } else {
+                Err(MismatchedSizeError {})
+            }
+        }
+        SdoDataType::F32 => {
+            Ok(f32::from_le_bytes(bytes.try_into()?).to_string())
+        }
+        SdoDataType::Utf8 => {
+            Ok(String::from_utf8_lossy(bytes).to_string())
+        }
     }
 }
 
@@ -257,6 +333,84 @@ async fn main() {
                 }
             }
             Commands::Lss(_lss_commands) => todo!(),
+            Commands::Read(args) => {
+                // Make sure node ID is valid
+                let node_id = match NodeId::new(args.node_id) {
+                    Ok(id) => id,
+                    Err(_) => {
+                        println!("{} is not a valid node ID", args.node_id);
+                        continue;
+                    }
+                };
+                let mut client = manager.sdo_client(node_id.raw());
+                match client.upload(args.index, args.sub).await {
+                    Ok(bytes) => {
+                        match args.data_type {
+                            Some(data_type) => {
+                                match convert_read_bytes_to_string(data_type, &bytes) {
+                                    Ok(str) => {
+                                        println!("Value: {str}");
+                                    }
+                                    Err(_) => {
+                                        println!("Read invalid data size {} for type {:?}", bytes.len(), data_type);
+                                        println!("Bytes: {:?}", &bytes);
+                                    }
+                                }
+                            }
+                            None => {
+                                println!("Read bytes: {:?}", &bytes);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("Error reading object: {e}");
+                        continue;
+                    }
+                }
+            }
+            Commands::Write(args) => {
+                // Make sure node ID is valid
+                let node_id = match NodeId::new(args.node_id) {
+                    Ok(id) => id,
+                    Err(_) => {
+                        println!("{} is not a valid node ID", args.node_id);
+                        continue;
+                    }
+                };
+                let mut client = manager.sdo_client(node_id.raw());
+                match convert_write_value_to_bytes(args.data_type, &args.value) {
+                    Ok(bytes) => {
+                        match client.download(args.index, args.sub, &bytes).await {
+                            Ok(_) => {
+                                println!("Wrote {} bytes", bytes.len());
+                            }
+                            Err(e) => {
+                                println!("Download error: {e}");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("Cannot convert value to {:?}: {}", args.data_type, e);
+                    }
+                }
+
+            }
+            Commands::SaveObjects(args) => {
+                // Make sure node ID is valid
+                let node_id = match NodeId::new(args.node_id) {
+                    Ok(id) => id,
+                    Err(_) => {
+                        println!("{} is not a valid node ID", args.node_id);
+                        continue;
+                    }
+                };
+                let mut client = manager.sdo_client(node_id.raw());
+                match client.save_objects().await {
+                    Ok(_) => println!("Node {} save succeeded", node_id.raw()),
+                    Err(e) => println!("Error: {e}"),
+                }
+
+            }
         }
     }
 }

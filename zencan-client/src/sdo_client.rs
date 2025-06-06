@@ -2,11 +2,7 @@ use std::time::Duration;
 
 use snafu::Snafu;
 use zencan_common::{
-    lss::LssIdentity,
-    messages::CanId,
-    object_ids::{DEVICE_NAME, HARDWARE_VERSION, IDENTITY, SOFTWARE_VERSION},
-    sdo::{AbortCode, SdoRequest, SdoResponse},
-    traits::{AsyncCanReceiver, AsyncCanSender},
+    constants::{values::SAVE_CMD, object_ids}, lss::LssIdentity, messages::CanId, sdo::{AbortCode, SdoRequest, SdoResponse}, traits::{AsyncCanReceiver, AsyncCanSender}
 };
 
 use crate::node_configuration::PdoConfig;
@@ -495,10 +491,10 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     ///
     /// All nodes should implement this object
     pub async fn read_identity(&mut self) -> Result<LssIdentity> {
-        let vendor_id = self.upload_u32(IDENTITY, 1).await?;
-        let product_code = self.upload_u32(IDENTITY, 2).await?;
-        let revision_number = self.upload_u32(IDENTITY, 3).await?;
-        let serial = self.upload_u32(IDENTITY, 4).await?;
+        let vendor_id = self.upload_u32(object_ids::IDENTITY, 1).await?;
+        let product_code = self.upload_u32(object_ids::IDENTITY, 2).await?;
+        let revision_number = self.upload_u32(object_ids::IDENTITY, 3).await?;
+        let serial = self.upload_u32(object_ids::IDENTITY, 4).await?;
         Ok(LssIdentity::new(
             vendor_id,
             product_code,
@@ -507,25 +503,30 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         ))
     }
 
+    /// Write object 0x1010sub1 to command all objects be saved
+    pub async fn save_objects(&mut self) -> Result<()> {
+        self.download_u32(object_ids::SAVE_OBJECTS, 1, SAVE_CMD).await
+    }
+
     /// Read the device name object
     ///
     /// All nodes should implement this object
     pub async fn read_device_name(&mut self) -> Result<String> {
-        self.read_visible_string(DEVICE_NAME, 0).await
+        self.read_visible_string(object_ids::DEVICE_NAME, 0).await
     }
 
     /// Read the software version object
     ///
     /// All nodes should implement this object
     pub async fn read_software_version(&mut self) -> Result<String> {
-        self.read_visible_string(SOFTWARE_VERSION, 0).await
+        self.read_visible_string(object_ids::SOFTWARE_VERSION, 0).await
     }
 
     /// Read the hardware version object
     ///
     /// All nodes should implement this object
     pub async fn read_hardware_version(&mut self) -> Result<String> {
-        self.read_visible_string(HARDWARE_VERSION, 0).await
+        self.read_visible_string(object_ids::HARDWARE_VERSION, 0).await
     }
 
     /// Configure a transmit PDO on the device
