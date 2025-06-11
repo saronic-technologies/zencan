@@ -110,7 +110,7 @@ impl Node {
     }
 
     /// Register a callback to store node configuration data persistently
-    pub fn register_store_node_config_cb(&mut self, cb: &'static StoreNodeConfigCallback) {
+    pub fn register_store_node_config(&mut self, cb: &'static StoreNodeConfigCallback) {
         self.callbacks.store_node_config = Some(cb);
     }
 
