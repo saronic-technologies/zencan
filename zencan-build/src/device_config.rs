@@ -175,7 +175,7 @@ fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
                         access_type: AccessType::Rw.into(),
                         default_value: None,
                         pdo_mapping: PdoMapping::None,
-                        ..Default::default()
+                        persist: true,
                     },
                     SubDefinition {
                         sub_index: 2,
@@ -185,29 +185,41 @@ fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
                         access_type: AccessType::Rw.into(),
                         default_value: None,
                         pdo_mapping: PdoMapping::None,
-                        ..Default::default()
+                        persist: true,
                     },
                 ],
             }),
         });
+
+        let mut mapping_subs = vec![SubDefinition {
+            sub_index: 0,
+            parameter_name: "Valid Mappings".to_string(),
+            field_name: None,
+            data_type: DataType::UInt8,
+            access_type: AccessType::Rw.into(),
+            default_value: Some(DefaultValue::Integer(0)),
+            pdo_mapping: PdoMapping::None,
+            persist: true,
+        }];
+        for sub in 1..65 {
+            mapping_subs.push(SubDefinition {
+                sub_index: sub,
+                parameter_name: format!("{}{} Mapping App Object {}", pdo_type, i, sub),
+                field_name: None,
+                data_type: DataType::UInt32,
+                access_type: AccessType::Rw.into(),
+                default_value: None,
+                pdo_mapping: PdoMapping::None,
+                persist: true,
+            });
+        }
 
         objects.push(ObjectDefinition {
             index: mapping_index + i as u16,
             parameter_name: format!("{}{} Mapping Parameters", pdo_type, i),
             application_callback: true,
             object: Object::Record(RecordDefinition {
-                subs: (0..64)
-                    .map(|j| SubDefinition {
-                        sub_index: j + 1,
-                        parameter_name: format!("{}{} Mapping App Object {}", pdo_type, i, j),
-                        field_name: None,
-                        data_type: DataType::UInt32,
-                        access_type: AccessType::Rw.into(),
-                        default_value: None,
-                        pdo_mapping: PdoMapping::None,
-                        ..Default::default()
-                    })
-                    .collect(),
+                subs: mapping_subs,
             }),
         });
     }
