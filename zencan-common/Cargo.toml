@@ -13,14 +13,18 @@ repository.workspace = true
 [dependencies]
 critical-section.workspace = true
 crossbeam.workspace = true
+defmt = { workspace = true, optional = true }
+defmt-or-log = { workspace = true, default-features = false, features = ["at_least_one"] }
 int-enum = "1.2.0"
 snafu.workspace = true
 socketcan = { workspace = true, optional = true }
 
 [features]
-default = ["socketcan", "std"]
+default = ["socketcan", "std", "log"]
 std = ["critical-section/std", "snafu/std"]
-socketcan = ["dep:socketcan", "std",]
+socketcan = ["dep:socketcan", "std"]
+defmt = ["defmt-or-log/defmt", "dep:defmt"]
+log = ["defmt-or-log/log"]
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]

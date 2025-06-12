@@ -127,7 +127,8 @@ impl TryFrom<u8> for ClientCommand {
 /// An SDO Request
 ///
 /// This represents the possible request messages which can be send from client to server
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature="defmt", derive(defmt::Format))]
 pub enum SdoRequest {
     /// Begin a download, writing data to an object on the server
     InitiateDownload {
@@ -385,6 +386,7 @@ impl TryFrom<&[u8]> for SdoRequest {
 
 /// Represents a response from SDO server to client
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature="defmt", derive(defmt::Format))]
 pub enum SdoResponse {
     /// Response to an [`SdoRequest::InitiateUpload`]
     ConfirmUpload {

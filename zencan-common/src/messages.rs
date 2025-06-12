@@ -162,6 +162,7 @@ impl CanError {
 
 /// The NMT state transition command specifier
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature="defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum NmtCommandSpecifier {
     /// Indicates device should transition to the Operation state
@@ -206,7 +207,8 @@ pub const SDO_REQ_BASE: u16 = 0x600;
 pub const SDO_RESP_BASE: u16 = 0x580;
 
 /// An NmtCommand message
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature="defmt", derive(defmt::Format))]
 pub struct NmtCommand {
     /// Specifies the type of command
     pub cs: NmtCommandSpecifier,
@@ -249,6 +251,7 @@ impl From<NmtCommand> for CanMessage {
 
 /// Possible NMT states for a node
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature="defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum NmtState {
     /// Bootup
@@ -297,7 +300,8 @@ impl TryFrom<u8> for NmtState {
 }
 
 /// A Heartbeat message
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature="defmt", derive(defmt::Format))]
 pub struct Heartbeat {
     /// The ID of the node transmitting the heartbeat
     pub node: u8,
@@ -326,7 +330,8 @@ impl From<Heartbeat> for CanMessage {
 /// A single CAN node can serve as the SYNC provider, sending a periodic sync object to all other
 /// nodes. The one byte count value starts at 1, and increments. On overflow, it should be reset to
 /// 1.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature="defmt", derive(defmt::Format))]
 pub struct SyncObject {
     count: u8,
 }
@@ -414,6 +419,7 @@ impl TryFrom<CanMessage> for ZencanMessage {
 
 /// An enum representing all of the standard messages
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature="defmt", derive(defmt::Format))]
 #[allow(missing_docs)]
 pub enum ZencanMessage {
     NmtCommand(NmtCommand),

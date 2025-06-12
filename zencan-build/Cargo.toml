@@ -10,7 +10,7 @@ repository.workspace = true
 
 [dependencies]
 # local
-zencan-common.workspace = true
+zencan-common = { workspace = true, features = ["log"] }
 
 # external
 prettyplease = "0.2"

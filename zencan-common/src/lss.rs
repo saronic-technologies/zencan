@@ -3,6 +3,7 @@
 //! This module includes definitions of all the relevant constants, and message serialization for
 //! the Layer Setting Services (LSS) protocol. The LSS protocol is used for configuring the node ID
 //! on unconfigured nodes, and for discovering the identity of unconfigured nodes.
+
 use crate::messages::{CanId, CanMessage, MessageError, LSS_REQ_ID, LSS_RESP_ID};
 
 /// Defines all possible values for the LSS command specifier field
@@ -90,7 +91,8 @@ impl LssCommandSpecifier {
 }
 
 /// An LSS request send by the master to the slave
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature="defmt", derive(defmt::Format))]
 pub enum LssRequest {
     /// Switch the mode of all LSS slaves
     SwitchModeGlobal {
@@ -354,7 +356,8 @@ impl From<LssRequest> for CanMessage {
 }
 
 /// An LSS response message sent from the Slave to Master
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature="defmt", derive(defmt::Format))]
 pub enum LssResponse {
     /// Sent when a slave's identity matches a FastScan request
     IdentifySlave,

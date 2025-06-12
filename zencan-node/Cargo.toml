@@ -13,22 +13,23 @@ repository.workspace = true
 
 [dependencies]
 # Local
-zencan-common.workspace = true
+zencan-common = { workspace = true, default-features = false }
 zencan-macro.workspace = true
 
 # External
 critical-section.workspace = true
-defmt-or-log = { version = "0.2.0", default-features = false }
+defmt = {workspace = true, optional = true}
+defmt-or-log.workspace = true
 embedded-io.workspace = true
 futures.workspace = true
 heapless.workspace = true
-log = { version = "0.4" }
+log = { version = "0.4", optional = true}
 
 [features]
 default = ["log", "std"]
 std = ["critical-section/std", "zencan-common/std"]
-log = ["defmt-or-log/log"]
-defmt = ["defmt-or-log/defmt"]
+log = ["defmt-or-log/log", "zencan-common/log", "dep:log"]
+defmt = ["defmt-or-log/defmt", "zencan-common/defmt", "dep:defmt"]
 socketcan = ["zencan-common/socketcan", "std"]
 
 # docs.rs-specific configuration

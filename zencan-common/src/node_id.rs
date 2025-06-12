@@ -4,6 +4,7 @@
 /// An enum representing the node ID of a CANopen node. The node ID must be between 1 and 127 for
 /// configured devices, with the special value of 255 used to represent an unconfigured device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum NodeId {
     /// A special node ID indicating the node is not configured (255)
     Unconfigured,
@@ -13,6 +14,7 @@ pub enum NodeId {
 
 /// A newtype on u8 to enforce valid node ID (1-127)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ConfiguredId(u8);
 impl ConfiguredId {
     /// Try to create a new ConfiguredId
