@@ -26,6 +26,8 @@ struct Args {
     node_id: u8,
     #[clap(long, short)]
     storage: bool,
+    #[clap(long)]
+    serial: Option<u32>,
 }
 
 static OBJECT_STORE_PATH: OnceLock<String> = OnceLock::new();
@@ -33,7 +35,12 @@ fn store_objects_callback(reader: &mut dyn embedded_io::Read<Error = Infallible>
     let path = OBJECT_STORE_PATH.get().unwrap();
     log::info!("Storing objects to {path}");
 
-    match std::fs::OpenOptions::new().create(true).write(true).open(path) {
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(path)
+    {
         Ok(mut f) => {
             let mut buf = [0; 32];
             loop {
@@ -54,8 +61,10 @@ async fn main() {
     env_logger::init();
     let args = Args::parse();
 
-    log::info!("Logging is working...");
+    log::info!("Starting node...");
     let node_id = NodeId::try_from(args.node_id).unwrap();
+    // Set the serial number using the provided serial, or a random number if none is provided
+    zencan::OBJECT1018.set_serial(args.serial.unwrap_or(rand::random()));
     let mut node = Node::new(
         node_id,
         &zencan::NODE_MBOX,
