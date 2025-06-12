@@ -1,10 +1,11 @@
 use std::ops::{Deref, DerefMut};
 use std::sync::Mutex;
+use std::time::Duration;
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use futures::future::join_all;
 use tokio::task::JoinHandle;
-use zencan_common::lss::LssIdentity;
+use zencan_common::lss::{LssIdentity, LssState};
 use zencan_common::messages::{NmtCommand, NmtCommandSpecifier, NmtState, ZencanMessage};
 use zencan_common::{
     traits::{AsyncCanReceiver, AsyncCanSender},
@@ -13,6 +14,7 @@ use zencan_common::{
 
 use super::shared_sender::SharedSender;
 use crate::sdo_client::{SdoClient, SdoClientError};
+use crate::{LssError, LssMaster};
 
 use super::shared_receiver::{SharedReceiver, SharedReceiverChannel};
 
@@ -225,6 +227,7 @@ where
 #[derive(Debug)]
 pub struct BusManager<S: AsyncCanSender + Sync + Send> {
     sender: SharedSender<S>,
+    receiver: SharedReceiver,
     nodes: Arc<tokio::sync::Mutex<HashMap<u8, NodeInfo>>>,
     sdo_clients: SdoClientMutex<S>,
     _monitor_task: JoinHandle<()>,
@@ -279,6 +282,7 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
 
         Self {
             sender,
+            receiver,
             sdo_clients,
             nodes,
             _monitor_task: monitor_task,
@@ -349,6 +353,77 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
             node_map.insert(n.node_id, n.clone());
         }
         nodes
+    }
+
+    /// Find all unconfigured devices on the bus
+    ///
+    /// The LSS fastscan protocol is used to identify devices which do not have an assigned node ID.
+    ///
+    /// Devices that do have a node ID can be found using [`scan_nodes`](Self::scan_nodes), or by
+    /// their heartbeat messages.
+    ///
+    /// After devices are found, they are all put back into waiting state
+    pub async fn lss_fastscan(&mut self, timeout: Duration) -> Vec<LssIdentity> {
+        let mut devices = Vec::new();
+        let mut lss = LssMaster::new(self.sender.clone(), self.receiver.create_rx());
+
+        // Put all nodes into Waiting state
+        lss.set_global_mode(LssState::Waiting).await;
+
+        // Each time a device is completely identified, it goes into Configuring mode and will not
+        // respond to further scans. Once all devices are identified, the scan will return None.
+        while let Some(id) = lss.fast_scan(timeout).await {
+            devices.push(id);
+        }
+
+        lss.set_global_mode(LssState::Waiting).await;
+
+        devices
+    }
+
+    /// Activate a single LSS slave by its identity
+    ///
+    /// All nodes are put into Waiting mode via the global command, then the specified node is
+    /// activates. Will return `Ok(())` if the activated node acknowledges, or an Err otherwise.
+    ///
+    /// The identity consists of the four u32 values from the 0x1018 object, which should uniquely
+    /// identify a device on the bus. If they are not known, they can be found using
+    /// [`lss_fastscan()`](Self::lss_fastscan).
+    pub async fn lss_activate(&mut self, ident: LssIdentity) -> Result<(), LssError> {
+        let mut lss = LssMaster::new(self.sender.clone(), self.receiver.create_rx());
+        lss.set_global_mode(LssState::Waiting).await;
+        lss.enter_config_by_identity(
+            ident.vendor_id,
+            ident.product_code,
+            ident.revision,
+            ident.serial,
+        )
+        .await
+    }
+
+    /// Set the node ID of LSS slave in Configuration mode
+    ///
+    /// It is required that one node has been put into Configuration mode already when this is
+    /// called, e.g. using [`lss_activate`](Self::lss_activate)
+    pub async fn lss_set_node_id(&mut self, node_id: NodeId) -> Result<(), LssError> {
+        let mut lss = LssMaster::new(self.sender.clone(), self.receiver.create_rx());
+        lss.set_node_id(node_id).await?;
+        Ok(())
+    }
+
+    /// Command the node in Configuration mode to store its configuration
+    ///
+    /// It is required that one node has been put into Configuration mode already when this is
+    /// called, e.g. using [`lss_activate`](Self::lss_activate)
+    pub async fn lss_store_config(&mut self) -> Result<(), LssError> {
+        let mut lss = LssMaster::new(self.sender.clone(), self.receiver.create_rx());
+        lss.store_config().await
+    }
+
+    /// Send a command to put all devices into the specified LSS state
+    pub async fn lss_set_global_mode(&mut self, mode: LssState) {
+        let mut lss = LssMaster::new(self.sender.clone(), self.receiver.create_rx());
+        lss.set_global_mode(mode).await;
     }
 
     /// Send application reset command

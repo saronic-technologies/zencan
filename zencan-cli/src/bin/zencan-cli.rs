@@ -1,6 +1,13 @@
 //! A REPL-style interactive shell for talking to CAN devices via socketcan
 use std::{
-    array::TryFromSliceError, borrow::Cow, ffi::OsString, marker::PhantomData, path::PathBuf, str::FromStr, sync::{Arc, Mutex}
+    array::TryFromSliceError,
+    borrow::Cow,
+    ffi::OsString,
+    marker::PhantomData,
+    path::PathBuf,
+    str::FromStr,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use clap::Parser;
@@ -10,8 +17,11 @@ use reedline::{
     Span,
 };
 use shlex::Shlex;
-use zencan_cli::command::{Cli, Commands, NmtAction, SdoDataType};
-use zencan_client::{common::NodeId, open_socketcan, BusManager, NodeConfig};
+use zencan_cli::command::{Cli, Commands, LssCommands, NmtAction, SdoDataType};
+use zencan_client::{
+    common::{lss::LssState, NodeId},
+    open_socketcan, BusManager, NodeConfig,
+};
 
 #[derive(Parser)]
 struct Args {
@@ -167,47 +177,36 @@ fn convert_write_value_to_bytes(data_type: SdoDataType, value: &str) -> Result<V
             let num = value.parse::<f32>().map_err(|e| e.to_string())?;
             Ok(num.to_le_bytes().to_vec())
         }
-        SdoDataType::Utf8 => {
-            Ok(value.as_bytes().to_vec())
-        }
+        SdoDataType::Utf8 => Ok(value.as_bytes().to_vec()),
     }
 }
 
 /// Attempt to print a byte slice based on data type and return true if successful
-fn convert_read_bytes_to_string(data_type: SdoDataType, bytes: &[u8]) -> Result<String, MismatchedSizeError> {
+fn convert_read_bytes_to_string(
+    data_type: SdoDataType,
+    bytes: &[u8],
+) -> Result<String, MismatchedSizeError> {
     match data_type {
-        SdoDataType::U32 => {
-            Ok(u32::from_le_bytes(bytes.try_into()?).to_string())
-        }
-        SdoDataType::U16 => {
-            Ok(u16::from_le_bytes(bytes.try_into()?).to_string())
-        }
+        SdoDataType::U32 => Ok(u32::from_le_bytes(bytes.try_into()?).to_string()),
+        SdoDataType::U16 => Ok(u16::from_le_bytes(bytes.try_into()?).to_string()),
         SdoDataType::U8 => {
-            if bytes.len() == 0 {
+            if bytes.is_empty() {
                 Ok(bytes[0].to_string())
             } else {
                 Err(MismatchedSizeError {})
             }
         }
-        SdoDataType::I32 => {
-            Ok(i32::from_le_bytes(bytes.try_into()?).to_string())
-        }
-        SdoDataType::I16 => {
-            Ok(i16::from_le_bytes(bytes.try_into()?).to_string())
-        }
+        SdoDataType::I32 => Ok(i32::from_le_bytes(bytes.try_into()?).to_string()),
+        SdoDataType::I16 => Ok(i16::from_le_bytes(bytes.try_into()?).to_string()),
         SdoDataType::I8 => {
-            if bytes.len() == 0 {
+            if bytes.is_empty() {
                 Ok((bytes[0] as i8).to_string())
             } else {
                 Err(MismatchedSizeError {})
             }
         }
-        SdoDataType::F32 => {
-            Ok(f32::from_le_bytes(bytes.try_into()?).to_string())
-        }
-        SdoDataType::Utf8 => {
-            Ok(String::from_utf8_lossy(bytes).to_string())
-        }
+        SdoDataType::F32 => Ok(f32::from_le_bytes(bytes.try_into()?).to_string()),
+        SdoDataType::Utf8 => Ok(String::from_utf8_lossy(bytes).to_string()),
     }
 }
 
@@ -332,7 +331,79 @@ async fn main() {
                     }
                 }
             }
-            Commands::Lss(_lss_commands) => todo!(),
+            Commands::Lss(lss_cmd) => match lss_cmd {
+                LssCommands::Activate { identity } => {
+                    match manager.lss_activate(identity.into()).await {
+                        Ok(_) => println!("Success!"),
+                        Err(e) => println!("Error: {e}"),
+                    }
+                }
+                LssCommands::Fastscan { timeout } => {
+                    let timeout = Duration::from_millis(timeout);
+                    let ids = manager.lss_fastscan(timeout).await;
+                    println!("Found {} unconfigured nodes", ids.len());
+                    for id in ids {
+                        println!(
+                            "0x{:x} 0x{:x} 0x{:x} 0x{:x}",
+                            id.vendor_id, id.product_code, id.revision, id.serial
+                        );
+                    }
+                }
+                LssCommands::SetNodeId { node_id, identity } => {
+                    let node_id = match NodeId::try_from(node_id) {
+                        Ok(id) => id,
+                        Err(_) => {
+                            println!("Invalid node_id {node_id}");
+                            continue;
+                        }
+                    };
+
+                    if let Some(ident) = identity {
+                        match manager.lss_activate(ident.into()).await {
+                            Ok(_) => (),
+                            Err(e) => {
+                                println!("Error activating node: {e}");
+                                continue;
+                            }
+                        }
+                    }
+                    match manager.lss_set_node_id(node_id).await {
+                        Ok(_) => {
+                            println!("Success!");
+                        }
+                        Err(e) => {
+                            println!("Error setting node id: {e}");
+                        }
+                    }
+                }
+                LssCommands::StoreConfig { identity } => {
+                    if let Some(ident) = identity {
+                        match manager.lss_activate(ident.into()).await {
+                            Ok(_) => println!(
+                                "Activated device 0x{:x} 0x{:x} 0x{:x} 0x{:x}",
+                                ident.vendor_id, ident.product_code, ident.revision, ident.serial
+                            ),
+                            Err(e) => {
+                                println!("Error activating node: {e}");
+                                continue;
+                            }
+                        }
+                    }
+                    match manager.lss_store_config().await {
+                        Ok(_) => println!("Success!"),
+                        Err(e) => println!("Error storing config: {e}"),
+                    }
+                }
+                LssCommands::Global { enable } => {
+                    let mode = if enable == 0 {
+                        LssState::Waiting
+                    } else {
+                        LssState::Configuring
+                    };
+                    manager.lss_set_global_mode(mode).await;
+                    println!("Commanding global {mode:?}");
+                }
+            },
             Commands::Read(args) => {
                 // Make sure node ID is valid
                 let node_id = match NodeId::new(args.node_id) {
@@ -344,24 +415,24 @@ async fn main() {
                 };
                 let mut client = manager.sdo_client(node_id.raw());
                 match client.upload(args.index, args.sub).await {
-                    Ok(bytes) => {
-                        match args.data_type {
-                            Some(data_type) => {
-                                match convert_read_bytes_to_string(data_type, &bytes) {
-                                    Ok(str) => {
-                                        println!("Value: {str}");
-                                    }
-                                    Err(_) => {
-                                        println!("Read invalid data size {} for type {:?}", bytes.len(), data_type);
-                                        println!("Bytes: {:?}", &bytes);
-                                    }
-                                }
+                    Ok(bytes) => match args.data_type {
+                        Some(data_type) => match convert_read_bytes_to_string(data_type, &bytes) {
+                            Ok(str) => {
+                                println!("Value: {str}");
                             }
-                            None => {
-                                println!("Read bytes: {:?}", &bytes);
+                            Err(_) => {
+                                println!(
+                                    "Read invalid data size {} for type {:?}",
+                                    bytes.len(),
+                                    data_type
+                                );
+                                println!("Bytes: {:?}", &bytes);
                             }
+                        },
+                        None => {
+                            println!("Read bytes: {:?}", &bytes);
                         }
-                    }
+                    },
                     Err(e) => {
                         println!("Error reading object: {e}");
                         continue;
@@ -379,21 +450,18 @@ async fn main() {
                 };
                 let mut client = manager.sdo_client(node_id.raw());
                 match convert_write_value_to_bytes(args.data_type, &args.value) {
-                    Ok(bytes) => {
-                        match client.download(args.index, args.sub, &bytes).await {
-                            Ok(_) => {
-                                println!("Wrote {} bytes", bytes.len());
-                            }
-                            Err(e) => {
-                                println!("Download error: {e}");
-                            }
+                    Ok(bytes) => match client.download(args.index, args.sub, &bytes).await {
+                        Ok(_) => {
+                            println!("Wrote {} bytes", bytes.len());
                         }
-                    }
+                        Err(e) => {
+                            println!("Download error: {e}");
+                        }
+                    },
                     Err(e) => {
                         println!("Cannot convert value to {:?}: {}", args.data_type, e);
                     }
                 }
-
             }
             Commands::SaveObjects(args) => {
                 // Make sure node ID is valid
@@ -409,7 +477,6 @@ async fn main() {
                     Ok(_) => println!("Node {} save succeeded", node_id.raw()),
                     Err(e) => println!("Error: {e}"),
                 }
-
             }
         }
     }

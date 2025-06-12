@@ -1,6 +1,7 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_num::maybe_hex;
 use std::{path::PathBuf, str::FromStr};
+use zencan_client::common::lss::LssIdentity;
 
 #[derive(Debug, Parser)]
 pub struct Cli {
@@ -56,19 +57,19 @@ pub enum SdoDataType {
 }
 
 #[derive(Debug, Args)]
-pub struct WriteArgs{
-        /// The ID of the node to read from
-        pub node_id: u8,
-        /// The object index to read
-        #[clap(value_parser=maybe_hex::<u16>)]
-        pub index: u16,
-        /// The sub object to read
-        #[clap(value_parser=maybe_hex::<u8>)]
-        pub sub: u8,
-        /// How to interpret the value
-        pub data_type: SdoDataType,
-        /// The value to write
-        pub value: String
+pub struct WriteArgs {
+    /// The ID of the node to read from
+    pub node_id: u8,
+    /// The object index to read
+    #[clap(value_parser=maybe_hex::<u16>)]
+    pub index: u16,
+    /// The sub object to read
+    #[clap(value_parser=maybe_hex::<u8>)]
+    pub sub: u8,
+    /// How to interpret the value
+    pub data_type: SdoDataType,
+    /// The value to write
+    pub value: String,
 }
 
 #[derive(Debug, Args)]
@@ -83,7 +84,7 @@ pub struct LoadConfigArgs {
 #[derive(Debug, Args)]
 pub struct SaveObjectsArgs {
     /// The ID of the node to command
-    pub node_id: u8
+    pub node_id: u8,
 }
 
 /// Specifies a node to apply an NMT command
@@ -141,13 +142,64 @@ pub enum NmtAction {
     Stop,
 }
 
+#[derive(Args, Clone, Copy, Debug)]
+#[group(multiple=true, requires_all=["vendor_id", "product_code", "revision", "serial"])]
+pub struct IdentityArgs {
+    #[clap(value_parser=maybe_hex::<u32>)]
+    #[arg(required = false)]
+    pub vendor_id: u32,
+    /// The product to configure
+    #[clap(value_parser=maybe_hex::<u32>)]
+    #[arg(required = false)]
+    pub product_code: u32,
+    /// The revision to configure
+    #[clap(value_parser=maybe_hex::<u32>)]
+    #[arg(required = false)]
+    pub revision: u32,
+    /// The serial number
+    #[clap(value_parser=maybe_hex::<u32>)]
+    #[arg(required = false)]
+    pub serial: u32,
+}
+
+impl From<IdentityArgs> for LssIdentity {
+    fn from(value: IdentityArgs) -> Self {
+        LssIdentity {
+            vendor_id: value.vendor_id,
+            product_code: value.product_code,
+            revision: value.revision,
+            serial: value.serial,
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 pub enum LssCommands {
+    /// Put the specified device into configuration mode, and put all others into waiting mode
+    Activate {
+        #[clap(flatten)]
+        identity: IdentityArgs,
+    },
     /// Perform a fastscan to find unconfigured nodes
-    Fastscan,
+    Fastscan {
+        /// Timeout for waiting for fastscan response in milliseconds
+        #[arg(default_value = "5")]
+        timeout: u64,
+    },
+    SetNodeId {
+        /// The node ID to assign
+        node_id: u8,
+        #[clap(flatten)]
+        identity: Option<IdentityArgs>,
+    },
+    StoreConfig {
+        #[clap(flatten)]
+        identity: Option<IdentityArgs>,
+    },
     /// Globally enable or disable configuration mode
     Global {
+        /// 0 to put in waiting, 1 to put into configuration
         #[clap(action=clap::ArgAction::Set)]
-        enable: bool,
+        enable: u8,
     },
 }

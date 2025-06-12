@@ -218,9 +218,7 @@ fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
             index: mapping_index + i as u16,
             parameter_name: format!("{}{} Mapping Parameters", pdo_type, i),
             application_callback: true,
-            object: Object::Record(RecordDefinition {
-                subs: mapping_subs,
-            }),
+            object: Object::Record(RecordDefinition { subs: mapping_subs }),
         });
     }
     for i in 0..num_rpdo {

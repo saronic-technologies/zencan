@@ -26,6 +26,7 @@ impl SharedRecieiverInner {
     }
 }
 
+#[derive(Debug)]
 pub struct SharedReceiver {
     _task_handle: JoinHandle<()>,
     inner: Arc<Mutex<SharedRecieiverInner>>,

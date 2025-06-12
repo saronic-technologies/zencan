@@ -13,7 +13,7 @@ repository.workspace = true
 
 [dependencies]
 # Internal
-zencan-common = { workspace = true, features = ["socketcan"] }
+zencan-common = { workspace = true, features = ["socketcan", "log"] }
 
 # External
 futures.workspace = true

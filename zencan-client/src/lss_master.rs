@@ -3,7 +3,7 @@ use core::time::Duration;
 
 use tokio::time::timeout_at;
 use zencan_common::{
-    lss::{LssIdentity, LssRequest, LssResponse, LSS_FASTSCAN_CONFIRM},
+    lss::{LssIdentity, LssRequest, LssResponse, LssState, LSS_FASTSCAN_CONFIRM},
     traits::{AsyncCanReceiver, AsyncCanSender},
     NodeId,
 };
@@ -50,6 +50,23 @@ pub enum LssError {
         /// Error code
         ///
         /// 1 - Node address is invalid
+        /// 255 - Special error code in spec_error
+        error: u8,
+        /// Manufacturer specific error code
+        ///
+        /// Only supposed to be valid when error is 255
+        spec_error: u8,
+    },
+    /// The LSS slave returned an error code in response to a StoreConfiguration command
+    #[snafu(display(
+        "LSS slave returned an error in response to StoreConfiguration. error: {}, Spec error: {}",
+        error,
+        spec_error
+    ))]
+    NodeStoreConfigError {
+        /// Error code
+        ///
+        /// 1 - Node does not support storing configuration
         /// 255 - Special error code in spec_error
         error: u8,
         /// Manufacturer specific error code
@@ -191,6 +208,29 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
         }
     }
 
+    /// Send command to store configuration
+    ///
+    /// The node must have been put into configuration mode already.
+    ///
+    /// Returns Err(LssError::Timeout) if the node does not respond to the command, or
+    /// Err(LssError::ConfigError) if the node responds with an error.
+    pub async fn store_config(&mut self) -> Result<(), LssError> {
+        const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
+        match self
+            .send_and_receive(LssRequest::StoreConfiguration, RESPONSE_TIMEOUT)
+            .await
+        {
+            Some(LssResponse::StoreConfigurationAck { error, spec_error }) => {
+                if error == 0 {
+                    Ok(())
+                } else {
+                    Err(LssError::NodeStoreConfigError { error, spec_error })
+                }
+            }
+            _ => Err(LssError::Timeout),
+        }
+    }
+
     /// Perform a fast scan of the network to find unconfigured nodes
     ///
     /// # Arguments
@@ -263,6 +303,16 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
             revision: id[2],
             serial: id[3],
         })
+    }
+
+    /// Send command to the bus to set the LSS mode for all nodes
+    pub async fn set_global_mode(&mut self, mode: LssState) {
+        // Send global mode to put all nodes into waiting state. No response expected.
+        self.send_and_receive(
+            LssRequest::SwitchModeGlobal { mode: mode as u8 },
+            Duration::ZERO,
+        )
+        .await;
     }
 
     async fn send_and_receive(
