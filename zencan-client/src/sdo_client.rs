@@ -2,7 +2,11 @@ use std::time::Duration;
 
 use snafu::Snafu;
 use zencan_common::{
-    constants::{values::SAVE_CMD, object_ids}, lss::LssIdentity, messages::CanId, sdo::{AbortCode, SdoRequest, SdoResponse}, traits::{AsyncCanReceiver, AsyncCanSender}
+    constants::{object_ids, values::SAVE_CMD},
+    lss::LssIdentity,
+    messages::CanId,
+    sdo::{AbortCode, SdoRequest, SdoResponse},
+    traits::{AsyncCanReceiver, AsyncCanSender},
 };
 
 use crate::node_configuration::PdoConfig;
@@ -505,7 +509,8 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
 
     /// Write object 0x1010sub1 to command all objects be saved
     pub async fn save_objects(&mut self) -> Result<()> {
-        self.download_u32(object_ids::SAVE_OBJECTS, 1, SAVE_CMD).await
+        self.download_u32(object_ids::SAVE_OBJECTS, 1, SAVE_CMD)
+            .await
     }
 
     /// Read the device name object
@@ -519,14 +524,16 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     ///
     /// All nodes should implement this object
     pub async fn read_software_version(&mut self) -> Result<String> {
-        self.read_visible_string(object_ids::SOFTWARE_VERSION, 0).await
+        self.read_visible_string(object_ids::SOFTWARE_VERSION, 0)
+            .await
     }
 
     /// Read the hardware version object
     ///
     /// All nodes should implement this object
     pub async fn read_hardware_version(&mut self) -> Result<String> {
-        self.read_visible_string(object_ids::HARDWARE_VERSION, 0).await
+        self.read_visible_string(object_ids::HARDWARE_VERSION, 0)
+            .await
     }
 
     /// Configure a transmit PDO on the device

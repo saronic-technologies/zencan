@@ -8,10 +8,10 @@
 
 mod atomic_cell;
 pub use atomic_cell::AtomicCell;
+pub mod constants;
 pub mod lss;
 pub mod messages;
 pub mod node_id;
-pub mod constants;
 pub mod objects;
 pub mod sdo;
 pub mod traits;

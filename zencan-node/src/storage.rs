@@ -5,7 +5,10 @@
 use core::convert::Infallible;
 
 use zencan_common::{
-    constants::values::SAVE_CMD, objects::{ODCallbackContext, SubInfo}, sdo::AbortCode, AtomicCell
+    constants::values::SAVE_CMD,
+    objects::{ODCallbackContext, SubInfo},
+    sdo::AbortCode,
+    AtomicCell,
 };
 
 pub type StoreObjectsCallback =
@@ -31,9 +34,7 @@ pub(crate) fn handle_1010_write(
     buf: &[u8],
 ) -> Result<(), AbortCode> {
     match sub {
-        0 => {
-            Err(AbortCode::ReadOnly)
-        }
+        0 => Err(AbortCode::ReadOnly),
         1 => {
             if offset != 0 || buf.len() != 4 {
                 Err(AbortCode::DataTypeMismatch)

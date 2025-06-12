@@ -2,16 +2,20 @@
 //!
 
 use zencan_common::{
+    constants::object_ids,
     lss::LssIdentity,
     messages::{
         CanId, CanMessage, Heartbeat, NmtCommandSpecifier, NmtState, ZencanMessage, LSS_RESP_ID,
     },
-    constants::object_ids,
     objects::{find_object, ODEntry, ObjectData, ObjectRawAccess},
     NodeId,
 };
 
-use crate::{lss_slave::LssSlave, node_mbox::NodeMbox, storage::StoreObjectsCallback};
+use crate::{
+    lss_slave::{LssConfig, LssSlave},
+    node_mbox::NodeMbox,
+    storage::StoreObjectsCallback,
+};
 use crate::{node_state::NodeStateAccess, sdo_server::SdoServer};
 
 use defmt_or_log::{debug, info};
@@ -77,10 +81,15 @@ impl Node {
         let message_count = 0;
         let sdo_server = SdoServer::new();
 
-        let lss_slave = LssSlave::new(read_identity(od).unwrap(), node_id);
+        let lss_slave = LssSlave::new(LssConfig {
+            identity: read_identity(od).unwrap(),
+            node_id,
+            store_supported: false,
+        });
         let nmt_state = NmtState::Bootup;
         let reassigned_node_id = None;
 
+        Self::set_pdo_defaults(state, node_id);
         Self::register_pdo_callbacks(od, mbox, state);
         Self::register_storage_callbacks(od, state);
 
@@ -204,6 +213,11 @@ impl Node {
 
         if self.heartbeat_period_ms != 0 && now_us >= self.next_heartbeat_time_us {
             self.send_heartbeat(send_cb);
+            // Perform catchup if we are behind, e.g. if we have not send a heartbeat in a long
+            // time because we have not been configured
+            if self.next_heartbeat_time_us < now_us {
+                self.next_heartbeat_time_us = now_us;
+            }
         }
 
         if let Some(event) = self.lss_slave.pending_event() {
@@ -274,45 +288,16 @@ impl Node {
     }
 
     fn boot_up(&mut self, sender: &mut dyn FnMut(CanMessage)) {
-        //self.sdo_server = Some(SdoServer::new());
-        let mut i = 0;
+        // Reset the LSS slave with the new ID
+        self.lss_slave.update_config(LssConfig {
+            identity: read_identity(self.od).unwrap(),
+            node_id: self.node_id,
+            store_supported: self.callbacks.store_node_config.is_some(),
+        });
+
         if let NodeId::Configured(node_id) = self.node_id {
             info!("Booting node with ID {}", node_id.raw());
-            for pdo in self.state.get_rpdos() {
-                if i < 4 {
-                    pdo.cob_id
-                        .store(CanId::Std(0x200 + i * 0x100 + node_id.raw() as u16));
-                } else {
-                    pdo.cob_id.store(CanId::Std(0x0));
-                }
-                pdo.valid.store(false);
-                pdo.rtr_disabled.store(false);
-                pdo.transmission_type.store(0);
-                pdo.inhibit_time.store(0);
-                pdo.buffered_value.store(None);
-                i += i;
-            }
-
-            for pdo in self.state.get_tpdos() {
-                if i < 4 {
-                    pdo.cob_id
-                        .store(CanId::Std(0x180 + i * 0x100 + node_id.raw() as u16));
-                } else {
-                    pdo.cob_id.store(CanId::Std(0x0));
-                }
-                pdo.valid.store(false);
-                pdo.rtr_disabled.store(false);
-                pdo.transmission_type.store(0);
-                pdo.inhibit_time.store(0);
-                pdo.buffered_value.store(None);
-                i += i;
-            }
-
             self.mbox.set_sdo_cob_id(Some(self.sdo_rx_cob_id()));
-
-            // Reset the LSS slave with the new ID
-            self.lss_slave = LssSlave::new(read_identity(self.od).unwrap(), self.node_id);
-
             self.send_heartbeat(sender);
         }
     }
@@ -342,6 +327,36 @@ impl Node {
             } else {
                 panic!("Object 1010 must be a callback object")
             }
+        }
+    }
+
+    fn set_pdo_defaults(state: &dyn NodeStateAccess, node_id: NodeId) {
+        for (i, pdo) in state.get_rpdos().iter().enumerate() {
+            if i < 4 {
+                pdo.cob_id
+                    .store(CanId::Std(0x200 + i as u16 * 0x100 + node_id.raw() as u16));
+            } else {
+                pdo.cob_id.store(CanId::Std(0x0));
+            }
+            pdo.valid.store(false);
+            pdo.rtr_disabled.store(false);
+            pdo.transmission_type.store(0);
+            pdo.inhibit_time.store(0);
+            pdo.buffered_value.store(None);
+        }
+
+        for (i, pdo) in state.get_tpdos().iter().enumerate() {
+            if i < 4 {
+                pdo.cob_id
+                    .store(CanId::Std(0x180 + i as u16 * 0x100 + node_id.raw() as u16));
+            } else {
+                pdo.cob_id.store(CanId::Std(0x0));
+            }
+            pdo.valid.store(false);
+            pdo.rtr_disabled.store(false);
+            pdo.transmission_type.store(0);
+            pdo.inhibit_time.store(0);
+            pdo.buffered_value.store(None);
         }
     }
 

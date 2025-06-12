@@ -72,7 +72,7 @@ async fn serialize_sm(objects: &[ODEntry<'static>], reg: &RefCell<u8>) {
     for obj in objects {
         let max_sub = obj.data.max_sub_number();
 
-        for sub in 0..max_sub + 1{
+        for sub in 0..max_sub + 1 {
             let info = obj.data.sub_info(sub);
             // On a record, some subs may not be present. Just skip these.
             if info.is_err() {

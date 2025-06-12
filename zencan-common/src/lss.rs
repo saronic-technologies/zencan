@@ -92,7 +92,7 @@ impl LssCommandSpecifier {
 
 /// An LSS request send by the master to the slave
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature="defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum LssRequest {
     /// Switch the mode of all LSS slaves
     SwitchModeGlobal {
@@ -125,6 +125,8 @@ pub enum LssRequest {
         /// The index into the baudrate table for the baudrate to select
         index: u8,
     },
+    /// Store the currently configured node ID and bit timing to persistent storage
+    StoreConfiguration,
     /// Command a new bitrate to be activated
     ActivateBitTiming {
         /// Duration in ms to delay before activating the new baudrate
@@ -219,7 +221,7 @@ impl TryFrom<&[u8]> for LssRequest {
                     delay: u16::from_le_bytes([value[1], value[2]]),
                 })
             }
-            LssCommandSpecifier::StoreConfiguration => todo!(),
+            LssCommandSpecifier::StoreConfiguration => Ok(Self::StoreConfiguration),
             LssCommandSpecifier::SwitchStateVendor => {
                 if value.len() < 5 {
                     return Err(MessageError::MessageTooShort);
@@ -301,6 +303,9 @@ impl From<LssRequest> for CanMessage {
                 data[1] = table;
                 data[2] = index;
             }
+            LssRequest::StoreConfiguration => {
+                data[0] = LssCommandSpecifier::StoreConfiguration as u8;
+            }
             LssRequest::ActivateBitTiming { delay } => {
                 data[0] = LssCommandSpecifier::ActivateBitTiming as u8;
                 let delay_bytes = delay.to_le_bytes();
@@ -357,7 +362,7 @@ impl From<LssRequest> for CanMessage {
 
 /// An LSS response message sent from the Slave to Master
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[cfg_attr(feature="defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum LssResponse {
     /// Sent when a slave's identity matches a FastScan request
     IdentifySlave,
@@ -373,8 +378,17 @@ pub enum LssResponse {
         /// Valid when error is 255, otherwise it's a don't care
         spec_error: u8,
     },
-    /// Send in response to a [`LssRequest::ConfigureBitTiming`]
+    /// Sent in response to a [`LssRequest::ConfigureBitTiming`]
     ConfigureBitTimingAck {
+        /// The error code
+        error: u8,
+        /// The manufacturer special error code
+        ///
+        /// Valid when error is 255, otherwise it's a don't care
+        spec_error: u8,
+    },
+    /// Sent in response to a [`LssRequest::StoreConfiguration`]
+    StoreConfigurationAck {
         /// The error code
         error: u8,
         /// The manufacturer special error code
@@ -434,6 +448,15 @@ impl TryFrom<&[u8]> for LssResponse {
                     return Err(MessageError::MessageTooShort);
                 }
                 Ok(Self::ConfigureBitTimingAck {
+                    error: value[1],
+                    spec_error: value[2],
+                })
+            }
+            LssCommandSpecifier::StoreConfiguration => {
+                if value.len() < 3 {
+                    return Err(MessageError::MessageTooShort);
+                }
+                Ok(Self::StoreConfigurationAck {
                     error: value[1],
                     spec_error: value[2],
                 })
@@ -514,6 +537,11 @@ impl LssResponse {
             }
             LssResponse::ConfigureBitTimingAck { error, spec_error } => {
                 msg.data[0] = LssCommandSpecifier::ConfigureBitTiming as u8;
+                msg.data[1] = *error;
+                msg.data[2] = *spec_error;
+            }
+            LssResponse::StoreConfigurationAck { error, spec_error } => {
+                msg.data[0] = LssCommandSpecifier::StoreConfiguration as u8;
                 msg.data[1] = *error;
                 msg.data[2] = *spec_error;
             }

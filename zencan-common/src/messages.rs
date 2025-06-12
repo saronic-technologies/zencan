@@ -162,7 +162,7 @@ impl CanError {
 
 /// The NMT state transition command specifier
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature="defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum NmtCommandSpecifier {
     /// Indicates device should transition to the Operation state
@@ -208,7 +208,7 @@ pub const SDO_RESP_BASE: u16 = 0x580;
 
 /// An NmtCommand message
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature="defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NmtCommand {
     /// Specifies the type of command
     pub cs: NmtCommandSpecifier,
@@ -251,7 +251,7 @@ impl From<NmtCommand> for CanMessage {
 
 /// Possible NMT states for a node
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature="defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum NmtState {
     /// Bootup
@@ -301,7 +301,7 @@ impl TryFrom<u8> for NmtState {
 
 /// A Heartbeat message
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature="defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Heartbeat {
     /// The ID of the node transmitting the heartbeat
     pub node: u8,
@@ -331,7 +331,7 @@ impl From<Heartbeat> for CanMessage {
 /// nodes. The one byte count value starts at 1, and increments. On overflow, it should be reset to
 /// 1.
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature="defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SyncObject {
     count: u8,
 }
@@ -419,7 +419,7 @@ impl TryFrom<CanMessage> for ZencanMessage {
 
 /// An enum representing all of the standard messages
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature="defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(missing_docs)]
 pub enum ZencanMessage {
     NmtCommand(NmtCommand),

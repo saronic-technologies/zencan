@@ -62,7 +62,6 @@ impl LssReceiver {
     ///
     /// Returns true if the request requires further processing in the node 'process' thread
     pub fn handle_req(&self, req: LssRequest) -> bool {
-        info!("LSS request: {:?}", req);
         // Certain messages we store here for fast handling. Others, are stored to be handled during
         // process call
         match req {
@@ -92,42 +91,61 @@ impl LssReceiver {
     }
 }
 
+pub struct LssConfig {
+    /// The identity of the device
+    pub identity: LssIdentity,
+    /// The node ID of the device
+    pub node_id: NodeId,
+    /// Indicates the device supports storing of config
+    pub store_supported: bool,
+}
+
 /// Implements LSS slave functionality
 pub(crate) struct LssSlave {
     state: LssState,
-    /// The identity of this device
-    identity: LssIdentity,
+    config: LssConfig,
     /// The current subindex for fast scan
     fast_scan_sub: u8,
     /// The identity selected by LSS master for configuration
     pending_node_id: NodeId,
-    active_node_id: NodeId,
+    store_config_flag: bool,
 }
 
 impl LssSlave {
     /// Create a new LssSlave
     ///
     /// # Args
-    /// - `identity`: The 128-bit identity used for identitying this node in the LSS protocol
-    /// - `node_id`: The current active node ID for this node
-    pub fn new(identity: LssIdentity, node_id: NodeId) -> Self {
+    /// - `config`: Application configuration
+    pub fn new(config: LssConfig) -> Self {
+        let pending_node_id = config.node_id;
         Self {
             state: LssState::Waiting,
-            identity,
+            config,
             fast_scan_sub: 0,
-            pending_node_id: node_id,
-            active_node_id: node_id,
+            pending_node_id,
+            store_config_flag: false,
         }
+    }
+
+    /// Create a new LssSlave using the existing slave's state, but with a new application config
+    ///
+    /// This should be called when config items are changed, e.g. when the node has changed it's ID
+    pub fn update_config(&mut self, config: LssConfig) {
+        self.pending_node_id = config.node_id;
+        self.config = config;
     }
 
     /// Check for a pending event
     ///
     /// Should be called by the node after
-    pub fn pending_event(&self) -> Option<LssEvent> {
-        if self.pending_node_id != self.active_node_id {
+    pub fn pending_event(&mut self) -> Option<LssEvent> {
+        if self.pending_node_id != self.config.node_id {
             Some(LssEvent::ConfigureNodeId {
                 node_id: self.pending_node_id,
             })
+        } else if self.store_config_flag {
+            self.store_config_flag = false;
+            Some(LssEvent::StoreConfiguration)
         } else {
             None
         }
@@ -170,9 +188,28 @@ impl LssSlave {
                 // Configuring bit timing is not supported
                 if self.state == LssState::Configuring {
                     Ok(Some(LssResponse::ConfigureBitTimingAck {
-                        error: LssConfigureError::Manufacturer as u8,
+                        error: 1,
                         spec_error: 0,
                     }))
+                } else {
+                    Ok(None)
+                }
+            }
+
+            LssRequest::StoreConfiguration => {
+                if self.state == LssState::Configuring {
+                    if self.config.store_supported {
+                        self.store_config_flag = true;
+                        Ok(Some(LssResponse::StoreConfigurationAck {
+                            error: 0,
+                            spec_error: 0,
+                        }))
+                    } else {
+                        Ok(Some(LssResponse::StoreConfigurationAck {
+                            error: 1,
+                            spec_error: 0,
+                        }))
+                    }
                 } else {
                     Ok(None)
                 }
@@ -184,7 +221,7 @@ impl LssSlave {
                 if self.state == LssState::Waiting {
                     let mut selected_identity = receiver.selected_identity.load();
                     selected_identity.serial = serial;
-                    if self.identity == selected_identity {
+                    if self.config.identity == selected_identity {
                         // If the identity matches, we are selected and enter the configuration state
                         self.state = LssState::Configuring;
                         Ok(Some(LssResponse::SwitchStateResponse))
@@ -199,7 +236,7 @@ impl LssSlave {
             LssRequest::InquireVendor => {
                 if self.state == LssState::Configuring {
                     Ok(Some(LssResponse::InquireVendorAck {
-                        vendor_id: self.identity.vendor_id,
+                        vendor_id: self.config.identity.vendor_id,
                     }))
                 } else {
                     Ok(None)
@@ -208,7 +245,7 @@ impl LssSlave {
             LssRequest::InquireProduct => {
                 if self.state == LssState::Configuring {
                     Ok(Some(LssResponse::InquireProductAck {
-                        product_code: self.identity.product_code,
+                        product_code: self.config.identity.product_code,
                     }))
                 } else {
                     Ok(None)
@@ -217,7 +254,7 @@ impl LssSlave {
             LssRequest::InquireRev => {
                 if self.state == LssState::Configuring {
                     Ok(Some(LssResponse::InquireRevAck {
-                        revision: self.identity.revision,
+                        revision: self.config.identity.revision,
                     }))
                 } else {
                     Ok(None)
@@ -226,7 +263,7 @@ impl LssSlave {
             LssRequest::InquireSerial => {
                 if self.state == LssState::Configuring {
                     Ok(Some(LssResponse::InquireSerialAck {
-                        serial_number: self.identity.serial,
+                        serial_number: self.config.identity.serial,
                     }))
                 } else {
                     Ok(None)
@@ -235,7 +272,7 @@ impl LssSlave {
             LssRequest::InquireNodeId => {
                 if self.state == LssState::Configuring {
                     Ok(Some(LssResponse::InquireNodeIdAck {
-                        node_id: self.active_node_id.into(),
+                        node_id: self.config.node_id.into(),
                     }))
                 } else {
                     Ok(None)
@@ -248,14 +285,14 @@ impl LssSlave {
                 sub,
                 next,
             } => {
-                if self.active_node_id == NodeId::Unconfigured && self.state == LssState::Waiting {
+                if self.config.node_id == NodeId::Unconfigured && self.state == LssState::Waiting {
                     if bit_check == LSS_FASTSCAN_CONFIRM {
                         // Reset state machine and confirm
                         self.fast_scan_sub = 0;
                         Ok(Some(LssResponse::IdentifySlave))
                     } else if self.fast_scan_sub == sub {
                         let mask = 0xFFFFFFFFu32 << bit_check;
-                        if self.identity.by_addr(sub) & mask == (id & mask) {
+                        if self.config.identity.by_addr(sub) & mask == (id & mask) {
                             self.fast_scan_sub = next;
                             if bit_check == 0 && next < sub {
                                 // All bits matched, enter configuration state
@@ -296,7 +333,11 @@ mod tests {
         };
 
         // Create new LSS slave with unconfigured node_id
-        let mut slave = LssSlave::new(IDENTITY, NodeId::Unconfigured);
+        let mut slave = LssSlave::new(LssConfig {
+            node_id: NodeId::Unconfigured,
+            identity: IDENTITY,
+            store_supported: true,
+        });
 
         let rx = LssReceiver::new();
 
@@ -342,7 +383,11 @@ mod tests {
             serial: SERIAL_NUMBER,
         };
 
-        let mut slave = LssSlave::new(IDENTITY, NodeId::Unconfigured);
+        let mut slave = LssSlave::new(LssConfig {
+            node_id: NodeId::Unconfigured,
+            identity: IDENTITY,
+            store_supported: true,
+        });
 
         let mut id = [0, 0, 0, 0];
         let mut sub = 0;
@@ -390,5 +435,130 @@ mod tests {
 
         assert_eq!(id, [0x0, 0x1, 0x2, 0x3]);
         assert_eq!(slave.state, LssState::Configuring);
+    }
+
+    #[test]
+    fn test_node_id_configuration_with_store() {
+        const VENDOR_ID: u32 = 0x0;
+        const PRODUCT_CODE: u32 = 0x1;
+        const REVISION: u32 = 0x2;
+        const SERIAL_NUMBER: u32 = 0x3;
+        const IDENTITY: LssIdentity = LssIdentity {
+            vendor_id: VENDOR_ID,
+            product_code: PRODUCT_CODE,
+            revision: REVISION,
+            serial: SERIAL_NUMBER,
+        };
+
+        let mut slave = LssSlave::new(LssConfig {
+            node_id: NodeId::Unconfigured,
+            identity: IDENTITY,
+            store_supported: true,
+        });
+
+        let rx = LssReceiver::new();
+
+        let node_id = NodeId::new(10).unwrap();
+
+        // Put the slave into Configuring mode
+        rx.rx_req
+            .store(Some(LssRequest::SwitchModeGlobal { mode: 1 }));
+        let _ = slave.process(&rx).unwrap();
+
+        // Send command to set the node ID
+        rx.rx_req.store(Some(LssRequest::ConfigureNodeId {
+            node_id: node_id.raw(),
+        }));
+        let resp = slave.process(&rx).unwrap();
+        assert_eq!(
+            Some(LssResponse::ConfigureNodeIdAck {
+                error: 0,
+                spec_error: 0
+            }),
+            resp
+        );
+        // Slave should return event to application
+        assert_eq!(
+            Some(LssEvent::ConfigureNodeId { node_id }),
+            slave.pending_event()
+        );
+        // Update with new application config
+        slave.update_config(LssConfig {
+            node_id: NodeId::new(10).unwrap(),
+            identity: IDENTITY,
+            store_supported: true,
+        });
+        // Event should be cleared
+        assert_eq!(None, slave.pending_event());
+
+        // send command to store config
+        rx.rx_req.store(Some(LssRequest::StoreConfiguration));
+        let resp = slave.process(&rx).unwrap();
+        assert_eq!(
+            Some(LssResponse::StoreConfigurationAck {
+                error: 0,
+                spec_error: 0
+            }),
+            resp
+        );
+        // Event should be returned
+        assert_eq!(Some(LssEvent::StoreConfiguration), slave.pending_event());
+        // Event should be automatically cleared after being returned once
+        assert_eq!(None, slave.pending_event());
+    }
+
+    #[test]
+    fn test_node_id_configuration_without_store() {
+        const VENDOR_ID: u32 = 0x0;
+        const PRODUCT_CODE: u32 = 0x1;
+        const REVISION: u32 = 0x2;
+        const SERIAL_NUMBER: u32 = 0x3;
+        const IDENTITY: LssIdentity = LssIdentity {
+            vendor_id: VENDOR_ID,
+            product_code: PRODUCT_CODE,
+            revision: REVISION,
+            serial: SERIAL_NUMBER,
+        };
+
+        let mut slave = LssSlave::new(LssConfig {
+            node_id: NodeId::Unconfigured,
+            identity: IDENTITY,
+            store_supported: false,
+        });
+
+        let rx = LssReceiver::new();
+
+        // Put the slave into Configuring mode
+        rx.rx_req
+            .store(Some(LssRequest::SwitchModeGlobal { mode: 1 }));
+        let _ = slave.process(&rx).unwrap();
+
+        rx.rx_req
+            .store(Some(LssRequest::ConfigureNodeId { node_id: 10 }));
+        let resp = slave.process(&rx).unwrap();
+        assert_eq!(
+            Some(LssResponse::ConfigureNodeIdAck {
+                error: 0,
+                spec_error: 0
+            }),
+            resp
+        );
+        slave.update_config(LssConfig {
+            node_id: NodeId::new(10).unwrap(),
+            identity: IDENTITY,
+            store_supported: false,
+        });
+
+        rx.rx_req.store(Some(LssRequest::StoreConfiguration));
+        let resp = slave.process(&rx).unwrap();
+        assert_eq!(
+            Some(LssResponse::StoreConfigurationAck {
+                error: 1,
+                spec_error: 0
+            }),
+            resp
+        );
+        // No events
+        assert_eq!(None, slave.pending_event());
     }
 }
