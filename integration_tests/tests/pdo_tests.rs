@@ -9,7 +9,7 @@ use integration_tests::{
 };
 use serial_test::serial;
 use tokio::time::timeout;
-use zencan_client::{PdoConfig, PdoMapping, SdoClient};
+use zencan_client::{nmt_master::NmtMaster, PdoConfig, PdoMapping, SdoClient};
 use zencan_common::{
     messages::{CanId, CanMessage, SyncObject},
     objects::{find_object, ODEntry, ObjectRawAccess},
@@ -54,6 +54,8 @@ async fn test_rpdo_assignment() {
     let mut sender = bus.new_sender();
     let rx = bus.new_receiver();
 
+    let mut nmt = NmtMaster::new(bus.new_sender(), bus.new_receiver());
+
     let _bus_logger = BusLogger::new(rx);
 
     let mut pdo_sender = bus.new_sender();
@@ -62,11 +64,9 @@ async fn test_rpdo_assignment() {
         // Readback the largest sub index
         assert_eq!(2, client.upload_u8(0x1400, 0).await.unwrap());
 
-        // TODO: Check default COMM values
-
         // Set COB-ID and readback
-        // Valid bit set, and ID == 0x201.
-        let cob_id_word: u32 = (1 << 31) | 0x201;
+        // Invalid bit cleared, and ID == 0x201.
+        let cob_id_word: u32 = 0x201;
         client.download_u32(0x1400, 1, cob_id_word).await.unwrap();
 
         let readback_cob_id_word = client.upload_u32(0x1400, 1).await.unwrap();
@@ -75,6 +75,9 @@ async fn test_rpdo_assignment() {
         // Set RPDO1 to map to object 0x2000, subindex 1, length 32 bits
         let mapping_entry: u32 = (0x2000 << 16) | (1 << 8) | 32;
         client.download_u32(0x1600, 1, mapping_entry).await.unwrap();
+
+        // Put in operational mode
+        nmt.nmt_start(0).await.unwrap();
 
         // Now send a PDO message and it should update the mapped object
         pdo_sender
@@ -108,6 +111,8 @@ async fn test_tpdo_asignment() {
     const PDO_COMM_COB_SUBID: u8 = 1;
     const PDO_COMM_TRANSMISSION_TYPE_SUBID: u8 = 2;
 
+    let mut nmt = NmtMaster::new(bus.new_sender(), bus.new_receiver());
+
     let mut sender = bus.new_sender();
     let test_task = async move {
         // Set the TPDO COB ID
@@ -115,7 +120,7 @@ async fn test_tpdo_asignment() {
             .download(
                 TPDO_COMM1_ID,
                 PDO_COMM_COB_SUBID,
-                &(0x181u32 | (1 << 31)).to_le_bytes(),
+                &0x181u32.to_le_bytes(),
             )
             .await
             .unwrap();
@@ -144,6 +149,9 @@ async fn test_tpdo_asignment() {
             .download(0x1A00, 2, &mapping_entry.to_le_bytes())
             .await
             .unwrap();
+
+        // Node has to be in Operating mode to send PDOs
+        nmt.nmt_start(0).await.unwrap();
 
         rx.flush();
 
@@ -193,13 +201,15 @@ async fn test_tpdo_event_flags() {
 
     let mut rx = bus.new_receiver();
 
+    let mut nmt = NmtMaster::new(bus.new_sender(), bus.new_receiver());
+
     let test_task = async move {
         // Set the TPDO COB ID
         client
             .download(
                 TPDO_COMM1_ID,
                 PDO_COMM_COB_SUBID,
-                &(0x181u32 + (1 << 31)).to_le_bytes(),
+                &0x181u32.to_le_bytes(),
             )
             .await
             .unwrap();
@@ -229,6 +239,9 @@ async fn test_tpdo_event_flags() {
             .download(0x1A00, 2, &mapping_entry.to_le_bytes())
             .await
             .unwrap();
+
+        // Node has to be in Operating mode to send PDOs
+        nmt.nmt_start(0).await.unwrap();
 
         rx.flush();
 

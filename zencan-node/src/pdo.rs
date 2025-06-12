@@ -159,7 +159,7 @@ pub(crate) fn pdo_comm_write_callback(
                 return Err(AbortCode::DataTypeMismatch);
             }
             let value = u32::from_le_bytes(buf.try_into().unwrap());
-            let valid = (value & (1 << 31)) != 0;
+            let not_valid = (value & (1 << 31)) != 0;
             let no_rtr = (value & (1 << 30)) != 0;
             let extended_id = (value & (1 << 29)) != 0;
 
@@ -169,7 +169,7 @@ pub(crate) fn pdo_comm_write_callback(
                 CanId::Std((value & 0x7FF) as u16)
             };
             pdo.cob_id.store(can_id);
-            pdo.valid.store(valid);
+            pdo.valid.store(!not_valid);
             pdo.rtr_disabled.store(no_rtr);
             Ok(())
         }
@@ -222,7 +222,7 @@ pub(crate) fn pdo_comm_read_callback(
             if pdo.rtr_disabled.load() {
                 value |= 1 << 30;
             }
-            if pdo.valid.load() {
+            if !pdo.valid.load() {
                 value |= 1 << 31;
             }
 

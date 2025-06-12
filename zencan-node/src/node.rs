@@ -41,6 +41,7 @@ pub struct Node {
     callbacks: Callbacks,
     next_heartbeat_time_us: u64,
     heartbeat_period_ms: u16,
+    heartbeat_toggle: bool,
 }
 
 fn read_identity(od: &[ODEntry]) -> Option<LssIdentity> {
@@ -95,6 +96,7 @@ impl Node {
 
         let heartbeat_period_ms = read_heartbeat_period(od).expect("Heartbeat object must exist");
         let next_heartbeat_time_us = 0;
+        let heartbeat_toggle = false;
         Self {
             node_id,
             nmt_state,
@@ -107,6 +109,7 @@ impl Node {
             reassigned_node_id,
             next_heartbeat_time_us,
             heartbeat_period_ms,
+            heartbeat_toggle,
             callbacks: Callbacks::default(),
         }
     }
@@ -178,48 +181,6 @@ impl Node {
             send_cb(resp.to_can_message(LSS_RESP_ID));
         }
 
-        // check if a sync has been received
-        let sync = self.mbox.read_sync_flag();
-
-        // Swap the active TPDO flag set
-        self.state.get_pdo_sync().toggle();
-
-        for pdo in self.state.get_tpdos() {
-            let transmission_type = pdo.transmission_type.load();
-            if transmission_type >= 254 {
-                if pdo.read_events(self.od) {
-                    let mut data = [0u8; 8];
-                    crate::pdo::read_pdo_data(&mut data, pdo, self.od);
-                    let msg = CanMessage::new(pdo.cob_id.load(), &data);
-                    send_cb(msg);
-                }
-            } else if sync && pdo.sync_update() {
-                let mut data = [0u8; 8];
-                crate::pdo::read_pdo_data(&mut data, pdo, self.od);
-                let msg = CanMessage::new(pdo.cob_id.load(), &data);
-                send_cb(msg);
-            }
-        }
-
-        for pdo in self.state.get_tpdos() {
-            pdo.clear_events(self.od);
-        }
-
-        for rpdo in self.state.get_rpdos() {
-            if let Some(new_data) = rpdo.buffered_value.take() {
-                crate::pdo::store_pdo_data(&new_data, rpdo, self.od);
-            }
-        }
-
-        if self.heartbeat_period_ms != 0 && now_us >= self.next_heartbeat_time_us {
-            self.send_heartbeat(send_cb);
-            // Perform catchup if we are behind, e.g. if we have not send a heartbeat in a long
-            // time because we have not been configured
-            if self.next_heartbeat_time_us < now_us {
-                self.next_heartbeat_time_us = now_us;
-            }
-        }
-
         if let Some(event) = self.lss_slave.pending_event() {
             info!("LSS Slave Event: {:?}", event);
             match event {
@@ -237,6 +198,52 @@ impl Node {
                     self.set_node_id(node_id)
                 }
             }
+        }
+
+        if self.heartbeat_period_ms != 0 && now_us >= self.next_heartbeat_time_us {
+            self.send_heartbeat(send_cb);
+            // Perform catchup if we are behind, e.g. if we have not send a heartbeat in a long
+            // time because we have not been configured
+            if self.next_heartbeat_time_us < now_us {
+                self.next_heartbeat_time_us = now_us;
+            }
+        }
+
+        if self.nmt_state == NmtState::Operational {
+            // check if a sync has been received
+            let sync = self.mbox.read_sync_flag();
+
+            // Swap the active TPDO flag set
+            self.state.get_pdo_sync().toggle();
+
+            for pdo in self.state.get_tpdos() {
+                let transmission_type = pdo.transmission_type.load();
+                if transmission_type >= 254 {
+                    if pdo.read_events(self.od) {
+                        let mut data = [0u8; 8];
+                        crate::pdo::read_pdo_data(&mut data, pdo, self.od);
+                        let msg = CanMessage::new(pdo.cob_id.load(), &data);
+                        send_cb(msg);
+                    }
+                } else if sync && pdo.sync_update() {
+                    let mut data = [0u8; 8];
+                    crate::pdo::read_pdo_data(&mut data, pdo, self.od);
+                    let msg = CanMessage::new(pdo.cob_id.load(), &data);
+                    send_cb(msg);
+                }
+            }
+
+            for pdo in self.state.get_tpdos() {
+                pdo.clear_events(self.od);
+            }
+
+            for rpdo in self.state.get_rpdos() {
+                if let Some(new_data) = rpdo.buffered_value.take() {
+                    crate::pdo::store_pdo_data(&new_data, rpdo, self.od);
+                }
+            }
+
+
         }
     }
 
@@ -306,9 +313,10 @@ impl Node {
         if let NodeId::Configured(node_id) = self.node_id {
             let heartbeat = Heartbeat {
                 node: node_id.raw(),
-                toggle: false,
+                toggle: self.heartbeat_toggle,
                 state: self.nmt_state,
             };
+            self.heartbeat_toggle = !self.heartbeat_toggle;
             sender(heartbeat.into());
             self.next_heartbeat_time_us += (self.heartbeat_period_ms as u64) * 1000;
         }
