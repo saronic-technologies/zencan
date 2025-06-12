@@ -9,7 +9,7 @@ use core::{
 use futures::{pending, task::noop_waker_ref};
 use zencan_common::objects::{find_object, ODEntry, ObjectRawAccess};
 
-use defmt_or_log::{info, warn};
+use defmt_or_log::{debug, warn};
 
 /// Specifies the types of nodes which can be serialized to persistent storage
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -62,8 +62,8 @@ async fn serialize_object(obj: &ODEntry<'_>, sub: u8, reg: &RefCell<u8>) {
     write_bytes(&[sub], reg).await;
 
     let mut buf = [0u8];
-    for i in 0..data_size {
-        obj.data.read(sub, i as usize, &mut buf).unwrap();
+    for i in 0..data_size as usize {
+        obj.data.read(sub, i, &mut buf).unwrap();
         write_bytes(&buf, reg).await;
     }
 }
@@ -71,30 +71,47 @@ async fn serialize_object(obj: &ODEntry<'_>, sub: u8, reg: &RefCell<u8>) {
 async fn serialize_sm(objects: &[ODEntry<'static>], reg: &RefCell<u8>) {
     for obj in objects {
         let max_sub = obj.data.max_sub_number();
-        if max_sub > 0 {
-            // This is an array or record. We don't store sub 0, which holds the max_sub_index, but
-            // will store any remaining subs which are marked as stored
-            for i in 0..max_sub {
-                let sub = i + 1;
-                let info = obj.data.sub_info(sub);
-                // On a record, some subs may not be present. Just skip these.
-                if info.is_err() {
-                    continue;
-                }
-                let info = info.unwrap();
-                if !info.persist {
-                    continue;
-                }
-                serialize_object(obj, sub, reg).await;
+
+        for sub in 0..max_sub + 1{
+            let info = obj.data.sub_info(sub);
+            // On a record, some subs may not be present. Just skip these.
+            if info.is_err() {
+                continue;
             }
-        } else {
-            let info = obj.data.sub_info(0).expect("var object must have sub 0");
+            let info = info.unwrap();
             if !info.persist {
                 continue;
             }
-            serialize_object(obj, 0, reg).await;
+            serialize_object(obj, sub, reg).await;
         }
     }
+}
+
+pub fn serialized_size(objects: &[ODEntry]) -> usize {
+    const OVERHEAD_SIZE: usize = 6;
+    let mut size = 0;
+    for obj in objects {
+        let max_sub = obj.data.max_sub_number();
+        for sub in 0..max_sub + 1 {
+            let info = obj.data.sub_info(sub);
+            // On a record, some subs may not be present. Just skip these.
+            if info.is_err() {
+                continue;
+            }
+            let info = info.unwrap();
+            if !info.persist {
+                continue;
+            }
+            // Unwrap safety: This can only fail if the sub doesn't exist, and we already
+            // checked for that above
+            let data_size = obj.data.current_size(sub).unwrap();
+            // Serialized node size is the variable length object data, plus node type (u8),
+            // index (u16), and sub index (u8), plus a length header (u16)
+            size += data_size + OVERHEAD_SIZE;
+        }
+    }
+
+    size
 }
 
 struct PersistSerializer<'a, 'b, F: Future> {
@@ -131,37 +148,6 @@ impl<F: Future> embedded_io::Read for PersistSerializer<'_, '_, F> {
             }
         }
     }
-}
-
-pub fn serialized_size(objects: &[ODEntry]) -> usize {
-    let mut size = 0;
-    for obj in objects {
-        let max_sub = obj.data.max_sub_number();
-        if max_sub > 0 {
-            // This is an array or record. We don't store sub 0, which holds the max_sub_index, but
-            // will store any remaining subs which are marked as persisted
-            for i in 0..max_sub {
-                let sub = i + 1;
-                let info = obj.data.sub_info(sub);
-                // On a record, some subs may not be present. Just skip these.
-                if info.is_err() {
-                    continue;
-                }
-                let info = info.unwrap();
-                if !info.persist {
-                    continue;
-                }
-                // Unwrap safety: This can only fail if the sub doesn't exist, and we already
-                // checked for that above
-                let data_size = obj.data.current_size(sub).unwrap();
-                // Serialized node size is the variable length object data, plus node type (u8),
-                // index (u16), and sub index (u8), plus a length header (u16)
-                size += data_size + 6;
-            }
-        }
-    }
-
-    size
 }
 
 /// Serialize node data
@@ -275,7 +261,7 @@ pub fn restore_stored_objects(od: &[ODEntry], stored_data: &[u8]) {
             PersistNodeRef::ObjectValue(restore) => {
                 if let Some(obj) = find_object(od, restore.index) {
                     if let Ok(sub_info) = obj.sub_info(restore.sub) {
-                        info!(
+                        debug!(
                             "Restoring 0x{:x}sub{} with {:?}",
                             restore.index, restore.sub, restore.data
                         );
