@@ -68,6 +68,7 @@ No doubt this is a very incomplete list...
 - zencan-build should maybe be exported and documented via zencan-node (?)
 - Bootload support
 - Implement domain objects
+- Support object value range limits: return AbortCode if SDO client attempts to write out of range value
 
 ## License
 
