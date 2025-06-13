@@ -12,8 +12,9 @@ repository.workspace = true
 proc-macro = true
 
 [dependencies]
-zencan-build = { path = "../zencan-build" }
-syn = "*"
+zencan-build.workspace = true
+zencan-common = { workspace = true, features = ["log", "std"] }
+syn = "2.0.102"
 proc-macro2 = "1.0.95"
 quote = "1.0.40"
 darling = "0.20.11"

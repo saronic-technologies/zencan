@@ -32,7 +32,7 @@ fn setup<'a, S: NodeStateAccess>(
 ) {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let node = Node::new(NodeId::new(SLAVE_NODE_ID).unwrap(), mbox, state, od);
+    let node = Node::init(NodeId::new(SLAVE_NODE_ID).unwrap(), mbox, state, od).finalize();
 
     let mut bus = SimBus::new(vec![mbox]);
 
@@ -117,11 +117,7 @@ async fn test_tpdo_asignment() {
     let test_task = async move {
         // Set the TPDO COB ID
         client
-            .download(
-                TPDO_COMM1_ID,
-                PDO_COMM_COB_SUBID,
-                &0x181u32.to_le_bytes(),
-            )
+            .download(TPDO_COMM1_ID, PDO_COMM_COB_SUBID, &0x181u32.to_le_bytes())
             .await
             .unwrap();
         // Set to sync driven
@@ -206,11 +202,7 @@ async fn test_tpdo_event_flags() {
     let test_task = async move {
         // Set the TPDO COB ID
         client
-            .download(
-                TPDO_COMM1_ID,
-                PDO_COMM_COB_SUBID,
-                &0x181u32.to_le_bytes(),
-            )
+            .download(TPDO_COMM1_ID, PDO_COMM_COB_SUBID, &0x181u32.to_le_bytes())
             .await
             .unwrap();
         // Set to asynchronous transmission

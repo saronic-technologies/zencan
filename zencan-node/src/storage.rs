@@ -15,6 +15,7 @@ pub type StoreObjectsCallback =
     dyn Fn(&mut dyn embedded_io::Read<Error = Infallible>, usize) + Sync;
 
 #[derive(Default)]
+#[allow(missing_debug_implementations)]
 pub struct StorageContext {
     pub(crate) store_callback: AtomicCell<Option<&'static StoreObjectsCallback>>,
 }

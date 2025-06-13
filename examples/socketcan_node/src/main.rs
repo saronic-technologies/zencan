@@ -63,15 +63,17 @@ async fn main() {
 
     log::info!("Starting node...");
     let node_id = NodeId::try_from(args.node_id).unwrap();
-    // Set the serial number using the provided serial, or a random number if none is provided
-    zencan::OBJECT1018.set_serial(args.serial.unwrap_or(rand::random()));
-    let mut node = Node::new(
+
+    let node = Node::init(
         node_id,
         &zencan::NODE_MBOX,
         &zencan::NODE_STATE,
         &zencan::OD_TABLE,
     );
 
+    // Set the serial number using the provided serial, or a random number if none is provided
+    zencan::OBJECT1018.set_serial(args.serial.unwrap_or(rand::random()));
+    // Load saved object values if they are found
     if args.storage {
         OBJECT_STORE_PATH
             .set(format!("zencan_node.{}.flash", node_id.raw()))
@@ -79,8 +81,11 @@ async fn main() {
         if let Ok(data) = std::fs::read(OBJECT_STORE_PATH.get().unwrap()) {
             zencan_node::restore_stored_objects(&zencan::OD_TABLE, &data);
         }
-        node.register_store_objects(&store_objects_callback);
     }
+
+    let mut node = node.finalize();
+
+    node.register_store_objects(&store_objects_callback);
     let (mut tx, mut rx) = open_socketcan(&args.socket).unwrap();
 
     // Node requires callbacks be static, so use Box::leak to make static ref from closure on heap

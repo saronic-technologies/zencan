@@ -350,9 +350,21 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
         let mut node_map = self.nodes.lock().await;
         // Update our nodes
         for n in &nodes {
-            node_map.insert(n.node_id, n.clone());
+            if let std::collections::hash_map::Entry::Vacant(e) = node_map.entry(n.node_id) {
+                e.insert(n.clone());
+            } else {
+                node_map.get_mut(&n.node_id).unwrap().update(n);
+            }
         }
+
+        // Pull the just scanned nodes from the collection so that
+        // 1) We only included nodes which responded just now to the scan, but
+        // 2) we also display the latest NMT state for that node, which comes from the heartbeat
+        //    rather than the scan
         nodes
+            .iter()
+            .map(|n| node_map.get(&n.node_id).unwrap().clone())
+            .collect()
     }
 
     /// Find all unconfigured devices on the bus

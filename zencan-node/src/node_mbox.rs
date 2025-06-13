@@ -12,6 +12,7 @@ use crate::{lss_slave::LssReceiver, pdo::Pdo};
 /// [`Node`](crate::Node) object.
 ///
 /// Incoming messages should be passed to [NodeMbox::store_message].
+#[allow(missing_debug_implementations)]
 pub struct NodeMbox {
     rx_pdos: &'static [Pdo],
     sdo_cob_id: AtomicCell<Option<CanId>>,

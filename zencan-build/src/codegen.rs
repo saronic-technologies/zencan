@@ -1,13 +1,13 @@
-use crate::device_config::{DataType as DCDataType, DefaultValue, PdoMapping};
+use crate::errors::CompileError;
 use crate::utils::{
     scalar_read_snippet, scalar_write_snippet, string_read_snippet, string_write_snippet,
 };
-use crate::{
-    device_config::{DeviceConfig, Object, ObjectDefinition, SubDefinition},
-    errors::CompileError,
-};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use zencan_common::device_config::{
+    DataType as DCDataType, DefaultValue, DeviceConfig, Object, ObjectDefinition, PdoMapping,
+    SubDefinition,
+};
 use zencan_common::objects::{AccessType, ObjectCode};
 
 fn get_sub_field_name(sub: &SubDefinition) -> Result<syn::Ident, CompileError> {

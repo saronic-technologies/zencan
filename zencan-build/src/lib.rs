@@ -78,17 +78,17 @@
 
 use std::path::Path;
 
-use device_config::DeviceConfig;
 use snafu::ResultExt;
 
 mod codegen;
-pub mod device_config;
 pub mod errors;
 pub mod utils;
 
-use crate::errors::*;
 pub use codegen::device_config_to_string;
 pub use codegen::device_config_to_tokens;
+use zencan_common::device_config::DeviceConfig;
+
+use errors::*;
 
 /// Compile a device config TOML file into rust code
 ///
@@ -100,7 +100,7 @@ pub fn compile_device_config(
     config_path: impl AsRef<Path>,
     out_path: impl AsRef<Path>,
 ) -> Result<(), CompileError> {
-    let config = DeviceConfig::load(config_path.as_ref())?;
+    let config = DeviceConfig::load(config_path.as_ref()).context(DeviceConfigSnafu)?;
 
     let code = device_config_to_string(&config, true)?.to_string();
 

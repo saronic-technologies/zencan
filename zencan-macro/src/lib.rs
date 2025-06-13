@@ -3,7 +3,8 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use std::str::FromStr as _;
-use zencan_build::{device_config::DeviceConfig, device_config_to_string};
+use zencan_build::device_config_to_string;
+use zencan_common::device_config::DeviceConfig;
 
 mod derive_record;
 use derive_record::record_object_impl;

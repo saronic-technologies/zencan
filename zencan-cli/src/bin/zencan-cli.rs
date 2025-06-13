@@ -190,7 +190,7 @@ fn convert_read_bytes_to_string(
         SdoDataType::U32 => Ok(u32::from_le_bytes(bytes.try_into()?).to_string()),
         SdoDataType::U16 => Ok(u16::from_le_bytes(bytes.try_into()?).to_string()),
         SdoDataType::U8 => {
-            if bytes.is_empty() {
+            if !bytes.is_empty() {
                 Ok(bytes[0].to_string())
             } else {
                 Err(MismatchedSizeError {})
@@ -199,7 +199,7 @@ fn convert_read_bytes_to_string(
         SdoDataType::I32 => Ok(i32::from_le_bytes(bytes.try_into()?).to_string()),
         SdoDataType::I16 => Ok(i16::from_le_bytes(bytes.try_into()?).to_string()),
         SdoDataType::I8 => {
-            if bytes.is_empty() {
+            if !bytes.is_empty() {
                 Ok((bytes[0] as i8).to_string())
             } else {
                 Err(MismatchedSizeError {})

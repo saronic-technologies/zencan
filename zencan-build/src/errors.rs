@@ -24,11 +24,6 @@ pub enum CompileError {
         message: String,
         source: std::num::ParseFloatError,
     },
-    #[snafu(display("Error parsing toml: {}. Toml error: {}", message, source.to_string()))]
-    ParseToml {
-        message: String,
-        source: toml::de::Error,
-    },
     DefaultValueTooLong {
         message: String,
     },
@@ -38,5 +33,8 @@ pub enum CompileError {
     NotRunViaCargo,
     Io {
         source: std::io::Error,
+    },
+    DeviceConfig {
+        source: zencan_common::device_config::LoadError,
     },
 }

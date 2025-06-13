@@ -16,6 +16,8 @@ pub mod object_ids {
     pub const HEARTBEAT_PRODUCER_TIME: u16 = 0x1017;
     /// The identity object index
     pub const IDENTITY: u16 = 0x1018;
+    /// The auto start object index
+    pub const AUTO_START: u16 = 0x5000;
 }
 
 /// Special values used to access standard objects

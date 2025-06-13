@@ -9,6 +9,9 @@
 mod atomic_cell;
 pub use atomic_cell::AtomicCell;
 pub mod constants;
+#[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
+pub mod device_config;
 pub mod lss;
 pub mod messages;
 pub mod node_id;

@@ -1,13 +1,148 @@
-//! Device configuration support
+//! Device config file
 //!
-//! Includes code for reading device config files and for implementing the "standard" objects in a
-//! node.
-
+//! A DeviceConfig is created from a TOML file, and provides build-time configuration for a zencan
+//! node. The device config specifies all of the objects in the object dictionary of the node,
+//! including custom ones defined for the specific application.
+//!
+//! # An example TOML file
+//!
+//! ```toml
+//! device_name = "can-io"
+//! software_version = "v0.0.1"
+//! hardware_version = "rev1"
+//! heartbeat_period = 1000
+//!
+//! # Define 3 out of 4 device unique identifiers. These define the application/device, the fourth is
+//! # the serial number, which must be provided at run-time by the application.
+//! [identity]
+//! vendor_id = 0xCAFE
+//! product_code = 1032
+//! revision_number = 1
+//!
+//! # Defines the number of PDOs the device will support
+//! [pdos]
+//! num_rpdo = 4
+//! num_tpdo = 4
+//!
+//! # User's can create custom objects to hold application specific data
+//! [[objects]]
+//! index = 0x2000
+//! parameter_name = "Raw Analog Input"
+//! object_type = "array"
+//! data_type = "uint16"
+//! access_type = "ro"
+//! array_size = 4
+//! default_value = [0, 0, 0, 0]
+//! pdo_mapping = "tpdo"
+//! ```
+//!
+//! # Object Namespaces
+//!
+//! Application specific objects should be defined in the range 0x2000-0x4fff. Many objects will be
+//! created by default in addition to the ones defined by the user.
+//!
+//! # Standard Objects
+//!
+//! ## 0x1008 - Device Name
+//!
+//! A VAR object containing a string with a human readable device name. This value is set by
+//! [DeviceConfig::device_name].
+//!
+//! ## 0x1009 - Hardware Version
+//!
+//! A VAR object containing a string with a human readable hardware version. This value is set by
+//! [DeviceConfig::hardware_version].
+//!
+//! ## 0x100A - Software Version
+//!
+//! A VAR object containing a string with a human readable software version. This value is set by
+//! [DeviceConfig::software_version]
+//!
+//! ## 0x1010 - Object Save Command
+//!
+//! An array object used to command the node to store its current object values.
+//!
+//! Array size: 1 Data type: u32
+//!
+//! When read, sub-object 1 will return a 1 if a storage callback has been provided by the
+//! application, indicating that saving is supported.
+//!
+//! To trigger a save, write a u32 with the [magic value](crate::constants::values::SAVE_CMD).
+//!
+//! ## 0x1017 - Heartbeat Producer Time
+//!
+//! A VAR object of type U16.
+//!
+//! This object stores the period at which the heartbeat is sent by the device, in milliseconds. It
+//! is set by [DeviceConfig::heartbeat_period].
+//!
+//! ## 0x1018 - Identity
+//!
+//! A record object which stores the 128-bit unique identifier for the node.
+//!
+//! | Sub Object | Type | Description |
+//! | ---------- | ---- | ----------- |
+//! | 0          | u8   | Max sub index - always 4 |
+//! | 1          | u32  | Vendor ID    |
+//! | 2          | u32  | Product Code |
+//! | 3          | u32  | Revision |
+//! | 4          | u32  | Serial |
+//!
+//! ## 0x1400 to 0x1400 + N - RPDO Communications Parameter
+//!
+//! One object for each RPDO supported by the node. This configures how the PDO is received.
+//!
+//! ## 0x1600 to 0x1600 + N - RPDO Mapping Parameters
+//!
+//! One object for each RPDO supported by the node. This configures which sub objects the data in
+//! the PDO message maps to.
+//!
+//! Sub Object 0 contains the number of valid mappings. Sub objects 1 through 9 specify a list of
+//! sub objects to map to.
+//!
+//! ## 0x1800 to 0x1800 + N - TPDO Communications Parameter
+//!
+//! One object for each TPDO supported by the node. This configures how the PDO is transmitted.
+//!
+//! ## 0x1A00 to 0x1A00 + N - TPDO Mapping Parameters
+//!
+//! One object for each TPDO supported by the node. This configures which sub objects the data in
+//! the PDO message maps to.
+//!
+//! Sub Object 0 contains the number of valid mappings. Sub objects 1 through 9 specify a list of
+//! sub objects to map to.
+//!
+//! # Zencan Extensions
+//!
+//! ## 0x5000 - Auto Start
+//!
+//! Setting this to a non-zero value causes the node to immediately move into the Operational state
+//! after power-on, without receiving an NMT command to do so. Note that, if the device is later put
+//! into PreOperational via an NMT command, it will not auto-transition to Operational.
+//!
+use crate::objects::{AccessType, ObjectCode};
 use serde::{de::Error, Deserialize};
-use zencan_common::objects::{AccessType, ObjectCode};
 
-use crate::errors::*;
 use snafu::ResultExt as _;
+use snafu::Snafu;
+
+/// Error returned when loading a device config fails
+#[derive(Debug, Snafu)]
+pub enum LoadError {
+    /// An IO error occured while reading the file
+    Io {
+        /// The underlying IO error
+        source: std::io::Error,
+    },
+    /// An error occured in the TOML parser
+    #[snafu(display("Error parsing toml: {}. Toml error: {}", message, source.to_string()))]
+    TomlParsing {
+        /// Error specific message
+        message: String,
+        /// The toml error which led to this error
+        source: toml::de::Error,
+    },
+}
 
 fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
     vec![
@@ -148,6 +283,18 @@ fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
                         ..Default::default()
                     },
                 ],
+            }),
+        },
+        ObjectDefinition {
+            index: 0x5000,
+            parameter_name: "Auto Start".to_string(),
+            application_callback: false,
+            object: Object::Var(VarDefinition {
+                data_type: DataType::UInt8,
+                access_type: AccessType::Rw.into(),
+                default_value: None,
+                pdo_mapping: PdoMapping::None,
+                persist: true,
             }),
         },
     ]
@@ -470,75 +617,25 @@ impl ObjectDefinition {
 
 impl DeviceConfig {
     /// Try to read a device config from a file
-    pub fn load(config_path: impl AsRef<std::path::Path>) -> Result<Self, CompileError> {
+    pub fn load(config_path: impl AsRef<std::path::Path>) -> Result<Self, LoadError> {
         let config_str = std::fs::read_to_string(&config_path).context(IoSnafu)?;
-        let mut config: DeviceConfig = toml::from_str(&config_str).context(ParseTomlSnafu {
-            message: format!("Error parsing {}", config_path.as_ref().display()),
-        })?;
-
-        // Add mandatory objects to the config
-        config.objects.extend(mandatory_objects(&config));
-
-        config.objects.extend(pdo_objects(
-            config.pdos.num_rpdo as usize,
-            config.pdos.num_tpdo as usize,
-        ));
-
-        Ok(config)
+        Self::load_from_str(&config_str)
     }
 
     /// Try to read a config from a &str
-    pub fn load_from_str(config_str: &str) -> Result<Self, CompileError> {
-        let mut config: DeviceConfig = toml::from_str(config_str).context(ParseTomlSnafu {
+    pub fn load_from_str(config_str: &str) -> Result<Self, LoadError> {
+        let mut config: DeviceConfig = toml::from_str(config_str).context(TomlParsingSnafu {
             message: "Error parsing device config string".to_string(),
         })?;
 
         // Add mandatory objects to the config
         config.objects.extend(mandatory_objects(&config));
-
         config.objects.extend(pdo_objects(
             config.pdos.num_rpdo as usize,
             config.pdos.num_tpdo as usize,
         ));
 
         Ok(config)
-    }
-}
-
-/// A newtype for ObjectCode to implement deserialization so we can use it in toml files
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ObjectCodeDeser(pub ObjectCode);
-impl<'de> serde::Deserialize<'de> for ObjectCodeDeser {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        // First try parsing it as a u8, if that fails, try looking for the string representation
-        match s.parse::<u8>() {
-            Ok(int_code) => match ObjectCode::try_from(int_code) {
-                Ok(obj_code) => Ok(ObjectCodeDeser(obj_code)),
-                Err(_) => Err(D::Error::custom(format!(
-                    "Invalid object code: {}",
-                    int_code
-                ))),
-            },
-            Err(_) => match s.to_lowercase().as_str() {
-                "null" => Ok(ObjectCodeDeser(ObjectCode::Null)),
-                "domain" => Ok(ObjectCodeDeser(ObjectCode::Domain)),
-                "deftype" => Ok(ObjectCodeDeser(ObjectCode::DefType)),
-                "defstruct" => Ok(ObjectCodeDeser(ObjectCode::DefStruct)),
-                "var" => Ok(ObjectCodeDeser(ObjectCode::Var)),
-                "array" => Ok(ObjectCodeDeser(ObjectCode::Array)),
-                "record" => Ok(ObjectCodeDeser(ObjectCode::Record)),
-                _ => Err(D::Error::custom(format!("Invalid object code: {}", s))),
-            },
-        }
-    }
-}
-impl From<ObjectCode> for ObjectCodeDeser {
-    fn from(obj_code: ObjectCode) -> Self {
-        ObjectCodeDeser(obj_code)
     }
 }
 

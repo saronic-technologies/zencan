@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use zencan_build::device_config_to_string;
+use zencan_common::device_config::DeviceConfig;
 
 #[derive(Clone, Debug, Parser)]
 struct Args {
@@ -25,7 +26,7 @@ fn main() {
         )
     });
 
-    let config = match toml::from_str(&config_content) {
+    let config = match DeviceConfig::load_from_str(&config_content) {
         Ok(config) => config,
         Err(e) => {
             eprintln!("Failed to parse TOML file: {}", e);

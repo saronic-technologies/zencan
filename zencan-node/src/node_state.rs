@@ -23,6 +23,7 @@ pub trait NodeStateAccess: Sync + Send {
 /// The node state has to get instantiated (statically) by zencan-build, based on the device config
 /// file. It is then provided to the node by the application when it is instantiated, and accessed
 /// via the [`NodeStateAccess`] trait.
+#[allow(missing_debug_implementations)]
 pub struct NodeState<const N_RPDO: usize, const N_TPDO: usize> {
     rpdos: [Pdo; N_RPDO],
     tpdos: [Pdo; N_TPDO],

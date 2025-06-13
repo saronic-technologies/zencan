@@ -59,6 +59,21 @@ impl NodeId {
             NodeId::Configured(node_id_num) => node_id_num.0,
         }
     }
+
+    /// Return true if the NodeId contains a valid configured ID
+    pub fn is_configured(&self) -> bool {
+        match self {
+            Self::Configured(_) => true,
+            Self::Unconfigured => false,
+        }
+    }
+    /// Return true if the node ID is NodeId::Unconfigured
+    pub fn is_unconfigured(&self) -> bool {
+        match self {
+            Self::Configured(_) => false,
+            Self::Unconfigured => true,
+        }
+    }
 }
 
 /// Error for converting u8 to a NodeId
