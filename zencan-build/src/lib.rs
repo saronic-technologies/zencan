@@ -141,3 +141,57 @@ pub fn build_node_from_device_config(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assertables::assert_contains;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_error_display() {
+        // Object with missing index
+        let mut input_file = NamedTempFile::new().expect("Failed to create tempfile");
+        input_file
+            .write_all(
+                r#"
+            device_name = "test"
+            [[objects]]
+        "#
+                .as_bytes(),
+            )
+            .expect("Failed writing input file");
+        let out_file = NamedTempFile::new().expect("Failed to create tempfile");
+        let err = compile_device_config(input_file.path(), out_file.path());
+        assert!(err.is_err());
+        assert_contains!(err.unwrap_err().to_string(), "missing field `index`");
+
+        // Incorrect default value
+        let mut input_file = NamedTempFile::new().expect("Failed to create tempfile");
+        input_file
+            .write_all(
+                r#"
+            device_name = "test"
+
+            [identity]
+            vendor_id = 1
+            product_code = 2
+            revision_number = 3
+
+            [[objects]]
+            index = 0x1
+            object_type = "var"
+            access_type = "rw"
+            data_type = "VisibleString(16)"
+            default_value = 0
+        "#
+                .as_bytes(),
+            )
+            .expect("Failed writing input file");
+        let out_file = NamedTempFile::new().expect("Failed to create tempfile");
+        let err = compile_device_config(input_file.path(), out_file.path());
+        assert!(err.is_err());
+        assert_contains!(err.unwrap_err().to_string(), "DefaultValueTypeMismatch: Default value 0 is not a valid value for type VisibleString(16)");
+    }
+}

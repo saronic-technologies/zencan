@@ -130,15 +130,14 @@ use snafu::Snafu;
 #[derive(Debug, Snafu)]
 pub enum LoadError {
     /// An IO error occured while reading the file
+    #[snafu(display("IO error: {source}"))]
     Io {
         /// The underlying IO error
         source: std::io::Error,
     },
     /// An error occured in the TOML parser
-    #[snafu(display("Error parsing toml: {}. Toml error: {}", message, source.to_string()))]
+    #[snafu(display("Toml parse error: {source}"))]
     TomlParsing {
-        /// Error specific message
-        message: String,
         /// The toml error which led to this error
         source: toml::de::Error,
     },
@@ -624,9 +623,7 @@ impl DeviceConfig {
 
     /// Try to read a config from a &str
     pub fn load_from_str(config_str: &str) -> Result<Self, LoadError> {
-        let mut config: DeviceConfig = toml::from_str(config_str).context(TomlParsingSnafu {
-            message: "Error parsing device config string".to_string(),
-        })?;
+        let mut config: DeviceConfig = toml::from_str(config_str).context(TomlParsingSnafu)?;
 
         // Add mandatory objects to the config
         config.objects.extend(mandatory_objects(&config));

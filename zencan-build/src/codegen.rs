@@ -703,15 +703,13 @@ pub fn generate_object_code(
     })
 }
 
-pub fn generate_state_inst(dev: &DeviceConfig) -> Result<TokenStream, CompileError> {
+pub fn generate_state_inst(dev: &DeviceConfig) -> TokenStream {
     let n_rpdo = dev.pdos.num_rpdo as usize;
     let n_tpdo = dev.pdos.num_tpdo as usize;
-    Ok(quote! {
-        //pub static RPDOS: [Pdo; #n_rpdo] = [const { Pdo::new() } ; #n_rpdo];
-
+    quote! {
         pub static NODE_STATE: NodeState<#n_rpdo, #n_tpdo> = NodeState::new();
         pub static NODE_MBOX: NodeMbox = NodeMbox::new(NODE_STATE.rpdos());
-    })
+    }
 }
 
 /// Generate code for a node from a [`DeviceConfig`] as a TokenStream
@@ -752,7 +750,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
         }
     }
 
-    object_instantiations.extend(generate_state_inst(dev)?);
+    object_instantiations.extend(generate_state_inst(dev));
 
     let table_len = dev.objects.len();
     Ok(quote! {
