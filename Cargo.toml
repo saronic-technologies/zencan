@@ -29,7 +29,7 @@ zencan-macro = { path = "zencan-macro" }
 zencan-node = { path = "zencan-node" }
 
 # External
-critical-section = { version = "1.2.0", default-features = false }
+critical-section = { version = "1.0.0", default-features = false }
 crossbeam = { version = "0.8.4", default-features = false }
 defmt = "1.0.1"
 defmt-or-log = { version = "0.2.1", default-features = false }
