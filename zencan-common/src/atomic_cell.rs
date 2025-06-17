@@ -8,6 +8,8 @@
 use core::{cell::Cell, ops::Add};
 use critical_section::Mutex;
 
+use crate::traits::LoadStore;
+
 /// A container to allow atomic access to the contained object
 #[derive(Debug)]
 pub struct AtomicCell<T: Copy> {
@@ -79,5 +81,16 @@ impl<T: Default + Copy + Send> Default for AtomicCell<T> {
         Self {
             inner: Mutex::new(Cell::new(T::default())),
         }
+    }
+}
+
+
+impl<T: Default + Copy + Send> LoadStore<T> for AtomicCell<T> {
+    fn load(&self) -> T {
+        self.load()
+    }
+
+    fn store(&self, value: T) {
+        self.store(value)
     }
 }

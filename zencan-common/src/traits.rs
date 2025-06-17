@@ -4,6 +4,16 @@ use core::time::Duration;
 
 use crate::messages::CanMessage;
 
+/// A trait for accessing a value
+///
+/// E.g. from an AtomicCell
+pub trait LoadStore<T> {
+    /// Read the value
+    fn load(&self) -> T;
+    /// Store a new value to the
+    fn store(&self, value: T);
+}
+
 /// A synchronous can sender
 pub trait CanSender {
     /// Send a message to the bus
