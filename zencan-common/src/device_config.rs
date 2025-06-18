@@ -147,7 +147,7 @@ pub enum LoadError {
     #[snafu(display("Multiple definitions for object with index 0x{id:x}"))]
     DuplicateObjectIds {
         /// index which was defined multiple times
-        id: u16
+        id: u16,
     },
     /// Duplicate sub objects defined on a record
     #[snafu(display("Multiple definitions of sub index {sub} on object 0x{index:x}"))]
@@ -155,7 +155,7 @@ pub enum LoadError {
         /// Index of the record object containing duplicate subs
         index: u16,
         /// Duplicated sub index
-        sub: u8
+        sub: u8,
     },
 }
 
@@ -845,7 +845,10 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, LoadError::DuplicateObjectIds { id: 0x2000 }));
-        assert_contains!("Multiple definitions for object with index 0x2000", err.to_string());
+        assert_contains!(
+            "Multiple definitions for object with index 0x2000",
+            err.to_string()
+        );
     }
 
     #[test]
@@ -878,7 +881,16 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, LoadError::DuplicateSubObjects { index: 0x2000, sub: 1 }));
-        assert_contains!("Multiple definitions of sub index 1 on object 0x2000", err.to_string());
+        assert!(matches!(
+            err,
+            LoadError::DuplicateSubObjects {
+                index: 0x2000,
+                sub: 1
+            }
+        ));
+        assert_contains!(
+            "Multiple definitions of sub index 1 on object 0x2000",
+            err.to_string()
+        );
     }
 }

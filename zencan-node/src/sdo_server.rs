@@ -290,11 +290,7 @@ impl SdoServer {
                 self.toggle_state = !self.toggle_state;
                 self.segment_counter += 1;
                 // Return the updated index if this is the last segment
-                let updated_index = if *c {
-                    Some(self.index)
-                } else {
-                    None
-                };
+                let updated_index = if *c { Some(self.index) } else { None };
                 (
                     Some(SdoResponse::download_segment_acknowledge(
                         !self.toggle_state,
