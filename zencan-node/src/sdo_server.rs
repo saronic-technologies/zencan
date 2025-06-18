@@ -79,45 +79,63 @@ impl SdoServer {
     /// Handle an SDO request received from the client
     ///
     /// This will process the request, update server state and the object dictionary accordingly,
-    /// and return a response to be transmitted back to the client
-    pub fn handle_request(&mut self, req: &SdoRequest, od: &[ODEntry]) -> Option<SdoResponse> {
+    /// and return a response to be transmitted back to the client, as well the index of the updated
+    /// object when a download is completed.
+    pub fn handle_request(
+        &mut self,
+        req: &SdoRequest,
+        od: &[ODEntry],
+    ) -> (Option<SdoResponse>, Option<u16>) {
         match req {
             SdoRequest::InitiateUpload { index, sub } => {
                 let obj = match find_object(od, *index) {
                     Some(x) => x,
-                    None => return Some(SdoResponse::abort(*index, *sub, AbortCode::NoSuchObject)),
+                    None => {
+                        return (
+                            Some(SdoResponse::abort(*index, *sub, AbortCode::NoSuchObject)),
+                            None,
+                        )
+                    }
                 };
 
                 let mut buf = [0u8; 4];
                 self.toggle_state = false;
                 let current_size = match obj.current_size(*sub) {
                     Ok(s) => s,
-                    Err(abort_code) => return Some(SdoResponse::abort(*index, *sub, abort_code)),
+                    Err(abort_code) => {
+                        return (Some(SdoResponse::abort(*index, *sub, abort_code)), None)
+                    }
                 };
 
                 if current_size <= 4 {
                     self.state = State::Idle;
                     // Do expedited upload
                     if let Err(abort_code) = obj.read(*sub, 0, &mut buf[0..current_size]) {
-                        return Some(SdoResponse::abort(*index, *sub, abort_code));
+                        return (Some(SdoResponse::abort(*index, *sub, abort_code)), None);
                     }
 
-                    Some(SdoResponse::expedited_upload(
-                        *index,
-                        *sub,
-                        &buf[0..current_size],
-                    ))
+                    (
+                        Some(SdoResponse::expedited_upload(
+                            *index,
+                            *sub,
+                            &buf[0..current_size],
+                        )),
+                        None,
+                    )
                 } else {
                     // Segmented upload
                     self.state = State::UploadSegment;
                     self.index = *index;
                     self.sub = *sub;
                     self.segment_counter = 0;
-                    Some(SdoResponse::upload_acknowledge(
-                        *index,
-                        *sub,
-                        current_size as u32,
-                    ))
+                    (
+                        Some(SdoResponse::upload_acknowledge(
+                            *index,
+                            *sub,
+                            current_size as u32,
+                        )),
+                        None,
+                    )
                 }
             }
             SdoRequest::InitiateDownload {
@@ -135,56 +153,68 @@ impl SdoServer {
                     let obj = match find_object(od, *index) {
                         Some(x) => x,
                         None => {
-                            return Some(SdoResponse::abort(*index, *sub, AbortCode::NoSuchObject))
+                            return (
+                                Some(SdoResponse::abort(*index, *sub, AbortCode::NoSuchObject)),
+                                None,
+                            )
                         }
                     };
 
                     let subinfo = match obj.sub_info(*sub) {
                         Ok(s) => s,
                         Err(abort_code) => {
-                            return Some(SdoResponse::abort(*index, *sub, abort_code))
+                            return (Some(SdoResponse::abort(*index, *sub, abort_code)), None)
                         }
                     };
                     // Verify that the requested object is writable
                     if !subinfo.access_type.is_writable() {
-                        return Some(SdoResponse::abort(
-                            self.index,
-                            self.sub,
-                            AbortCode::ReadOnly,
-                        ));
+                        return (
+                            Some(SdoResponse::abort(
+                                self.index,
+                                self.sub,
+                                AbortCode::ReadOnly,
+                            )),
+                            None,
+                        );
                     }
 
                     // Verify data size requested by client fits object, and abort if not
                     let dl_size = 4 - *n as usize;
                     if let Err(abort_resp) = self.validate_download_size(dl_size, &subinfo) {
                         self.state = State::Idle;
-                        return Some(abort_resp);
+                        return (Some(abort_resp), None);
                     }
 
                     if let Err(abort_code) = obj.write(*sub, 0, &data[0..dl_size]) {
-                        return Some(SdoResponse::abort(*index, *sub, abort_code));
+                        return (Some(SdoResponse::abort(*index, *sub, abort_code)), None);
                     }
                     // When writing a string with length less than buffer, zero terminate
                     // Note: dl_size != subobj.size implies the data type of the object is a string
                     if dl_size < subinfo.size {
                         if let Err(abort_code) = obj.write(*sub, dl_size, &[0]) {
-                            return Some(SdoResponse::abort(*index, *sub, abort_code));
+                            return (Some(SdoResponse::abort(*index, *sub, abort_code)), None);
                         }
                     }
 
-                    Some(SdoResponse::download_acknowledge(*index, *sub))
+                    (
+                        Some(SdoResponse::download_acknowledge(*index, *sub)),
+                        Some(*index),
+                    )
                 } else {
                     // starting a segmented download
                     let obj = match find_object(od, *index) {
                         Some(x) => x,
                         None => {
-                            return Some(SdoResponse::abort(*index, *sub, AbortCode::NoSuchObject))
+                            return (
+                                Some(SdoResponse::abort(*index, *sub, AbortCode::NoSuchObject)),
+                                None,
+                            )
                         }
                     };
                     let subinfo = match obj.sub_info(*sub) {
                         Ok(s) => s,
                         Err(abort_code) => {
-                            return Some(SdoResponse::abort(*index, *sub, abort_code))
+                            return (Some(SdoResponse::abort(*index, *sub, abort_code)), None)
                         }
                     };
 
@@ -194,7 +224,7 @@ impl SdoServer {
                         let dl_size = 4 - *n as usize;
                         if let Err(abort_resp) = self.validate_download_size(dl_size, &subinfo) {
                             self.state = State::Idle;
-                            return Some(abort_resp);
+                            return (Some(abort_resp), None);
                         }
                     }
 
@@ -202,26 +232,32 @@ impl SdoServer {
                     self.segment_counter = 0;
                     self.state = State::DownloadSegment;
 
-                    Some(SdoResponse::download_acknowledge(*index, *sub))
+                    (Some(SdoResponse::download_acknowledge(*index, *sub)), None)
                 }
             }
             SdoRequest::DownloadSegment { t, n, c, data } => {
                 if self.state != State::DownloadSegment {
                     self.state = State::Idle;
-                    return Some(SdoResponse::abort(
-                        self.index,
-                        self.sub,
-                        AbortCode::InvalidCommandSpecifier,
-                    ));
+                    return (
+                        Some(SdoResponse::abort(
+                            self.index,
+                            self.sub,
+                            AbortCode::InvalidCommandSpecifier,
+                        )),
+                        None,
+                    );
                 }
 
                 if *t != self.toggle_state {
                     self.state = State::Idle;
-                    return Some(SdoResponse::abort(
-                        self.index,
-                        self.sub,
-                        AbortCode::ToggleNotAlternated,
-                    ));
+                    return (
+                        Some(SdoResponse::abort(
+                            self.index,
+                            self.sub,
+                            AbortCode::ToggleNotAlternated,
+                        )),
+                        None,
+                    );
                 }
 
                 // Unwrap safety: If in DownloadSegment state, then the existence of the sub object
@@ -236,11 +272,14 @@ impl SdoServer {
                 // Make sure this segment won't overrun the allocated storage
                 if write_len > subinfo.size {
                     self.state = State::Idle;
-                    return Some(SdoResponse::abort(
-                        self.index,
-                        self.sub,
-                        AbortCode::DataTypeMismatchLengthHigh,
-                    ));
+                    return (
+                        Some(SdoResponse::abort(
+                            self.index,
+                            self.sub,
+                            AbortCode::DataTypeMismatchLengthHigh,
+                        )),
+                        None,
+                    );
                 }
                 // Unwrap safety: Both existence and size of the sub object are already checked
                 obj.write(self.sub, offset, &data[0..segment_size]).unwrap();
@@ -250,27 +289,42 @@ impl SdoServer {
                 }
                 self.toggle_state = !self.toggle_state;
                 self.segment_counter += 1;
-                Some(SdoResponse::download_segment_acknowledge(
-                    !self.toggle_state,
-                ))
+                // Return the updated index if this is the last segment
+                let updated_index = if *c {
+                    Some(self.index)
+                } else {
+                    None
+                };
+                (
+                    Some(SdoResponse::download_segment_acknowledge(
+                        !self.toggle_state,
+                    )),
+                    updated_index,
+                )
             }
 
             SdoRequest::ReqUploadSegment { t } => {
                 if self.state != State::UploadSegment {
                     self.state = State::Idle;
-                    return Some(SdoResponse::abort(
-                        self.index,
-                        self.sub,
-                        AbortCode::InvalidCommandSpecifier,
-                    ));
+                    return (
+                        Some(SdoResponse::abort(
+                            self.index,
+                            self.sub,
+                            AbortCode::InvalidCommandSpecifier,
+                        )),
+                        None,
+                    );
                 }
                 if *t != self.toggle_state {
                     self.state = State::Idle;
-                    return Some(SdoResponse::abort(
-                        self.index,
-                        self.sub,
-                        AbortCode::ToggleNotAlternated,
-                    ));
+                    return (
+                        Some(SdoResponse::abort(
+                            self.index,
+                            self.sub,
+                            AbortCode::ToggleNotAlternated,
+                        )),
+                        None,
+                    );
                 }
 
                 // Unwrap safety: If in DownloadSegment state, then the existence of the sub object
@@ -295,11 +349,14 @@ impl SdoServer {
                 if c {
                     self.state = State::Idle;
                 }
-                Some(SdoResponse::upload_segment(
-                    !self.toggle_state,
-                    c,
-                    &buf[0..read_size],
-                ))
+                (
+                    Some(SdoResponse::upload_segment(
+                        !self.toggle_state,
+                        c,
+                        &buf[0..read_size],
+                    )),
+                    None,
+                )
             }
             SdoRequest::InitiateBlockDownload {
                 cc: _,
@@ -317,7 +374,7 @@ impl SdoServer {
             } => {
                 self.state = State::Idle;
                 // No response is sent to an abort command
-                None
+                (None, None)
             }
         }
     }

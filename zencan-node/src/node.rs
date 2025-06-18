@@ -339,7 +339,13 @@ impl Node {
     /// - `now_us`: A monotonic time in microseconds. This is used for measuring time and triggering
     ///   time-based actions such as heartbeat transmission
     /// - `send_cb`: A callback function for transmitting can messages
-    pub fn process(&mut self, now_us: u64, send_cb: &mut dyn FnMut(CanMessage)) {
+    ///
+    /// # Returns
+    ///
+    /// A boolean indicating if objects were updated. This will be true when an SDO download has
+    /// been completed, or when one or more RPDOs have been received.
+    pub fn process(&mut self, now_us: u64, send_cb: &mut dyn FnMut(CanMessage)) -> bool {
+        let mut update_flag = false;
         if let Some(new_node_id) = self.reassigned_node_id.take() {
             self.node_id = new_node_id;
             self.nmt_state = NmtState::Bootup;
@@ -360,8 +366,12 @@ impl Node {
 
         if let Some(req) = self.mbox.read_sdo_mbox() {
             self.message_count += 1;
-            if let Some(resp) = self.sdo_server.handle_request(&req, self.od) {
+            let (resp, updated_index) = self.sdo_server.handle_request(&req, self.od);
+            if let Some(resp) = resp {
                 send_cb(resp.to_can_message(self.sdo_tx_cob_id()));
+            }
+            if updated_index.is_some() {
+                update_flag = true;
             }
         }
 
@@ -451,9 +461,12 @@ impl Node {
                 }
                 if let Some(new_data) = rpdo.buffered_value.take() {
                     rpdo.store_pdo_data(&new_data);
+                    update_flag = true;
                 }
             }
         }
+
+        update_flag
     }
 
     fn handle_nmt_command(&mut self, cmd: NmtCommandSpecifier) {
