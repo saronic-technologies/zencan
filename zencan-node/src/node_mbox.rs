@@ -47,8 +47,7 @@ impl NodeMbox {
         }
     }
 
-    /// Set a callback to be called when a message is received which should trigger a call to the
-    /// node process method
+    /// Set a callback for notification when a message is received and requires processing.
     ///
     /// It must be static. Usually this will be a static fn, but in some circumstances, it may be
     /// desirable to use Box::leak to pass a heap allocated closure instead.
@@ -114,10 +113,10 @@ impl NodeMbox {
         }
 
         for rpdo in self.rx_pdos {
-            if !rpdo.valid.load() {
+            if !rpdo.valid() {
                 continue;
             }
-            if id == rpdo.cob_id.load() {
+            if id == rpdo.cob_id() {
                 let mut data = [0u8; 8];
                 data[0..msg.data().len()].copy_from_slice(msg.data());
                 rpdo.buffered_value.store(Some(data));

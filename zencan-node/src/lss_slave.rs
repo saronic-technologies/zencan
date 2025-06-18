@@ -279,7 +279,6 @@ impl LssSlave {
                     Ok(None)
                 }
             }
-
             LssRequest::FastScan {
                 id,
                 bit_check,
@@ -311,7 +310,7 @@ impl LssSlave {
                     Ok(None)
                 }
             }
-            _ => todo!(),
+            _ => Ok(None),
         }
     }
 }

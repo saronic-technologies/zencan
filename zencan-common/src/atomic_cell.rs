@@ -84,7 +84,6 @@ impl<T: Default + Copy + Send> Default for AtomicCell<T> {
     }
 }
 
-
 impl<T: Default + Copy + Send> LoadStore<T> for AtomicCell<T> {
     fn load(&self) -> T {
         self.load()

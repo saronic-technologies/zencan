@@ -94,29 +94,23 @@ impl InitNode {
     fn set_pdo_defaults(state: &dyn NodeStateAccess, node_id: NodeId) {
         for (i, pdo) in state.get_rpdos().iter().enumerate() {
             if i < 4 {
-                pdo.cob_id
-                    .store(CanId::Std(0x200 + i as u16 * 0x100 + node_id.raw() as u16));
+                pdo.set_cob_id(CanId::Std(0x200 + i as u16 * 0x100 + node_id.raw() as u16));
             } else {
-                pdo.cob_id.store(CanId::Std(0x0));
+                pdo.set_cob_id(CanId::Std(0x0));
             }
-            pdo.valid.store(false);
-            pdo.rtr_disabled.store(false);
-            pdo.transmission_type.store(0);
-            pdo.inhibit_time.store(0);
+            pdo.set_valid(false);
+            pdo.set_transmission_type(0);
             pdo.buffered_value.store(None);
         }
 
         for (i, pdo) in state.get_tpdos().iter().enumerate() {
             if i < 4 {
-                pdo.cob_id
-                    .store(CanId::Std(0x180 + i as u16 * 0x100 + node_id.raw() as u16));
+                pdo.set_cob_id(CanId::Std(0x180 + i as u16 * 0x100 + node_id.raw() as u16));
             } else {
-                pdo.cob_id.store(CanId::Std(0x0));
+                pdo.set_cob_id(CanId::Std(0x0));
             }
-            pdo.valid.store(false);
-            pdo.rtr_disabled.store(false);
-            pdo.transmission_type.store(0);
-            pdo.inhibit_time.store(0);
+            pdo.set_valid(false);
+            pdo.set_transmission_type(0);
             pdo.buffered_value.store(None);
         }
     }
@@ -222,6 +216,15 @@ impl InitNode {
 }
 
 /// The main object representing a node
+///
+/// # Operation
+///
+/// The node is run by polling the [`Node::process`] method in your application. It is safe to call
+/// this method as frequently as you like. There is no hard minimum for call frequency, but calling
+/// your node's responses to messages will be delayed until process is called, and this will slow
+/// down communication to your node. It is recommended to register a callback using
+/// [`NodeMbox::set_process_notify_callback`], and use this callback to trigger an immediate call to
+/// process, e.g. by waking a task or signaling the processing thread.
 #[allow(missing_debug_implementations)]
 pub struct Node {
     node_id: NodeId,
@@ -378,23 +381,23 @@ impl Node {
 
         if let Ok(Some(resp)) = self.lss_slave.process(self.mbox.lss_receiver()) {
             send_cb(resp.to_can_message(LSS_RESP_ID));
-        }
 
-        if let Some(event) = self.lss_slave.pending_event() {
-            info!("LSS Slave Event: {:?}", event);
-            match event {
-                crate::lss_slave::LssEvent::StoreConfiguration => {
-                    if let Some(cb) = self.callbacks.store_node_config {
-                        (cb)(&self.node_id)
+            if let Some(event) = self.lss_slave.pending_event() {
+                info!("LSS Slave Event: {:?}", event);
+                match event {
+                    crate::lss_slave::LssEvent::StoreConfiguration => {
+                        if let Some(cb) = self.callbacks.store_node_config {
+                            (cb)(&self.node_id)
+                        }
                     }
-                }
-                crate::lss_slave::LssEvent::ActivateBitTiming {
-                    table: _,
-                    index: _,
-                    delay: _,
-                } => todo!(),
-                crate::lss_slave::LssEvent::ConfigureNodeId { node_id } => {
-                    self.set_node_id(node_id)
+                    crate::lss_slave::LssEvent::ActivateBitTiming {
+                        table: _,
+                        index: _,
+                        delay: _,
+                    } => (),
+                    crate::lss_slave::LssEvent::ConfigureNodeId { node_id } => {
+                        self.set_node_id(node_id)
+                    }
                 }
             }
         }
@@ -412,33 +415,42 @@ impl Node {
             // check if a sync has been received
             let sync = self.mbox.read_sync_flag();
 
-            // Swap the active TPDO flag set
-            self.state.get_pdo_sync().toggle();
+            // Swap the active TPDO flag set. Returns true if any object flags were set since last
+            // toggle. Tracking the global trigger is a performance boost, at least in the frequent
+            // case when no events have been triggered. The goal is for `process` to be as fast as
+            // possible when it has nothing to do, so it can be called frequently with little cost.
+            let global_trigger = self.state.get_pdo_sync().toggle();
 
             for pdo in self.state.get_tpdos() {
-                let transmission_type = pdo.transmission_type.load();
+                if !(pdo.valid()) {
+                    continue;
+                }
+                let transmission_type = pdo.transmission_type();
                 if transmission_type >= 254 {
-                    if pdo.read_events(self.od) {
+                    if global_trigger && pdo.read_events() {
                         let mut data = [0u8; 8];
-                        crate::pdo::read_pdo_data(&mut data, pdo, self.od);
-                        let msg = CanMessage::new(pdo.cob_id.load(), &data);
+                        pdo.read_pdo_data(&mut data);
+                        let msg = CanMessage::new(pdo.cob_id(), &data);
                         send_cb(msg);
                     }
                 } else if sync && pdo.sync_update() {
                     let mut data = [0u8; 8];
-                    crate::pdo::read_pdo_data(&mut data, pdo, self.od);
-                    let msg = CanMessage::new(pdo.cob_id.load(), &data);
+                    pdo.read_pdo_data(&mut data);
+                    let msg = CanMessage::new(pdo.cob_id(), &data);
                     send_cb(msg);
                 }
             }
 
             for pdo in self.state.get_tpdos() {
-                pdo.clear_events(self.od);
+                pdo.clear_events();
             }
 
             for rpdo in self.state.get_rpdos() {
+                if !rpdo.valid() {
+                    continue;
+                }
                 if let Some(new_data) = rpdo.buffered_value.take() {
-                    crate::pdo::store_pdo_data(&new_data, rpdo, self.od);
+                    rpdo.store_pdo_data(&new_data);
                 }
             }
         }

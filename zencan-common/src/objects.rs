@@ -9,16 +9,18 @@
 //! ### PDO event triggering
 //!
 
+use critical_section::Mutex;
+
 use crate::sdo::AbortCode;
 use crate::AtomicCell;
 use core::any::Any;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::cell::UnsafeCell;
 
 /// A struct used for synchronizing the A/B event flags of all objects, which are used for
 /// triggering PDO events
 #[derive(Debug)]
 pub struct ObjectFlagSync {
-    toggle: AtomicBool,
+    inner: Mutex<UnsafeCell<ObjectFlagsInner>>,
 }
 
 impl Default for ObjectFlagSync {
@@ -27,20 +29,48 @@ impl Default for ObjectFlagSync {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ObjectFlagsInner {
+    /// Indicates which "bank" of flags should be active for setting
+    toggle: bool,
+    /// A global flag that should be set by any object which has set a flag
+    global_flag: bool,
+}
+
 impl ObjectFlagSync {
     /// Create a new ObjectFlagSync
     pub const fn new() -> Self {
         Self {
-            toggle: AtomicBool::new(false),
+            inner: Mutex::new(UnsafeCell::new(ObjectFlagsInner {
+                toggle: false,
+                global_flag: false,
+            })),
         }
     }
 
-    /// Toggle the flag
-    pub fn toggle(&self) {
-        critical_section::with(|_| {
-            self.toggle
-                .store(!self.toggle.load(Ordering::SeqCst), Ordering::SeqCst);
-        });
+    /// Toggle the flag and return the global flag
+    pub fn toggle(&self) -> bool {
+        critical_section::with(|cs| {
+            let inner = self.inner.borrow(cs).get();
+            // Safety: This is the only place inner is accessed, and it is in a critical section
+            unsafe {
+                let global = (*inner).global_flag;
+                (*inner).global_flag = false;
+                (*inner).toggle = !(*inner).toggle;
+                global
+            }
+        })
+    }
+
+    /// Get the current value of the flag
+    ///
+    /// `setting` should be true to set the global flag
+    pub fn get_flag(&self, setting: bool) -> bool {
+        critical_section::with(|cs| {
+            let inner = unsafe { &mut (*self.inner.borrow(cs).get()) };
+            inner.global_flag |= setting;
+            inner.toggle
+        })
     }
 }
 
@@ -77,7 +107,7 @@ impl<const N: usize> ObjectFlags<N> {
         if sub as usize >= N * 8 {
             return;
         }
-        let flags = if self.sync.toggle.load(Ordering::Acquire) {
+        let flags = if self.sync.get_flag(true) {
             &self.flags0
         } else {
             &self.flags1
@@ -98,7 +128,7 @@ impl<const N: usize> ObjectFlags<N> {
         if sub as usize >= N * 8 {
             return false;
         }
-        let flags = if self.sync.toggle.load(Ordering::SeqCst) {
+        let flags = if self.sync.get_flag(false) {
             &self.flags1.load()
         } else {
             &self.flags0.load()
@@ -108,7 +138,7 @@ impl<const N: usize> ObjectFlags<N> {
 
     /// Clear all flags in the currently inactive set
     pub fn clear(&self) {
-        if self.sync.toggle.load(Ordering::SeqCst) {
+        if self.sync.get_flag(false) {
             self.flags1.store([0; N]);
         } else {
             self.flags0.store([0; N]);
@@ -282,8 +312,8 @@ pub trait ObjectRawAccess: Sync + Send {
 
     /// Set an event flag for the specified sub object on this object
     ///
-    /// Event flags are used for triggering PDOs to which they are mapped. This is optional, as not
-    /// all objects support PDOs or PDO triggering.
+    /// Event flags are used for triggering PDOs. This is optional, as not all objects support PDOs
+    /// or PDO triggering.
     fn set_event_flag(&self, _sub: u8) -> Result<(), AbortCode> {
         Err(AbortCode::UnsupportedAccess)
     }
@@ -674,12 +704,21 @@ impl SubInfo {
 }
 
 /// Lookup an object from the Object dictionary table
+///
+/// Note: `table` must be sorted by index
 pub fn find_object<'a, 'b>(table: &'b [ODEntry<'a>], index: u16) -> Option<&'b ObjectData<'a>> {
-    // TODO: Table is sorted, so we could use binary search
-    for entry in table {
-        if entry.index == index {
-            return Some(&entry.data);
-        }
-    }
-    None
+    find_object_entry(table, index).map(|entry| &entry.data)
+}
+
+/// Lookup an entry from the object dictionary table
+///
+/// The same as [find_object], except that it returned the `&ODEntry` instead of the `&ObjectData`
+/// it owns
+///
+/// Note: `table` must be sorted by index
+pub fn find_object_entry<'a, 'b>(table: &'b [ODEntry<'a>], index: u16) -> Option<&'b ODEntry<'a>> {
+    table
+        .binary_search_by_key(&index, |e| e.index)
+        .ok()
+        .map(|i| &table[i])
 }
