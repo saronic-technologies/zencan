@@ -156,7 +156,11 @@ impl Pdo {
 
     pub(crate) fn store_pdo_data(&self, data: &[u8]) {
         let mut offset = 0;
-        for param in &self.mapping_params {
+        let valid_maps = self.valid_maps.load() as usize;
+        for (i, param) in self.mapping_params.iter().enumerate() {
+            if i >= valid_maps {
+                break;
+            }
             let param = param.load();
             if param.is_none() {
                 break;
@@ -176,7 +180,11 @@ impl Pdo {
 
     pub(crate) fn read_pdo_data(&self, data: &mut [u8]) {
         let mut offset = 0;
-        for param in &self.mapping_params {
+        let valid_maps = self.valid_maps.load() as usize;
+        for (i, param) in self.mapping_params.iter().enumerate() {
+            if i >= valid_maps {
+                break;
+            }
             let param = param.load();
             // The first N params will be valid. Can assume if one is None, all remaining will be as
             // well

@@ -75,6 +75,8 @@ async fn test_rpdo_assignment() {
         // Set RPDO1 to map to object 0x2000, subindex 1, length 32 bits
         let mapping_entry: u32 = (0x2000 << 16) | (1 << 8) | 32;
         client.download_u32(0x1600, 1, mapping_entry).await.unwrap();
+        // Set the number of valid mappings
+        client.download_u8(0x1600, 0, 1).await.unwrap();
 
         // Put in operational mode
         nmt.nmt_start(0).await.unwrap();
@@ -135,17 +137,12 @@ async fn test_tpdo_asignment() {
 
         // Set the TPDO mapping to 0x2000, subindex 1, length 32 bits
         let mapping_entry: u32 = (0x2000 << 16) | (1 << 8) | 32;
-        client
-            .download(0x1A00, 1, &mapping_entry.to_le_bytes())
-            .await
-            .unwrap();
+        client.download_u32(0x1A00, 1, mapping_entry).await.unwrap();
         // Set the second TPDO mapping entry to 0x2001, subindex 1, length 32 bits
         let mapping_entry: u32 = (0x2001 << 16) | (1 << 8) | 32;
-        client
-            .download(0x1A00, 2, &mapping_entry.to_le_bytes())
-            .await
-            .unwrap();
-
+        client.download_u32(0x1A00, 2, mapping_entry).await.unwrap();
+        // Set the number of valid mappings
+        client.download_u8(0x1A00, 0, 2).await.unwrap();
         // Node has to be in Operating mode to send PDOs
         nmt.nmt_start(0).await.unwrap();
 
