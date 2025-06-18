@@ -13,7 +13,6 @@ zencan-client.workspace = true
 
 # External
 critical-section = { version = "1.2.0", features = ["std"] }
-crossbeam.workspace = true
 embedded-io.workspace = true
 futures.workspace = true
 tokio = { version = "1.44.2", features = ["rt", "macros", "time", "sync"] }
