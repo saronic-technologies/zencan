@@ -10,13 +10,6 @@ product_code = 2
 revision_number = 3
 
 [[objects]]
-index = 0x1008
-parameter_name = "Manufacturer Device Name"
-data_type = "VisibleString(25)"
-access_type = "Const"
-object_type = "var"
-
-[[objects]]
 index = 0x2000
 parameter_name = "Speed"
 data_type = "UInt16"

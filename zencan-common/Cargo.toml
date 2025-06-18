@@ -21,6 +21,9 @@ snafu.workspace = true
 socketcan = { workspace = true, optional = true }
 toml = { workspace = true, optional = true }
 
+[dev-dependencies]
+assertables = "9.7.0"
+
 [features]
 default = ["socketcan", "std", "log"]
 std = ["critical-section/std", "snafu/std", "dep:toml", "dep:regex", "dep:serde"]

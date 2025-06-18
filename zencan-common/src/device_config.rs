@@ -120,6 +120,8 @@
 //! after power-on, without receiving an NMT command to do so. Note that, if the device is later put
 //! into PreOperational via an NMT command, it will not auto-transition to Operational.
 //!
+use std::collections::HashMap;
+
 use crate::objects::{AccessType, ObjectCode};
 use serde::{de::Error, Deserialize};
 
@@ -140,6 +142,20 @@ pub enum LoadError {
     TomlParsing {
         /// The toml error which led to this error
         source: toml::de::Error,
+    },
+    /// Multiple objects defined with same index
+    #[snafu(display("Multiple definitions for object with index 0x{id:x}"))]
+    DuplicateObjectIds {
+        /// index which was defined multiple times
+        id: u16
+    },
+    /// Duplicate sub objects defined on a record
+    #[snafu(display("Multiple definitions of sub index {sub} on object 0x{index:x}"))]
+    DuplicateSubObjects {
+        /// Index of the record object containing duplicate subs
+        index: u16,
+        /// Duplicated sub index
+        sub: u8
     },
 }
 
@@ -576,6 +592,7 @@ pub struct ArrayDefinition {
 #[serde(deny_unknown_fields)]
 pub struct RecordDefinition {
     /// The sub object definitions for this record object
+    #[serde(default)]
     pub subs: Vec<SubDefinition>,
 }
 
@@ -632,7 +649,35 @@ impl DeviceConfig {
             config.pdos.num_tpdo as usize,
         ));
 
+        Self::validate_unique_indices(&config.objects)?;
+
         Ok(config)
+    }
+
+    fn validate_unique_indices(objects: &[ObjectDefinition]) -> Result<(), LoadError> {
+        let mut found_indices = HashMap::new();
+        for obj in objects {
+            if found_indices.contains_key(&obj.index) {
+                return DuplicateObjectIdsSnafu { id: obj.index }.fail();
+            }
+            found_indices.insert(&obj.index, ());
+
+            if let Object::Record(record) = &obj.object {
+                let mut found_subs = HashMap::new();
+                for sub in &record.subs {
+                    if found_subs.contains_key(&sub.sub_index) {
+                        return DuplicateSubObjectsSnafu {
+                            index: obj.index,
+                            sub: sub.sub_index,
+                        }
+                        .fail();
+                    }
+                    found_subs.insert(&sub.sub_index, ());
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -769,50 +814,71 @@ impl<'de> serde::Deserialize<'de> for DataType {
     }
 }
 
-// #[derive(Debug, Default, Clone)]
-// ///A newtype to implement deserialization for DataType from another crate
-// pub struct DataTypeDeser(pub DataType);
-// impl<'de> serde::Deserialize<'de> for DataTypeDeser {
-//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-//     where
-//         D: serde::Deserializer<'de>,
-//     {
-//         let s = String::deserialize(deserializer)?;
-//         // First try parsing it as an integer, if that fails, try looking for the string representation
-//         match s.parse::<u16>() {
-//             Ok(int_code) => match DataType::try_from(int_code) {
-//                 Ok(data_type) => Ok(DataTypeDeser(data_type)),
-//                 Err(_) => Err(D::Error::custom(format!("Invalid datatype: {}", int_code))),
-//             },
-//             Err(_) => match s.to_lowercase().as_str() {
-//                 "boolean" => Ok(DataTypeDeser(DataType::Boolean)),
-//                 "int8" => Ok(DataTypeDeser(DataType::Int8)),
-//                 "int16" => Ok(DataTypeDeser(DataType::Int16)),
-//                 "int32" => Ok(DataTypeDeser(DataType::Int32)),
-//                 "uint8" => Ok(DataTypeDeser(DataType::UInt8)),
-//                 "uint16" => Ok(DataTypeDeser(DataType::UInt16)),
-//                 "uint32" => Ok(DataTypeDeser(DataType::UInt32)),
-//                 "real32" => Ok(DataTypeDeser(DataType::Real32)),
-//                 "visiblestring" => Ok(DataTypeDeser(DataType::VisibleString)),
-//                 "octetstring" => Ok(DataTypeDeser(DataType::OctetString)),
-//                 "unicodestring" => Ok(DataTypeDeser(DataType::UnicodeString)),
-//                 "timeofday" => Ok(DataTypeDeser(DataType::TimeOfDay)),
-//                 "timedifference" => Ok(DataTypeDeser(DataType::TimeDifference)),
-//                 "domain" => Ok(DataTypeDeser(DataType::Domain)),
+#[cfg(test)]
+mod tests {
+    use crate::device_config::{DeviceConfig, LoadError};
+    use assertables::assert_contains;
+    #[test]
+    fn test_duplicate_objects_errors() {
+        const TOML: &str = r#"
+            device_name = "test"
+            [identity]
+            vendor_id = 0
+            product_code = 1
+            revision_number = 2
 
-//                 _ => Err(D::Error::custom(format!("Invalid data type: {}", s))),
-//             },
-//         }
-//     }
-// }
-// impl From<DataType> for DataTypeDeser {
-//     fn from(data_type: DataType) -> Self {
-//         DataTypeDeser(data_type)
-//     }
-// }
+            [[objects]]
+            index = 0x2000
+            parameter_name = "Test1"
+            object_type = "var"
+            data_type = "int16"
+            access_type = "rw"
 
-// impl From<DataTypeDeser> for DataType {
-//     fn from(data_type: DataTypeDeser) -> Self {
-//         data_type.0
-//     }
-// }
+            [[objects]]
+            index = 0x2000
+            parameter_name = "Duplicate"
+            object_type = "record"
+        "#;
+
+        let result = DeviceConfig::load_from_str(TOML);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, LoadError::DuplicateObjectIds { id: 0x2000 }));
+        assert_contains!("Multiple definitions for object with index 0x2000", err.to_string());
+    }
+
+    #[test]
+    fn test_duplicate_sub_object_errors() {
+        const TOML: &str = r#"
+            device_name = "test"
+            [identity]
+            vendor_id = 0
+            product_code = 1
+            revision_number = 2
+
+
+            [[objects]]
+            index = 0x2000
+            parameter_name = "Duplicate"
+            object_type = "record"
+            [[objects.subs]]
+            sub_index = 1
+            parameter_name = "Test1"
+            data_type = "int16"
+            access_type = "rw"
+            [[objects.subs]]
+            sub_index = 1
+            parameter_name = "RepeatedTest1"
+            data_type = "int16"
+            access_type = "rw"
+        "#;
+
+        let result = DeviceConfig::load_from_str(TOML);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, LoadError::DuplicateSubObjects { index: 0x2000, sub: 1 }));
+        assert_contains!("Multiple definitions of sub index 1 on object 0x2000", err.to_string());
+    }
+}
