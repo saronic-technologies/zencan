@@ -16,6 +16,15 @@ use crate::AtomicCell;
 use core::any::Any;
 use core::cell::UnsafeCell;
 
+/// A container for the address of a subobject
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ObjectId {
+    /// Object index
+    pub index: u16,
+    /// Sub index
+    pub sub: u8,
+}
+
 /// A struct used for synchronizing the A/B event flags of all objects, which are used for
 /// triggering PDO events
 #[derive(Debug)]

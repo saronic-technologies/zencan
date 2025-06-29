@@ -241,6 +241,7 @@ pub struct Node {
     heartbeat_period_ms: u16,
     heartbeat_toggle: bool,
     auto_start: bool,
+    last_process_time_us: u64,
 }
 
 impl Node {
@@ -291,6 +292,7 @@ impl Node {
         let next_heartbeat_time_us = 0;
         let heartbeat_toggle = false;
         let auto_start = read_autostart(od).expect("auto start object must exist");
+        let last_process_time_us = 0;
         Self {
             node_id,
             nmt_state,
@@ -306,6 +308,7 @@ impl Node {
             heartbeat_toggle,
             auto_start,
             callbacks: Callbacks::default(),
+            last_process_time_us,
         }
     }
 
@@ -337,7 +340,7 @@ impl Node {
     ///
     /// # Arguments
     /// - `now_us`: A monotonic time in microseconds. This is used for measuring time and triggering
-    ///   time-based actions such as heartbeat transmission
+    ///   time-based actions such as heartbeat transmission or SDO timeout
     /// - `send_cb`: A callback function for transmitting can messages
     ///
     /// # Returns
@@ -345,6 +348,9 @@ impl Node {
     /// A boolean indicating if objects were updated. This will be true when an SDO download has
     /// been completed, or when one or more RPDOs have been received.
     pub fn process(&mut self, now_us: u64, send_cb: &mut dyn FnMut(CanMessage)) -> bool {
+        let elapsed = (now_us - self.last_process_time_us) as u32;
+        self.last_process_time_us = now_us;
+
         let mut update_flag = false;
         if let Some(new_node_id) = self.reassigned_node_id.take() {
             self.node_id = new_node_id;
@@ -364,17 +370,18 @@ impl Node {
             self.nmt_state = NmtState::Operational;
         }
 
-        if let Some(req) = self.mbox.read_sdo_mbox() {
-            self.message_count += 1;
-            let (resp, updated_index) = self.sdo_server.handle_request(&req, self.od);
-            if let Some(resp) = resp {
-                send_cb(resp.to_can_message(self.sdo_tx_cob_id()));
-            }
-            if updated_index.is_some() {
-                update_flag = true;
-            }
+        // Process SDO server
+        let (resp, updated_index) =
+            self.sdo_server
+                .process(self.mbox.sdo_receiver(), elapsed, self.od);
+        if let Some(resp) = resp {
+            send_cb(resp.to_can_message(self.sdo_tx_cob_id()));
+        }
+        if updated_index.is_some() {
+            update_flag = true;
         }
 
+        // Process NMT
         if let Some(msg) = self.mbox.read_nmt_mbox() {
             if let Ok(ZencanMessage::NmtCommand(cmd)) = msg.try_into() {
                 self.message_count += 1;

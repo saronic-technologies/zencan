@@ -24,6 +24,7 @@ embedded-io.workspace = true
 futures.workspace = true
 heapless.workspace = true
 log = { version = "0.4", optional = true}
+crc16 = "0.4.0"
 
 [dev-dependencies]
 cargo-husky = {version = "1", features = ["run-for-all", "run-cargo-test", "run-cargo-clippy", "run-cargo-fmt"]}

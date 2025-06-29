@@ -2,11 +2,10 @@
 use defmt_or_log::warn;
 use zencan_common::{
     messages::{CanId, CanMessage},
-    sdo::SdoRequest,
     AtomicCell,
 };
 
-use crate::{lss_slave::LssReceiver, pdo::Pdo};
+use crate::{lss_slave::LssReceiver, pdo::Pdo, sdo_server::SdoReceiver};
 
 /// A data structure to be shared between a receiving thread (e.g. a CAN controller IRQ) and the
 /// [`Node`](crate::Node) object.
@@ -16,7 +15,7 @@ use crate::{lss_slave::LssReceiver, pdo::Pdo};
 pub struct NodeMbox {
     rx_pdos: &'static [Pdo],
     sdo_cob_id: AtomicCell<Option<CanId>>,
-    sdo_mbox: AtomicCell<Option<SdoRequest>>,
+    sdo_receiver: SdoReceiver,
     nmt_mbox: AtomicCell<Option<CanMessage>>,
     lss_receiver: LssReceiver,
     sync_flag: AtomicCell<bool>,
@@ -31,7 +30,7 @@ impl NodeMbox {
     /// - `rx_pdos`: A slice of Pdo objects for all of the receive PDOs
     pub const fn new(rx_pdos: &'static [Pdo]) -> Self {
         let sdo_cob_id = AtomicCell::new(None);
-        let sdo_mbox = AtomicCell::new(None);
+        let sdo_receiver = SdoReceiver::new();
         let nmt_mbox = AtomicCell::new(None);
         let lss_receiver = LssReceiver::new();
         let sync_flag = AtomicCell::new(false);
@@ -39,7 +38,7 @@ impl NodeMbox {
         Self {
             rx_pdos,
             sdo_cob_id,
-            sdo_mbox,
+            sdo_receiver,
             nmt_mbox,
             lss_receiver,
             sync_flag,
@@ -69,8 +68,8 @@ impl NodeMbox {
         self.sdo_cob_id.store(cob_id);
     }
 
-    pub(crate) fn read_sdo_mbox(&self) -> Option<SdoRequest> {
-        self.sdo_mbox.take()
+    pub(crate) fn sdo_receiver(&self) -> &SdoReceiver {
+        &self.sdo_receiver
     }
 
     pub(crate) fn read_nmt_mbox(&self) -> Option<CanMessage> {
@@ -126,13 +125,7 @@ impl NodeMbox {
 
         if let Some(cob_id) = self.sdo_cob_id.load() {
             if id == cob_id {
-                if let Ok(sdo_req) = msg.data().try_into() {
-                    self.sdo_mbox.store(Some(sdo_req));
-                    return Ok(());
-                } else {
-                    warn!("Invalid SDO request");
-                    return Err(msg);
-                }
+                self.sdo_receiver.handle_req(msg.data());
             }
         }
 
