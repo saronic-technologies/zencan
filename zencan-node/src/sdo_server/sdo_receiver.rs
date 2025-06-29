@@ -1,4 +1,4 @@
-use std::cell::UnsafeCell;
+use core::cell::UnsafeCell;
 
 use zencan_common::{
     sdo::{BlockSegment, SdoRequest},
