@@ -22,7 +22,7 @@ socketcan = { workspace = true, optional = true }
 toml = { workspace = true, optional = true }
 
 [dev-dependencies]
-assertables = "9.7.0"
+assertables = "9.8.0"
 
 [features]
 default = ["socketcan", "std", "log"]

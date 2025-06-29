@@ -847,7 +847,7 @@ mod tests {
         assert!(matches!(err, LoadError::DuplicateObjectIds { id: 0x2000 }));
         assert_contains!(
             "Multiple definitions for object with index 0x2000",
-            err.to_string()
+            err.to_string().as_str()
         );
     }
 
@@ -890,7 +890,7 @@ mod tests {
         ));
         assert_contains!(
             "Multiple definitions of sub index 1 on object 0x2000",
-            err.to_string()
+            err.to_string().as_str()
         );
     }
 }
