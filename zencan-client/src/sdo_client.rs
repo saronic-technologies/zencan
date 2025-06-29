@@ -5,7 +5,7 @@ use zencan_common::{
     constants::{object_ids, values::SAVE_CMD},
     lss::LssIdentity,
     messages::CanId,
-    sdo::{AbortCode, SdoRequest, SdoResponse},
+    sdo::{AbortCode, BlockSegment, SdoRequest, SdoResponse},
     traits::{AsyncCanReceiver, AsyncCanSender},
 };
 
@@ -44,14 +44,20 @@ impl From<u32> for RawAbortCode {
 }
 
 /// Error returned by [`SdoClient`] methods
-#[derive(Clone, Copy, Debug, PartialEq, Snafu)]
+#[derive(Clone, Debug, PartialEq, Snafu)]
 pub enum SdoClientError {
     /// Timeout while awaiting an expected response
     NoResponse,
     /// Received a response that could not be interpreted
     MalformedResponse,
     /// Received a valid SdoResponse, but with an unexpected command specifier
-    UnexpectedResponse,
+    #[snafu(display("Unexpected SDO response. Expected {expecting}, got {response:?}"))]
+    UnexpectedResponse {
+        /// The type of response which was expected
+        expecting: String,
+        /// The response which was received
+        response: SdoResponse,
+    },
     /// Received a ServerAbort response from the node
     #[snafu(display("Received abort accessing object 0x{index:X}sub{sub}: {abort_code}"))]
     ServerAbort {
@@ -64,13 +70,58 @@ pub enum SdoClientError {
     },
     /// Received a response with the wrong toggle bit
     ToggleNotAlternated,
+    /// Received a response with a different index/sub value than was requested
+    #[snafu(display("Received object 0x{:x}sub{} after requesting 0x{:x}sub{}",
+        received.0, received.1, expected.0, expected.1))]
+    MismatchedObjectIndex {
+        /// The object ID which was expected to be echoed back
+        expected: (u16, u8),
+        /// The received object ID
+        received: (u16, u8),
+    },
     /// An SDO upload response had a size that did not match the expected size
     UnexpectedSize,
-    /// An error occured reading from the socket
-    SocketError,
+    /// Failed to write a message to the socket
+    #[snafu(display("Error sending CAN message"))]
+    SocketSendFailed,
+    /// An SDO server shrunk the block size while requesting retransmission
+    ///
+    /// Hopefully no node will ever do this, but it's a possible corner case, since servers are
+    /// allowed to change the block size between each block, and can request resend of part of a
+    /// block by not acknowledging all segments.
+    BlockSizeChangedTooSmall,
 }
 
 type Result<T> = std::result::Result<T, SdoClientError>;
+
+/// Convenience macro for expecting a particular variant of a response and erroring on abort of
+/// unexpected variant
+macro_rules! match_response  {
+    ($resp: ident, $expecting: literal, $($match:pat => $code : expr),*) => {
+                match $resp {
+                    $($match => $code),*
+                    SdoResponse::Abort {
+                        index,
+                        sub,
+                        abort_code,
+                    } => {
+                        return ServerAbortSnafu {
+                            index,
+                            sub,
+                            abort_code,
+                        }
+                        .fail()
+                    }
+                    _ => {
+                        return UnexpectedResponseSnafu {
+                            expecting: $expecting,
+                            response: $resp,
+                        }
+                        .fail()
+                    }
+                }
+    };
+}
 
 #[derive(Debug)]
 /// A client for accessing a node's SDO server
@@ -116,44 +167,24 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
             self.sender.send(msg).await.unwrap(); // TODO: Expect errors
 
             let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
-            match resp {
+            match_response!(
+                resp,
+                "ConfirmDownload",
                 SdoResponse::ConfirmDownload { index: _, sub: _ } => {
                     Ok(()) // Success!
                 }
-                SdoResponse::Abort {
-                    index,
-                    sub,
-                    abort_code,
-                } => ServerAbortSnafu {
-                    index,
-                    sub,
-                    abort_code,
-                }
-                .fail(),
-                _ => UnexpectedResponseSnafu.fail(),
-            }
+            )
         } else {
             let msg = SdoRequest::initiate_download(index, sub, Some(data.len() as u32))
                 .to_can_message(self.req_cob_id);
             self.sender.send(msg).await.unwrap();
 
             let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
-            match resp {
-                SdoResponse::ConfirmDownload { index: _, sub: _ } => (),
-                SdoResponse::Abort {
-                    index,
-                    sub,
-                    abort_code,
-                } => {
-                    return ServerAbortSnafu {
-                        index,
-                        sub,
-                        abort_code,
-                    }
-                    .fail();
-                }
-                _ => return UnexpectedResponseSnafu.fail(),
-            }
+            match_response!(
+                resp,
+                "ConfirmDownload",
+                SdoResponse::ConfirmDownload { index: _, sub: _ } => { }
+            );
 
             let mut toggle = false;
             // Send segments
@@ -172,7 +203,9 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                     .await
                     .expect("failed sending DL segment");
                 let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
-                match resp {
+                match_response!(
+                    resp,
+                    "ConfirmDownloadSegment",
                     SdoResponse::ConfirmDownloadSegment { t } => {
                         // Fail if toggle value doesn't match
                         if t != toggle {
@@ -187,23 +220,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                         }
                         // Otherwise, carry on
                     }
-                    SdoResponse::Abort {
-                        index,
-                        sub,
-                        abort_code,
-                    } => {
-                        return ServerAbortSnafu {
-                            index,
-                            sub,
-                            abort_code,
-                        }
-                        .fail();
-                    }
-                    _ => {
-                        // Any other message from the SDO server is unexpected
-                        return UnexpectedResponseSnafu.fail();
-                    }
-                }
+                );
                 toggle = !toggle;
             }
             Ok(())
@@ -219,7 +236,9 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
 
         let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
 
-        let expedited = match resp {
+        let expedited = match_response!(
+            resp,
+            "ConfirmUpload",
             SdoResponse::ConfirmUpload {
                 n,
                 e,
@@ -237,20 +256,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                 }
                 e
             }
-            SdoResponse::Abort {
-                index,
-                sub,
-                abort_code,
-            } => {
-                return ServerAbortSnafu {
-                    index,
-                    sub,
-                    abort_code,
-                }
-                .fail();
-            }
-            _ => return UnexpectedResponseSnafu.fail(),
-        };
+        );
 
         if !expedited {
             // Read segments
@@ -262,7 +268,9 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                 self.sender.send(msg).await.unwrap();
 
                 let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
-                match resp {
+                match_response!(
+                    resp,
+                    "UploadSegment",
                     SdoResponse::UploadSegment { t, n, c, data } => {
                         if t != toggle {
                             self.sender
@@ -280,24 +288,138 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                             break;
                         }
                     }
-                    SdoResponse::Abort {
-                        index,
-                        sub,
-                        abort_code,
-                    } => {
-                        return ServerAbortSnafu {
-                            index,
-                            sub,
-                            abort_code,
-                        }
-                        .fail();
-                    }
-                    _ => return UnexpectedResponseSnafu.fail(),
-                }
+                );
                 toggle = !toggle;
             }
         }
         Ok(read_buf)
+    }
+
+    /// Perform a block download to transfer data to an object
+    ///
+    /// Block downloads are more efficient for large amounts of data, but may not be supported by
+    /// all devices.
+    pub async fn block_download(&mut self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
+        self.sender
+            .send(
+                SdoRequest::InitiateBlockDownload {
+                    cc: true, // CRC supported
+                    s: true,  // size specified
+                    index,
+                    sub,
+                    size: data.len() as u32,
+                }
+                .to_can_message(self.req_cob_id),
+            )
+            .await
+            .map_err(|_| SocketSendFailedSnafu {}.build())?;
+
+        let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
+
+        let (crc_enabled, mut blksize) = match_response!(
+            resp,
+            "ConfirmBlockDownload",
+            SdoResponse::ConfirmBlockDownload {
+                sc,
+                index: resp_index,
+                sub: resp_sub,
+                blksize,
+            } => {
+                if index != resp_index || sub != resp_sub {
+                    return MismatchedObjectIndexSnafu {
+                        expected: (index, sub),
+                        received: (resp_index, resp_sub),
+                    }
+                    .fail();
+                }
+                (sc, blksize)
+            }
+        );
+
+        let mut seqnum = 1;
+        let mut last_block_start = 0;
+        let mut segment_num = 0;
+        let total_segments = data.len().div_ceil(7);
+
+        while segment_num < total_segments {
+            let segment_start = segment_num * 7;
+            let segment_len = (data.len() - segment_start).min(7);
+            // Is this the last segment?
+            let c = segment_start + segment_len == data.len();
+            let mut segment_data = [0; 7];
+            segment_data[0..segment_len]
+                .copy_from_slice(&data[segment_start..segment_start + segment_len]);
+
+            // Send the segment
+            let segment = BlockSegment {
+                c,
+                seqnum,
+                data: segment_data,
+            };
+            self.sender
+                .send(segment.to_can_message(self.req_cob_id))
+                .await
+                .map_err(|_| SocketSendFailedSnafu.build())?;
+
+            // Expect a confirmation message after blksize segments are sent, or after sending the
+            // complete flag
+            if c || seqnum == blksize {
+                let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
+                match_response!(
+                    resp,
+                    "ConfirmBlock",
+                    SdoResponse::ConfirmBlock {
+                        ackseq,
+                        blksize: new_blksize,
+                    } => {
+                        if ackseq == blksize {
+                            // All segments are acknowledged. Block accepted
+                            seqnum = 1;
+                            segment_num += 1;
+                            last_block_start = segment_num;
+                        } else {
+                            // Missing segments. Resend all segments after ackseq
+                            seqnum = ackseq;
+                            segment_num = last_block_start + ackseq as usize;
+                            // The spec says the block size given by the server can change between
+                            // blocks. What should a client do if it is going to resend a block, and
+                            // the server sets the block size smaller than the already delivered
+                            // segments? This shouldn't happen I think, but, it's possible.
+                            // zencan-node based nodes won't do it, but there are other devices out
+                            // there.
+                            if new_blksize < seqnum {
+                                return BlockSizeChangedTooSmallSnafu.fail();
+                            }
+                        }
+                        blksize = new_blksize;
+                    }
+                );
+            } else {
+                seqnum += 1;
+                segment_num += 1;
+            }
+        }
+
+        // End the download
+        let crc = if crc_enabled {
+            crc16::State::<crc16::XMODEM>::calculate(data)
+        } else {
+            0
+        };
+
+        let n = ((7 - data.len() % 7) % 7) as u8;
+
+        self.sender
+            .send(SdoRequest::EndBlockDownload { n, crc }.to_can_message(self.req_cob_id))
+            .await
+            .map_err(|_| SocketSendFailedSnafu.build())?;
+
+        let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
+        match_response!(
+            resp,
+            "ConfirmBlockDownloadEnd",
+            SdoResponse::ConfirmBlockDownloadEnd => { Ok(()) }
+        )
     }
 
     /// Write to a u32 object on the SDO server

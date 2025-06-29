@@ -168,6 +168,16 @@ impl BlockSegment {
         bytes[1..8].copy_from_slice(&self.data);
         bytes
     }
+
+    /// Create a CanMessage from the BlockSegment for transmission
+    pub fn to_can_message(&self, id: CanId) -> CanMessage {
+        CanMessage {
+            data: self.to_bytes(),
+            dlc: 8,
+            rtr: false,
+            id,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

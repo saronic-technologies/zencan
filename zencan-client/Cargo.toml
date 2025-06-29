@@ -16,6 +16,7 @@ repository.workspace = true
 zencan-common = { workspace = true, features = ["socketcan", "log"] }
 
 # External
+crc16.workspace = true
 futures.workspace = true
 log.workspace = true
 snafu.workspace = true

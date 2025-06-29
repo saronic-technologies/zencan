@@ -88,3 +88,10 @@ object_type = "var"
 data_type = "VisibleString(10)"
 access_type = "rw"
 
+[[objects]]
+index = 0x3006
+parameter_name = "Large byte array"
+object_type = "var"
+data_type = "OctetString(1200)"
+access_type = "rw"
+
