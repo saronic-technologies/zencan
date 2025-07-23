@@ -142,8 +142,8 @@
 #![allow(clippy::comparison_chain)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+mod bootloader;
 mod lss_slave;
-
 mod node;
 mod node_mbox;
 mod node_state;
@@ -161,6 +161,7 @@ pub use critical_section;
 pub use heapless;
 pub use zencan_common as common;
 
+pub use bootloader::{BootloaderInfo, BootloaderSection};
 pub use node::Node;
 pub use node_mbox::NodeMbox;
 pub use node_state::{NodeState, NodeStateAccess};

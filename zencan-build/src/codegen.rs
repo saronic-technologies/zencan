@@ -706,10 +706,37 @@ pub fn generate_object_code(
 pub fn generate_state_inst(dev: &DeviceConfig) -> TokenStream {
     let n_rpdo = dev.pdos.num_rpdo as usize;
     let n_tpdo = dev.pdos.num_tpdo as usize;
-    quote! {
+
+    let mut tokens = TokenStream::new();
+
+    if dev.bootloader.sections.len() > 0 {
+        let num_sections = dev.bootloader.sections.len() as u8;
+        let application = dev.bootloader.application;
+        tokens.extend(quote! {
+            pub static BOOTLOADER_INFO:
+                zencan_node::BootloaderInfo<#application, #num_sections> =
+                zencan_node::BootloaderInfo::new(&OD_TABLE);
+        });
+        for (i, section) in dev.bootloader.sections.iter().enumerate() {
+            let var_name = format_ident!("BOOTLOADER_SECTION{i}");
+            let size = section.size as u32;
+            let section_name = &section.name;
+            tokens.extend(quote! {
+                pub static #var_name: zencan_node::BootloaderSection =
+                    zencan_node::BootloaderSection::new(
+                        stringify!(#section_name),
+                        #size
+                    );
+            })
+        }
+    }
+
+    tokens.extend(quote! {
         pub static NODE_STATE: NodeState<#n_rpdo, #n_tpdo> = NodeState::new();
         pub static NODE_MBOX: NodeMbox = NodeMbox::new(NODE_STATE.rpdos());
-    }
+    });
+
+    tokens
 }
 
 /// Generate code for a node from a [`DeviceConfig`] as a TokenStream
@@ -725,7 +752,15 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
         let struct_name = format_ident!("Object{:X}", obj.index);
         let inst_name = format_ident!("OBJECT{:X}", obj.index);
         let index: syn::Lit = syn::parse_str(&format!("0x{:X}", obj.index)).unwrap();
-        if !obj.application_callback {
+        if obj.index == 0x5500 {
+            // bootloader info object
+            table_entries.extend(quote! {
+                ODEntry {
+                    index: #index,
+                    data: ObjectData::Storage(&BOOTLOADER_INFO),
+                },
+            });
+        } else if !obj.application_callback {
             object_defs.extend(generate_object_code(obj, &struct_name)?);
             object_instantiations.extend(quote! {
                 pub static #inst_name: #struct_name = #struct_name::default();

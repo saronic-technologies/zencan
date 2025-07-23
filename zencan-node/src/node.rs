@@ -80,7 +80,9 @@ impl InitNode {
         state: &'static dyn NodeStateAccess,
         od: &'static [ODEntry<'static>],
     ) -> Self {
+        #[cfg(feature = "pdo")]
         Self::set_pdo_defaults(state, node_id);
+        #[cfg(feature = "pdo")]
         Self::register_pdo_callbacks(od, mbox, state);
         Self::register_storage_callbacks(od, state);
         Self {

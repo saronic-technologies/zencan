@@ -429,6 +429,52 @@ pub trait ObjectRawAccess: Sync + Send {
     }
 }
 
+pub struct CallbackObject2<'a> {
+    obj: AtomicCell<Option<&'a dyn ObjectRawAccess>>,
+    od: &'static [ODEntry<'static>],
+    object_code: ObjectCode,
+}
+
+impl CallbackObject2<'_> {
+    pub fn new(od: &'static [ODEntry<'static>], object_code: ObjectCode) -> Self {
+        Self {
+            obj: AtomicCell::new(None),
+            object_code,
+            od,
+        }
+    }
+}
+
+impl ObjectRawAccess for CallbackObject2<'_> {
+    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+        if let Some(obj) = self.obj.load() {
+            obj.read(sub, offset, buf)
+        } else {
+            Err(AbortCode::ResourceNotAvailable)
+        }
+    }
+
+    fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
+        if let Some(obj) = self.obj.load() {
+            obj.write(sub, offset, data)
+        } else {
+            Err(AbortCode::ResourceNotAvailable)
+        }
+    }
+
+    fn object_code(&self) -> ObjectCode {
+        self.object_code
+    }
+
+    fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
+        if let Some(obj) = self.obj.load() {
+            obj.sub_info(sub)
+        } else {
+            Err(AbortCode::ResourceNotAvailable)
+        }
+    }
+}
+
 /// Implements an object which relies on provided callback functions for implementing access
 ///
 /// This is used for objects which have extra logic in their access, such as PDOs. Some callbacks
@@ -612,6 +658,32 @@ impl ObjectRawAccess for ObjectData<'_> {
             ObjectData::Storage(obj) => obj.clear_events(),
             ObjectData::Callback(obj) => obj.clear_events(),
         }
+    }
+}
+
+trait SubObjectAccess {
+    fn read(&self, cb: &dyn FnMut(&mut [u8]));
+}
+pub struct SubObjectStorage {}
+
+impl<T> ObjectRawAccess for T
+where
+    T: SubObjectAccess + Send + Sync,
+{
+    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+        todo!()
+    }
+
+    fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
+        todo!()
+    }
+
+    fn object_code(&self) -> ObjectCode {
+        todo!()
+    }
+
+    fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
+        todo!()
     }
 }
 
