@@ -6,32 +6,36 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use zencan_common::{
     constants::values::BOOTLOADER_ERASE_CMD,
-    objects::{ODEntry, ObjectCode, ObjectRawAccess, SubInfo},
+    objects::{ObjectCode, ObjectRawAccess, SubInfo},
     sdo::AbortCode,
     AtomicCell,
 };
 
 /// Implements a Bootloader info (0x5500) object
-pub struct BootloaderInfo<'a, const APP: bool, const NUM_SECTIONS: u8> {
+#[derive(Debug, Default)]
+pub struct BootloaderInfo<const APP: bool, const NUM_SECTIONS: u8> {
     reset_flag: AtomicBool,
-    od: &'a [ODEntry<'a>],
 }
 
-impl<'a, const APP: bool, const NUM_SECTIONS: u8> BootloaderInfo<'a, APP, NUM_SECTIONS> {
-    pub const fn new(od: &'a [ODEntry<'a>]) -> Self {
+impl<const APP: bool, const NUM_SECTIONS: u8> BootloaderInfo<APP, NUM_SECTIONS> {
+    /// Create new BootloaderInfo
+    pub const fn new() -> Self {
         Self {
             reset_flag: AtomicBool::new(false),
-            od,
         }
     }
 
+    /// Read the reset_flag
+    ///
+    /// The flag is set when a reset command is written to the object, and this function can be used
+    /// by the application to determed when a reset to bootloader is commanded
     pub fn reset_flag(&self) -> bool {
-        return self.reset_flag.load(Ordering::Relaxed);
+        self.reset_flag.load(Ordering::Relaxed)
     }
 }
 
 impl<const APP: bool, const NUM_SECTIONS: u8> ObjectRawAccess
-    for BootloaderInfo<'_, APP, NUM_SECTIONS>
+    for BootloaderInfo<APP, NUM_SECTIONS>
 {
     fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
         if offset != 0 {
@@ -71,14 +75,15 @@ impl<const APP: bool, const NUM_SECTIONS: u8> ObjectRawAccess
         }
     }
 
-    fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
+    fn write(&self, sub: u8, data: &[u8]) -> Result<(), AbortCode> {
         match sub {
-            0 | 1 | 2 => Err(AbortCode::ReadOnly),
+            0..=2 => Err(AbortCode::ReadOnly),
             3 => {
                 if !APP {
-                    return Err(AbortCode::UnsupportedAccess);
-                } else if data.len() == 4 && offset == 0 && data == &[0x42, 0x4F, 0x4F, 0x54] {
-                    Ok(self.reset_flag.store(true, Ordering::Relaxed))
+                    Err(AbortCode::UnsupportedAccess)
+                } else if data.len() == 4 && data == [0x42, 0x4F, 0x4F, 0x54] {
+                    self.reset_flag.store(true, Ordering::Relaxed);
+                    Ok(())
                 } else {
                     Err(AbortCode::InvalidValue)
                 }
@@ -102,6 +107,7 @@ impl<const APP: bool, const NUM_SECTIONS: u8> ObjectRawAccess
     }
 }
 
+/// A trait for applications to implement to provide a bootloader section access implementation
 pub trait BootloaderSectionCallbacks: Sync {
     /// Called to erase the section
     ///
@@ -123,6 +129,8 @@ pub trait BootloaderSectionCallbacks: Sync {
     fn finalize(&self) -> bool;
 }
 
+/// Implements a bootloader section object in the object dictionary
+#[allow(missing_debug_implementations)]
 pub struct BootloaderSection {
     name: &'static str,
     size: u32,
@@ -130,6 +138,7 @@ pub struct BootloaderSection {
 }
 
 impl BootloaderSection {
+    /// Create a new bootloader section
     pub const fn new(name: &'static str, size: u32) -> Self {
         Self {
             name,
@@ -138,6 +147,7 @@ impl BootloaderSection {
         }
     }
 
+    /// Register the application callbacks which implement storage for this section
     pub fn register_callbacks(&self, callbacks: &'static dyn BootloaderSectionCallbacks) {
         self.callbacks.store(Some(callbacks));
     }
@@ -156,7 +166,7 @@ fn read_u8(value: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
 
 fn read_str(value: &str, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
     let read_len = buf.len().min(value.len() - offset);
-    buf[0..read_len].copy_from_slice(&value.as_bytes()[offset..]);
+    buf[0..read_len].copy_from_slice(&value.as_bytes()[offset..offset + read_len]);
     Ok(())
 }
 
@@ -165,14 +175,14 @@ impl ObjectRawAccess for BootloaderSection {
         match sub {
             0 => read_u8(4, offset, buf),
             1 => read_u8(1, offset, buf),
-            2 => read_str(&self.name, offset, buf),
+            2 => read_str(self.name, offset, buf),
             3 => Err(AbortCode::WriteOnly),
             4 => Err(AbortCode::WriteOnly),
             _ => Err(AbortCode::NoSuchSubIndex),
         }
     }
 
-    fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
+    fn write(&self, sub: u8, data: &[u8]) -> Result<(), AbortCode> {
         match sub {
             0 => Err(AbortCode::ReadOnly),
             1 => Err(AbortCode::ReadOnly),
@@ -197,10 +207,23 @@ impl ObjectRawAccess for BootloaderSection {
     }
 
     fn object_code(&self) -> ObjectCode {
-        todo!()
+        ObjectCode::Record
     }
 
     fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
-        todo!()
+        match sub {
+            0 => Ok(SubInfo::MAX_SUB_NUMBER),
+            1 => Ok(SubInfo::new_u8().ro_access()),
+            2 => Ok(SubInfo::new_visibile_str(self.name.len()).ro_access()),
+            3 => Ok(SubInfo::new_u32().wo_access()),
+            4 => Ok(SubInfo {
+                size: self.size as usize,
+                data_type: zencan_common::objects::DataType::Domain,
+                access_type: zencan_common::objects::AccessType::Rw,
+                pdo_mapping: zencan_common::objects::PdoMapping::None,
+                persist: false,
+            }),
+            _ => Err(AbortCode::NoSuchSubIndex),
+        }
     }
 }

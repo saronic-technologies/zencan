@@ -61,13 +61,13 @@ specified in object 0x5000sub2.
 
 Each section is a record object, with the following fields:
 
-| Index | Data Type     | Access Type | Description                                    |
-| ----- | ------------- | ----------- | ---------------------------------------------- |
-| 0     | u8            | const       | Highest sub index                              |
-| 1     | u8            | const       | Mode bits. <br \>Bit 0: currently programmable |
-| 2     | VisibleString | const       | Section name                                   |
-| 3     | u32           | wo          | Erase Command                                  |
-| 4     | Domain        | wo          | Programming Data                               |
+| Index | Data Type     | Access Type | Description                              |
+| ----- | ------------- | ----------- | ---------------------------------------- |
+| 0     | u8            | const       | Highest sub index                        |
+| 1     | u8            | const       | Mode bits. Bit 0: currently programmable |
+| 2     | VisibleString | const       | Section name                             |
+| 3     | u32           | wo          | Erase Command                            |
+| 4     | Domain        | wo          | Programming Data                         |
 
 #### Sub 1 Mode Bits
 

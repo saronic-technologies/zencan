@@ -222,18 +222,6 @@ fn mandatory_objects(config: &DeviceConfig) -> Vec<ObjectDefinition> {
             }),
         },
         ObjectDefinition {
-            index: 0x1010,
-            parameter_name: "Object Save Command".to_string(),
-            application_callback: true,
-            object: Object::Array(ArrayDefinition {
-                data_type: DataType::UInt32,
-                access_type: AccessType::Rw.into(),
-                array_size: 1,
-                persist: false,
-                ..Default::default()
-            }),
-        },
-        ObjectDefinition {
             index: 0x1017,
             parameter_name: "Heartbeat Producer Time (ms)".to_string(),
             application_callback: false,
@@ -395,7 +383,7 @@ fn pdo_objects(num_rpdo: usize, num_tpdo: usize) -> Vec<ObjectDefinition> {
 fn bootloader_objects(cfg: &BootloaderConfig) -> Vec<ObjectDefinition> {
     let mut objects = Vec::new();
 
-    if cfg.sections.len() == 0 {
+    if cfg.sections.is_empty() {
         return objects;
     }
     objects.push(ObjectDefinition {
@@ -490,11 +478,33 @@ fn bootloader_objects(cfg: &BootloaderConfig) -> Vec<ObjectDefinition> {
     objects
 }
 
+fn object_storage_objects(dev: &DeviceConfig) -> Vec<ObjectDefinition> {
+    if dev.support_storage {
+        vec![ObjectDefinition {
+            index: 0x1010,
+            parameter_name: "Object Save Command".to_string(),
+            application_callback: false,
+            object: Object::Array(ArrayDefinition {
+                data_type: DataType::UInt32,
+                access_type: AccessType::Rw.into(),
+                array_size: 1,
+                persist: false,
+                ..Default::default()
+            }),
+        }]
+    } else {
+        vec![]
+    }
+}
+
 fn default_num_rpdo() -> u8 {
     4
 }
 fn default_num_tpdo() -> u8 {
     4
+}
+fn default_true() -> bool {
+    true
 }
 
 /// Configuration options for PDOs
@@ -587,6 +597,12 @@ pub struct BootloaderConfig {
 pub struct DeviceConfig {
     /// The name describing the type of device (e.g. a model)
     pub device_name: String,
+
+    /// Enables object storage commands (object 0x1010)
+    ///
+    /// Default: true
+    #[serde(default = "default_true")]
+    pub support_storage: bool,
 
     /// A version describing the hardware
     #[serde(default)]
@@ -804,6 +820,7 @@ impl DeviceConfig {
             config.pdos.num_rpdo as usize,
             config.pdos.num_tpdo as usize,
         ));
+        config.objects.extend(object_storage_objects(&config));
 
         Self::validate_unique_indices(&config.objects)?;
 

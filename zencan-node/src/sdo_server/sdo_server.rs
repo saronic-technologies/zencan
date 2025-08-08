@@ -171,16 +171,8 @@ impl SdoState {
                         return SdoResult::abort(index, sub, abort_code);
                     }
 
-                    if let Err(abort_code) = obj.write(sub, 0, &data[0..dl_size]) {
+                    if let Err(abort_code) = obj.write(sub, &data[0..dl_size]) {
                         return SdoResult::abort(index, sub, abort_code);
-                    }
-
-                    // When writing a string with length less than buffer, zero terminate
-                    // Note: dl_size != subobj.size implies the data type of the object is a string
-                    if dl_size < subinfo.size {
-                        if let Err(abort_code) = obj.write(sub, dl_size, &[0]) {
-                            return SdoResult::abort(index, sub, abort_code);
-                        }
                     }
 
                     SdoResult {
@@ -324,7 +316,7 @@ impl SdoState {
 
                 let offset = state.segment_counter as usize * 7;
                 let segment_size = 7 - n as usize;
-                let write_len = offset + segment_size;
+                let mut write_len = offset + segment_size;
                 // Make sure this segment won't overrun the allocated storage
                 if write_len > subinfo.size {
                     return SdoResult::abort(
@@ -334,15 +326,39 @@ impl SdoState {
                     );
                 }
 
-                // Unwrap safety: Both existence and size of the sub object are already checked
-                obj.write(state.sub, offset, &data[0..segment_size])
-                    .unwrap();
+                // Safety: If SDO protocol is followed, client cannot be sending messages which
+                // would cause the RX irq to access buffer until we send a response
+                let buf = unsafe { rx.buffer_mut() };
+
+                // Make sure the buffer is large enough to hold the data. If the object is larger
+                // than the buffer, we can't store it via segmented transfer.
+                // TODO: This should dupport partial writes for objects which do
+                if write_len > buf.len() {
+                    return SdoResult::abort(state.object.index, state.sub, AbortCode::CantStore);
+                }
+                // Copy the data into the buffer
+                buf[offset..write_len].copy_from_slice(&data[0..segment_size]);
+
                 // If this is the last segment, and it's shorter than the object, zero terminate
                 if c && write_len < subinfo.size {
-                    obj.write(state.sub, write_len, &[0]).unwrap();
+                    if write_len + 1 >= buf.len() {
+                        return SdoResult::abort(
+                            state.object.index,
+                            state.sub,
+                            AbortCode::CantStore,
+                        );
+                    }
+                    buf[write_len] = 0;
+                    write_len += 1;
                 }
 
                 if c {
+                    // Unwrap: Both existence and size of the object have already been checked
+                    state
+                        .object
+                        .data
+                        .write(state.sub, &buf[..write_len])
+                        .unwrap();
                     // Transfer complete
                     let new_state = SdoState::Idle;
                     SdoResult::response_with_update(
@@ -491,7 +507,6 @@ impl SdoState {
                         })
                     } else {
                         // Store the data from this block
-                        let write_offset = state.block_counter * BLKSIZE as usize * 7;
                         let write_length = last_segment as usize * 7;
 
                         // Safety: If SDO protocol is followed, client cannot be sending
@@ -501,8 +516,22 @@ impl SdoState {
                         let valid_data = &buf[..write_length];
                         // Update the running CRC
                         let crc = crc16::XMODEM::update(state.crc, valid_data);
+
+                        // If this is the first block of a multi-part block transfer, we begin
+                        // partial write now. Not all objects support partial write, although
+                        // generally any object large enough to warrant a multi-block transfer
+                        // probably should.
+                        if state.block_counter == 0 {
+                            if let Err(abort_code) = state.object.data.begin_partial(state.sub) {
+                                rx.set_state(ReceiverState::Normal);
+                                return SdoResult::abort(state.object.index, state.sub, abort_code);
+                            }
+                        }
+
+                        // Attempt to write the block. It may fail if, for example, the data exceeds
+                        // the size of the object
                         if let Err(abort_code) =
-                            state.object.data.write(state.sub, write_offset, valid_data)
+                            state.object.data.write_partial(state.sub, valid_data)
                         {
                             rx.set_state(ReceiverState::Normal);
                             return SdoResult::abort(state.object.index, state.sub, abort_code);
@@ -556,13 +585,22 @@ impl SdoState {
                     return SdoResult::abort(state.object.index, state.sub, AbortCode::CrcError);
                 }
 
-                // Store the data from this block
-                let write_offset = (state.block_counter - 1) * BLKSIZE as usize * 7;
+                let objdata = &state.object.data;
 
-                if let Err(abort_code) =
-                    state.object.data.write(state.sub, write_offset, valid_data)
-                {
-                    return SdoResult::abort(state.object.index, state.sub, abort_code);
+                // Store the data from this block
+                if state.block_counter == 1 {
+                    // We only received a single block, so no partial transfer is required
+                    if let Err(abort_code) = objdata.write(state.sub, valid_data) {
+                        return SdoResult::abort(state.object.index, state.sub, abort_code);
+                    }
+                } else {
+                    // This is the last block of a multi block transfer write it, and finish
+                    if let Err(abort_code) = objdata.write_partial(state.sub, valid_data) {
+                        return SdoResult::abort(state.object.index, state.sub, abort_code);
+                    }
+                    if let Err(abort_code) = objdata.end_partial(state.sub) {
+                        return SdoResult::abort(state.object.index, state.sub, abort_code);
+                    }
                 }
 
                 SdoResult::response_with_update(
@@ -613,22 +651,48 @@ impl SdoServer {
 
 #[cfg(test)]
 mod tests {
-    use zencan_common::{objects::ObjectData, sdo::BlockSegment, AtomicCell};
-    use zencan_macro::record_object;
+    use zencan_common::{
+        objects::{
+            AccessType, ConstField, DataType, NullTermByteField, ObjectCode, ObjectData,
+            ProvidesSubObjects, SubObjectAccess,
+        },
+        sdo::BlockSegment,
+    };
 
     use super::*;
 
-    /// Name crate zencan_node for record_object macro generated code
-    use crate as zencan_node;
-
-    #[record_object]
     struct Object1000 {
-        sub1: [u8; 1200],
+        sub1: NullTermByteField<1200>,
+    }
+
+    impl ProvidesSubObjects for Object1000 {
+        fn get_sub_object(&self, sub: u8) -> Option<(SubInfo, &dyn SubObjectAccess)> {
+            match sub {
+                0 => Some((
+                    SubInfo::MAX_SUB_NUMBER,
+                    const { &ConstField::new(1u8.to_le_bytes()) },
+                )),
+                1 => Some((
+                    SubInfo {
+                        size: self.sub1.len(),
+                        data_type: DataType::VisibleString,
+                        access_type: AccessType::Rw,
+                        ..Default::default()
+                    },
+                    &self.sub1,
+                )),
+                _ => None,
+            }
+        }
+
+        fn object_code(&self) -> ObjectCode {
+            ObjectCode::Record
+        }
     }
 
     fn test_od() -> &'static [ODEntry<'static>] {
         let object1000 = Box::leak(Box::new(Object1000 {
-            sub1: AtomicCell::new([0; 1200]),
+            sub1: NullTermByteField::new([0; 1200]),
         }));
         let list = [ODEntry {
             index: 0x1000,

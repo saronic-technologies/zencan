@@ -76,7 +76,7 @@ impl<T: Copy + Add<Output = T>> AtomicCell<T> {
     }
 }
 
-impl<T: Default + Copy + Send> Default for AtomicCell<T> {
+impl<T: Default + Copy> Default for AtomicCell<T> {
     fn default() -> Self {
         Self {
             inner: Mutex::new(Cell::new(T::default())),

@@ -13,7 +13,6 @@ use critical_section::Mutex;
 
 use crate::sdo::AbortCode;
 use crate::AtomicCell;
-use core::any::Any;
 use core::cell::UnsafeCell;
 
 /// A container for the address of a subobject
@@ -99,6 +98,21 @@ pub struct ObjectFlags<const N: usize> {
     flags1: AtomicCell<[u8; N]>,
 }
 
+/// Trait for accessing object flags
+pub trait ObjectFlagAccess {
+    /// Set the flag for the specified sub object
+    ///
+    /// The flag is set on the currently active flag set
+    fn set_flag(&self, sub: u8);
+    /// Read the flag for the specified object
+    ///
+    /// The flag is read from the currently inactive flag set, i.e. the flag value from before the
+    /// last sync toggle is returned
+    fn get_flag(&self, sub: u8) -> bool;
+    /// Clear all flags in the currently active flag set
+    fn clear(&self);
+}
+
 impl<const N: usize> ObjectFlags<N> {
     /// Create a new ObjectFlags
     pub const fn new(sync: &'static ObjectFlagSync) -> Self {
@@ -108,11 +122,10 @@ impl<const N: usize> ObjectFlags<N> {
             flags1: AtomicCell::new([0; N]),
         }
     }
+}
 
-    /// Set the flag for the specified sub object
-    ///
-    /// The flag is set on the currently active flag set
-    pub fn set_flag(&self, sub: u8) {
+impl<const N: usize> ObjectFlagAccess for ObjectFlags<N> {
+    fn set_flag(&self, sub: u8) {
         if sub as usize >= N * 8 {
             return;
         }
@@ -129,11 +142,7 @@ impl<const N: usize> ObjectFlags<N> {
             .unwrap();
     }
 
-    /// Read the flag for the specified object
-    ///
-    /// The flag is read from the currently inactive flag set, i.e. the flag value from before the
-    /// last sync toggle is returned
-    pub fn get_flag(&self, sub: u8) -> bool {
+    fn get_flag(&self, sub: u8) -> bool {
         if sub as usize >= N * 8 {
             return false;
         }
@@ -145,8 +154,7 @@ impl<const N: usize> ObjectFlags<N> {
         flags[(sub / 8) as usize] & (1 << (sub & 7)) != 0
     }
 
-    /// Clear all flags in the currently inactive set
-    pub fn clear(&self) {
+    fn clear(&self) {
         if self.sync.get_flag(false) {
             self.flags1.store([0; N]);
         } else {
@@ -293,12 +301,59 @@ pub trait ObjectRawAccess: Sync + Send {
     /// returned. All implementers are required to allow reading a subset of the object bytes, i.e.
     /// offset may be non-zero, and/or the buf length may be shorter than the object data
     fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode>;
+
     /// Write raw bytes to a subobject
     ///
-    /// Implementers MAY require all bytes of the object to be written, in which case, if offset is
-    /// non-zero or `offset + data.len()` is less than the size of the object, it may return an
-    /// error with [AbortCode::DataTypeMismatchLengthLow]
-    fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode>;
+    /// The length of `data` must match the size of the object, or else it will fail with either
+    /// [`AbortCode::DataTypeMismatchLengthLow`] or [`AbortCode::DataTypeMismatchLengthHigh`].
+    ///
+    /// If the sub is does not exist, it shall fail with [`AbortCode::NoSuchSubIndex`].
+    ///
+    /// If the sub exists but is not writeable, it shall fail with [`AbortCode::ReadOnly`].
+    fn write(&self, sub: u8, data: &[u8]) -> Result<(), AbortCode>;
+
+    /// Initialize a new partial write
+    ///
+    /// This must be called before performing calls to `partial_write`.
+    ///
+    /// A default implementation is provided which returns an appropriate error:
+    /// - [`AbortCode::NoSuchSubIndex`] if the sub object does not exist
+    /// - [`AbortCode::ReadOnly`] if the sub object is read-only
+    /// - [`AbortCode::UnsupportedAccess`] if the sub object does not support partial writes
+    ///
+    /// Objects which support partial writing must override the default implementation.
+    fn begin_partial(&self, sub: u8) -> Result<(), AbortCode> {
+        if let Ok(sub_info) = self.sub_info(sub) {
+            if sub_info.access_type.is_writable() {
+                Err(AbortCode::UnsupportedAccess)
+            } else {
+                Err(AbortCode::ReadOnly)
+            }
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+
+    /// Perform a partial write of bytes to a subobject
+    ///
+    /// Most objects do not support partial writes. But in some cases, such as DOMAINs, or very
+    /// large string objects, it is unavoidable and these must support it.
+    ///
+    /// Partial writes MUST be done sequentially, and implementers may assume that this is the case.
+    /// Executing multiple concurrent partial writes to the same sub object is not supported. It is
+    /// up to the application to ensure that this is not done.
+    fn write_partial(&self, _sub: u8, _buf: &[u8]) -> Result<(), AbortCode> {
+        // All callers should have failed at begin_partial, so this should never be called
+        Err(AbortCode::GeneralError)
+    }
+
+    /// Finalize a previous partial write
+    ///
+    /// This must always be called after using partial_write, after all partial_write calls have
+    /// been completed.
+    fn end_partial(&self, _sub: u8) -> Result<(), AbortCode> {
+        Err(AbortCode::GeneralError)
+    }
 
     /// Get the type of this object
     fn object_code(&self) -> ObjectCode;
@@ -429,23 +484,23 @@ pub trait ObjectRawAccess: Sync + Send {
     }
 }
 
-pub struct CallbackObject2<'a> {
+/// OD placeholder for an object which will have a handler registered at runtime
+pub struct CallbackObject<'a> {
     obj: AtomicCell<Option<&'a dyn ObjectRawAccess>>,
-    od: &'static [ODEntry<'static>],
     object_code: ObjectCode,
 }
 
-impl CallbackObject2<'_> {
-    pub fn new(od: &'static [ODEntry<'static>], object_code: ObjectCode) -> Self {
+impl CallbackObject<'_> {
+    /// Create a new callback
+    pub fn new(object_code: ObjectCode) -> Self {
         Self {
             obj: AtomicCell::new(None),
             object_code,
-            od,
         }
     }
 }
 
-impl ObjectRawAccess for CallbackObject2<'_> {
+impl ObjectRawAccess for CallbackObject<'_> {
     fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
         if let Some(obj) = self.obj.load() {
             obj.read(sub, offset, buf)
@@ -454,9 +509,25 @@ impl ObjectRawAccess for CallbackObject2<'_> {
         }
     }
 
-    fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
+    fn write(&self, sub: u8, data: &[u8]) -> Result<(), AbortCode> {
         if let Some(obj) = self.obj.load() {
-            obj.write(sub, offset, data)
+            obj.write(sub, data)
+        } else {
+            Err(AbortCode::ResourceNotAvailable)
+        }
+    }
+
+    fn write_partial(&self, sub: u8, buf: &[u8]) -> Result<(), AbortCode> {
+        if let Some(obj) = self.obj.load() {
+            obj.write_partial(sub, buf)
+        } else {
+            Err(AbortCode::ResourceNotAvailable)
+        }
+    }
+
+    fn end_partial(&self, sub: u8) -> Result<(), AbortCode> {
+        if let Some(obj) = self.obj.load() {
+            obj.end_partial(sub)
         } else {
             Err(AbortCode::ResourceNotAvailable)
         }
@@ -474,140 +545,13 @@ impl ObjectRawAccess for CallbackObject2<'_> {
         }
     }
 }
-
-/// Implements an object which relies on provided callback functions for implementing access
-///
-/// This is used for objects which have extra logic in their access, such as PDOs. Some callbacks
-/// are implemented by `zencan-node`, but they can also be implemented by the application.
-pub struct CallbackObject {
-    write_cb: AtomicCell<Option<WriteHookFn>>,
-    read_cb: AtomicCell<Option<ReadHookFn>>,
-    info_cb: AtomicCell<Option<InfoHookFn>>,
-    object_code: ObjectCode,
-
-    od: &'static [ODEntry<'static>],
-    context: AtomicCell<Option<&'static dyn Context>>,
-}
-
-impl CallbackObject {
-    /// Create a new CallbackObject
-    ///
-    /// # Arguments
-    /// - `od`: The object dictionary. This is required so it can be passed to callbacks.
-    /// - `object_code`: The object code for this record. Although the sub object types are all
-    ///   defined by the info callback, the object code must be determined at build time.
-    pub const fn new(od: &'static [ODEntry<'static>], object_code: ObjectCode) -> Self {
-        Self {
-            write_cb: AtomicCell::new(None),
-            read_cb: AtomicCell::new(None),
-            info_cb: AtomicCell::new(None),
-            object_code,
-            od,
-            context: AtomicCell::new(None),
-        }
-    }
-
-    /// Register callbacks on this object
-    pub fn register(
-        &self,
-        write: Option<WriteHookFn>,
-        read: Option<ReadHookFn>,
-        info: Option<InfoHookFn>,
-        context: Option<&'static dyn Context>,
-    ) {
-        // TODO: Think about which of these should actually be optional. e.g. I don't think you can
-        // not implement info.
-        self.write_cb.store(write);
-        self.read_cb.store(read);
-        self.info_cb.store(info);
-        self.context.store(context);
-    }
-}
-
-impl ObjectRawAccess for CallbackObject {
-    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
-        if let Some(read) = self.read_cb.load() {
-            let caller_ctx = self.context.load();
-            let ctx = ODCallbackContext {
-                ctx: &caller_ctx,
-                od: self.od,
-            };
-            (read)(&ctx, sub, offset, buf)
-        } else {
-            Err(AbortCode::ResourceNotAvailable)
-        }
-    }
-
-    fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
-        if let Some(write) = self.write_cb.load() {
-            let caller_ctx = self.context.load();
-            let ctx = ODCallbackContext {
-                ctx: &caller_ctx,
-                od: self.od,
-            };
-            (write)(&ctx, sub, offset, data)
-        } else {
-            Err(AbortCode::ResourceNotAvailable)
-        }
-    }
-
-    fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
-        if let Some(info) = self.info_cb.load() {
-            let caller_ctx = self.context.load();
-            let ctx = ODCallbackContext {
-                ctx: &caller_ctx,
-                od: self.od,
-            };
-            (info)(&ctx, sub)
-        } else {
-            Err(AbortCode::ResourceNotAvailable)
-        }
-    }
-
-    fn object_code(&self) -> ObjectCode {
-        self.object_code
-    }
-}
-
-/// Trait to define requirements for opaque callback context references
-pub trait Context: Any + Sync + Send + 'static {
-    /// Get context as an Any ref
-    fn as_any<'a, 'b: 'a>(&'b self) -> &'a dyn Any;
-}
-
-impl<T: Any + Sync + Send + 'static> Context for T {
-    fn as_any<'a, 'b: 'a>(&'b self) -> &'a dyn Any {
-        self
-    }
-}
-
-/// Data to be passed to object callbacks
-pub struct ODCallbackContext<'a> {
-    /// The context object provided when registering the callback
-    ///
-    /// This can be any object which implement Any + Sync + Send
-    pub ctx: &'a Option<&'a dyn Context>,
-
-    /// The object dictionary
-    pub od: &'static [ODEntry<'static>],
-}
-
-/// Object read/write callback function signature
-type ReadHookFn =
-    fn(ctx: &ODCallbackContext, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode>;
-
-type WriteHookFn =
-    fn(ctx: &ODCallbackContext, sub: u8, offset: usize, buf: &[u8]) -> Result<(), AbortCode>;
-
-type InfoHookFn = fn(ctx: &ODCallbackContext, sub: u8) -> Result<SubInfo, AbortCode>;
-
 /// Object enum to be stored in the dictionary
 pub enum ObjectData<'a> {
     /// This is a normal object with allocated storage, e.g. as created by `zencan-build`
     Storage(&'a dyn ObjectRawAccess),
     /// This is a callback object which must have callback functions registered at runtime for
     /// access
-    Callback(&'a CallbackObject),
+    Callback(&'a CallbackObject<'a>),
 }
 
 impl ObjectRawAccess for ObjectData<'_> {
@@ -618,10 +562,31 @@ impl ObjectRawAccess for ObjectData<'_> {
         }
     }
 
-    fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
+    fn write(&self, sub: u8, data: &[u8]) -> Result<(), AbortCode> {
         match self {
-            ObjectData::Storage(obj) => obj.write(sub, offset, data),
-            ObjectData::Callback(obj) => obj.write(sub, offset, data),
+            ObjectData::Storage(obj) => obj.write(sub, data),
+            ObjectData::Callback(obj) => obj.write(sub, data),
+        }
+    }
+
+    fn begin_partial(&self, sub: u8) -> Result<(), AbortCode> {
+        match self {
+            ObjectData::Storage(obj) => obj.begin_partial(sub),
+            ObjectData::Callback(obj) => obj.begin_partial(sub),
+        }
+    }
+
+    fn end_partial(&self, sub: u8) -> Result<(), AbortCode> {
+        match self {
+            ObjectData::Storage(obj) => obj.end_partial(sub),
+            ObjectData::Callback(obj) => obj.end_partial(sub),
+        }
+    }
+
+    fn write_partial(&self, sub: u8, buf: &[u8]) -> Result<(), AbortCode> {
+        match self {
+            ObjectData::Storage(obj) => obj.write_partial(sub, buf),
+            ObjectData::Callback(obj) => obj.write_partial(sub, buf),
         }
     }
 
@@ -658,32 +623,6 @@ impl ObjectRawAccess for ObjectData<'_> {
             ObjectData::Storage(obj) => obj.clear_events(),
             ObjectData::Callback(obj) => obj.clear_events(),
         }
-    }
-}
-
-trait SubObjectAccess {
-    fn read(&self, cb: &dyn FnMut(&mut [u8]));
-}
-pub struct SubObjectStorage {}
-
-impl<T> ObjectRawAccess for T
-where
-    T: SubObjectAccess + Send + Sync,
-{
-    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
-        todo!()
-    }
-
-    fn write(&self, sub: u8, offset: usize, data: &[u8]) -> Result<(), AbortCode> {
-        todo!()
-    }
-
-    fn object_code(&self) -> ObjectCode {
-        todo!()
-    }
-
-    fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
-        todo!()
     }
 }
 
@@ -753,6 +692,17 @@ impl SubInfo {
         }
     }
 
+    /// Convenience function for creating a new sub-info by type
+    pub const fn new_visibile_str(size: usize) -> Self {
+        Self {
+            size,
+            data_type: DataType::VisibleString,
+            access_type: AccessType::Ro,
+            pdo_mapping: PdoMapping::None,
+            persist: false,
+        }
+    }
+
     /// Convenience function to set the access_type to read-only
     pub const fn ro_access(mut self) -> Self {
         self.access_type = AccessType::Ro;
@@ -802,4 +752,555 @@ pub fn find_object_entry<'a, 'b>(table: &'b [ODEntry<'a>], index: u16) -> Option
         .binary_search_by_key(&index, |e| e.index)
         .ok()
         .map(|i| &table[i])
+}
+
+/// A sub object which contains a single scalar value of type T, which is a standard rust type
+#[derive(Debug)]
+pub struct ScalarField<T: Copy> {
+    value: AtomicCell<T>,
+}
+
+impl<T: Send + Copy + PartialEq> ScalarField<T> {
+    /// Atomically read the value of the field
+    pub fn load(&self) -> T {
+        self.value.load()
+    }
+
+    /// Atomically store a new value into the field
+    pub fn store(&self, value: T) {
+        self.value.store(value);
+    }
+}
+
+impl<T: Copy + Default> Default for ScalarField<T> {
+    fn default() -> Self {
+        Self {
+            value: AtomicCell::default(),
+        }
+    }
+}
+
+/// Allow transparent byte level access to a sub object
+pub trait SubObjectAccess {
+    /// Read data from the sub object
+    ///
+    /// Read `buf.len()` bytes, starting at offset
+    ///
+    /// All sub objects are required to support partial read
+    ///
+    /// # Errors
+    ///
+    /// - [`AbortCode::DataTypeMismatchLengthHigh`] if `offset` + `buf.len()` exceeds the object
+    ///   size
+    /// - [`AbortCode::WriteOnly`] if the sub object does not support reading
+    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode>;
+    /// Write data to the sub object
+    ///
+    /// For most objects, the length of data must match the size of the object exactly. However, for
+    /// some objects, such as Domain, VisibleString, or UnicodeString, or objects with custom
+    /// callback implementations it may be possible to write shorter values.
+    ///
+    /// # Errors
+    ///
+    /// - [`AbortCode::DataTypeMismatchLengthHigh`] if `data.len()` exceeds the object size
+    /// - [`AbortCode::DataTypeMismatchLengthLow`] if `data.len()` is smaller than the object size
+    ///   and the object does not support this
+    /// - [`AbortCode::ReadOnly`] if the object does not support writing
+    /// - [`AbortCode::InvalidValue`] if the value is not allowed
+    /// - [`AbortCode::ValueTooHigh`] if the value is higher than the allowed range of this object
+    /// - [`AbortCode::ValueTooLow`] if the value is lower than the allowed range of this object
+    /// - [`AbortCode::ResourceNotAvailable`] if the object cannot be written because of the
+    ///   application state. For example, this is returned if a required callback has not been
+    ///   registered on the object.
+    ///
+    /// Other error types may be returned by special purpose objects implemented via custom
+    /// callback.
+    fn write(&self, data: &[u8]) -> Result<(), AbortCode>;
+
+    /// Begin a multi-part write to the object
+    ///
+    /// Not all objects support partial writes. Primarily it is large objects which support it in
+    /// order to allow transfer of the data in multiple blocks. It is up to the application to
+    /// ensure that no other writes occur while a partial write is in progress, or else the object
+    /// data may be corrupted and/or a call to `write_partial` may return an abort code on a
+    /// subsequent call.
+    ///
+    /// Partial writes should always include the following, in this order:
+    /// - One call to `begin_partial`
+    /// - N calls to `write_partial`
+    /// - One call to `end_partial`
+    ///
+    /// # Errors
+    ///
+    /// - [`AbortCode::UnsupportedAccess`] when the object does not support partial writes.
+    fn begin_partial(&self) -> Result<(), AbortCode> {
+        Err(AbortCode::UnsupportedAccess)
+    }
+
+    /// Write part of multi-part data to the object
+    fn write_partial(&self, _buf: &[u8]) -> Result<(), AbortCode> {
+        Err(AbortCode::UnsupportedAccess)
+    }
+
+    /// Finish a multi-part write
+    fn end_partial(&self) -> Result<(), AbortCode> {
+        Err(AbortCode::UnsupportedAccess)
+    }
+}
+
+macro_rules! impl_scalar_field {
+    ($rust_type: ty, $data_type: ty) => {
+        impl ScalarField<$rust_type> {
+            /// Create a new ScalarField with the given value
+            pub const fn new(value: $rust_type) -> Self {
+                Self {
+                    value: AtomicCell::new(value),
+                }
+            }
+        }
+        impl SubObjectAccess for ScalarField<$rust_type> {
+            fn read(&self, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+                let bytes = self.value.load().to_le_bytes();
+                if offset + buf.len() > bytes.len() {
+                    return Err(AbortCode::DataTypeMismatchLengthHigh);
+                }
+                buf.copy_from_slice(&bytes[offset..offset + buf.len()]);
+                Ok(())
+            }
+
+            fn write(&self, data: &[u8]) -> Result<(), AbortCode> {
+                let value = <$rust_type>::from_le_bytes(data.try_into().map_err(|_| {
+                    if data.len() < size_of::<$rust_type>() {
+                        AbortCode::DataTypeMismatchLengthLow
+                    } else {
+                        AbortCode::DataTypeMismatchLengthHigh
+                    }
+                })?);
+                self.value.store(value);
+                Ok(())
+            }
+        }
+    };
+}
+
+impl_scalar_field!(u8, DataType::UInt8);
+impl_scalar_field!(u16, DataType::UInt16);
+impl_scalar_field!(u32, DataType::UInt32);
+impl_scalar_field!(i8, DataType::Int8);
+impl_scalar_field!(i16, DataType::Int16);
+impl_scalar_field!(i32, DataType::Int32);
+impl_scalar_field!(f32, DataType::Float);
+
+// bool doesn't support from_le_bytes so it needs a special implementation
+impl SubObjectAccess for ScalarField<bool> {
+    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+        let value = self.value.load();
+        if offset != 0 || buf.len() > 1 {
+            return Err(AbortCode::DataTypeMismatchLengthHigh);
+        }
+        buf[0] = if value { 1 } else { 0 };
+        Ok(())
+    }
+
+    fn write(&self, data: &[u8]) -> Result<(), AbortCode> {
+        if data.len() != 1 {
+            return Err(AbortCode::DataTypeMismatchLengthHigh);
+        }
+        let value = data[0] != 0;
+        self.value.store(value);
+        Ok(())
+    }
+}
+
+/// A byte field which supports storing short values using null termination to indicate size
+///
+/// This is here to support VisibleString and UnicodeString types.
+#[allow(clippy::len_without_is_empty)]
+#[derive(Debug)]
+pub struct NullTermByteField<const N: usize>(ByteField<N>);
+
+impl<const N: usize> NullTermByteField<N> {
+    /// Create a new NullTermByteField with the provided value
+    pub const fn new(value: [u8; N]) -> Self {
+        Self(ByteField::new(value))
+    }
+
+    /// Return the size of the sub object
+    pub fn len(&self) -> usize {
+        N
+    }
+
+    /// Atomically load the value stored in the object
+    ///
+    /// Note that this will return the entire array, including any invalid bytes after the null
+    /// terminator.
+    pub fn load(&self) -> [u8; N] {
+        self.0.load()
+    }
+
+    /// Atomically store a new value to the object
+    pub fn store(&self, value: [u8; N]) {
+        self.0.store(value);
+    }
+
+    /// Store a str to the object
+    ///
+    /// If the string is shorter than the object size, it will be stored with a null terminator
+    /// If longer, an error will be returned.
+    pub fn set_str(&self, value: &[u8]) -> Result<(), AbortCode> {
+        self.0.begin_partial()?;
+        self.0.write_partial(value)?;
+        if value.len() < N {
+            self.0.write_partial(&[0])?;
+        }
+        self.end_partial()?;
+        Ok(())
+    }
+}
+
+impl<const N: usize> Default for NullTermByteField<N> {
+    fn default() -> Self {
+        Self(ByteField::default())
+    }
+}
+
+impl<const N: usize> SubObjectAccess for NullTermByteField<N> {
+    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+        self.0.read(offset, buf)
+    }
+
+    fn write(&self, data: &[u8]) -> Result<(), AbortCode> {
+        self.0.begin_partial()?;
+        self.0.write_partial(data)?;
+        if data.len() < N {
+            self.0.write_partial(&[0])?;
+        }
+        self.0.end_partial()?;
+        Ok(())
+    }
+
+    fn begin_partial(&self) -> Result<(), AbortCode> {
+        self.0.begin_partial()
+    }
+
+    fn write_partial(&self, data: &[u8]) -> Result<(), AbortCode> {
+        self.0.write_partial(data)
+    }
+
+    fn end_partial(&self) -> Result<(), AbortCode> {
+        // Null terminate if the length of data written is less than the sub object size
+        if self.0.write_offset.load().unwrap_or(0) < N {
+            self.0.write_partial(&[0])?;
+        }
+        self.0.end_partial()
+    }
+}
+
+/// A sub object which contains a fixed-size byte array
+///
+/// This is the data storage backing for all string types
+#[allow(clippy::len_without_is_empty)]
+#[derive(Debug)]
+pub struct ByteField<const N: usize> {
+    value: UnsafeCell<[u8; N]>,
+    write_offset: AtomicCell<Option<usize>>,
+}
+
+unsafe impl<const N: usize> Sync for ByteField<N> {}
+
+impl<const N: usize> ByteField<N> {
+    /// Create a new ByteField with the provided value
+    pub const fn new(value: [u8; N]) -> Self {
+        Self {
+            value: UnsafeCell::new(value),
+            write_offset: AtomicCell::new(None),
+        }
+    }
+
+    /// Get the size of the ByteField
+    pub fn len(&self) -> usize {
+        N
+    }
+
+    /// Atomically store a new value to the sub object
+    pub fn store(&self, value: [u8; N]) {
+        // Any ongoing partial write will be cancelled
+        self.write_offset.store(None);
+        critical_section::with(|_| {
+            let bytes = unsafe { &mut *self.value.get() };
+            bytes.copy_from_slice(&value);
+        });
+    }
+
+    /// Atomically read the value of the sub object
+    pub fn load(&self) -> [u8; N] {
+        critical_section::with(|_| unsafe { *self.value.get() })
+    }
+}
+
+impl<const N: usize> Default for ByteField<N> {
+    fn default() -> Self {
+        Self {
+            value: UnsafeCell::new([0; N]),
+            write_offset: AtomicCell::new(None),
+        }
+    }
+}
+
+impl<const N: usize> SubObjectAccess for ByteField<N> {
+    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+        critical_section::with(|_| {
+            let bytes = unsafe { &*self.value.get() };
+            if offset + buf.len() > bytes.len() {
+                return Err(AbortCode::DataTypeMismatchLengthHigh);
+            }
+            buf.copy_from_slice(&bytes[offset..offset + buf.len()]);
+            Ok(())
+        })
+    }
+
+    fn write(&self, data: &[u8]) -> Result<(), AbortCode> {
+        critical_section::with(|_| {
+            let bytes = unsafe { &mut *self.value.get() };
+            if data.len() > bytes.len() {
+                return Err(AbortCode::DataTypeMismatchLengthHigh);
+            }
+            bytes[..data.len()].copy_from_slice(data);
+            Ok(())
+        })
+    }
+
+    fn begin_partial(&self) -> Result<(), AbortCode> {
+        self.write_offset.store(Some(0));
+        Ok(())
+    }
+
+    fn write_partial(&self, buf: &[u8]) -> Result<(), AbortCode> {
+        // Unwrap: fetch_update can only fail if the closure returns None
+        let offset = self
+            .write_offset
+            .fetch_update(|old| Some(old.map(|x| x + buf.len())))
+            .unwrap();
+        if offset.is_none() {
+            return Err(AbortCode::GeneralError);
+        }
+        let offset = offset.unwrap();
+        if offset + buf.len() > N {
+            return Err(AbortCode::DataTypeMismatchLengthHigh);
+        }
+        critical_section::with(|_| {
+            let bytes = unsafe { &mut *self.value.get() };
+            bytes[offset..offset + buf.len()].copy_from_slice(buf);
+        });
+        Ok(())
+    }
+
+    fn end_partial(&self) -> Result<(), AbortCode> {
+        // No finalization action needed for byte fields
+        self.write_offset.store(None);
+        Ok(())
+    }
+}
+
+/// A trait for structs which represent Objects to implement
+///
+/// Implementing this type allows a type sub object which implements [`SubObjectAccess`] to
+/// implement [`ObjectRawAccess`] simply by implementing this trait to provide a sub object for each
+/// sub index.
+pub trait ProvidesSubObjects {
+    /// Get a slice of sub objects
+    ///
+    /// This is used for objects which have a fixed number of sub objects, such as arrays or records.
+    /// The slice must be at least as long as the maximum sub index of the object.
+    ///
+    /// It should return None if the sub object does not exist, and when it does exist it returns a
+    /// tuple containing a [`SubInfo`] with metadata about the sub object, and [`dyn
+    /// SubObjectAccess`] which provides read/write access to the sub object data.
+    fn get_sub_object(&self, sub: u8) -> Option<(SubInfo, &dyn SubObjectAccess)>;
+
+    /// Get the object flags for this object
+    ///
+    /// Notification flags are supported by some objects to indicate changes made in the object by
+    /// the application -- for example, to trigger the transmission of a mapped PDO.
+    ///
+    /// If the object supports flags, it should override this method to return a reference to them
+    fn flags(&self) -> Option<&dyn ObjectFlagAccess> {
+        None
+    }
+
+    /// What type of object is this
+    fn object_code(&self) -> ObjectCode;
+}
+
+impl<T: ProvidesSubObjects + Sync + Send> ObjectRawAccess for T {
+    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+        if let Some((info, access)) = self.get_sub_object(sub) {
+            if info.access_type.is_readable() {
+                access.read(offset, buf)
+            } else {
+                Err(AbortCode::WriteOnly)
+            }
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+
+    fn write(&self, sub: u8, data: &[u8]) -> Result<(), AbortCode> {
+        if let Some((info, access)) = self.get_sub_object(sub) {
+            if info.access_type.is_writable() {
+                access.write(data)
+            } else {
+                Err(AbortCode::ReadOnly)
+            }
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+
+    fn begin_partial(&self, sub: u8) -> Result<(), AbortCode> {
+        if let Some((info, access)) = self.get_sub_object(sub) {
+            if info.access_type.is_writable() {
+                access.begin_partial()
+            } else {
+                Err(AbortCode::ReadOnly)
+            }
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+
+    fn write_partial(&self, sub: u8, buf: &[u8]) -> Result<(), AbortCode> {
+        if let Some((_, access)) = self.get_sub_object(sub) {
+            access.write_partial(buf)
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+
+    fn end_partial(&self, sub: u8) -> Result<(), AbortCode> {
+        if let Some((_, access)) = self.get_sub_object(sub) {
+            access.end_partial()
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+
+    fn set_event_flag(&self, sub: u8) -> Result<(), AbortCode> {
+        if let Some(flags) = self.flags() {
+            flags.set_flag(sub);
+            Ok(())
+        } else {
+            Err(AbortCode::UnsupportedAccess)
+        }
+    }
+
+    fn read_event_flag(&self, sub: u8) -> bool {
+        if let Some(flags) = self.flags() {
+            flags.get_flag(sub)
+        } else {
+            false
+        }
+    }
+
+    fn object_code(&self) -> ObjectCode {
+        self.object_code()
+    }
+
+    fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
+        if let Some((info, _access)) = self.get_sub_object(sub) {
+            Ok(info)
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+}
+
+#[derive(Debug)]
+/// A struct for a constant sub object whose value never changes
+///
+/// For simplicity, the value is stored directly as bytes, so use `to_le_bytes` when creating the
+/// const object.
+pub struct ConstField<const N: usize> {
+    bytes: [u8; N],
+}
+
+impl<const N: usize> ConstField<N> {
+    /// Create a const field
+    pub const fn new(bytes: [u8; N]) -> Self {
+        Self { bytes }
+    }
+}
+
+impl<const N: usize> SubObjectAccess for ConstField<N> {
+    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+        if offset + buf.len() > self.bytes.len() {
+            return Err(AbortCode::DataTypeMismatchLengthHigh);
+        }
+        buf.copy_from_slice(&self.bytes[offset..offset + buf.len()]);
+        Ok(())
+    }
+
+    fn write(&self, _data: &[u8]) -> Result<(), AbortCode> {
+        Err(AbortCode::ReadOnly)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct ExampleRecord {
+        val1: ScalarField<u32>,
+        val2: ScalarField<bool>,
+        val3: NullTermByteField<10>,
+    }
+
+    impl ProvidesSubObjects for ExampleRecord {
+        fn get_sub_object(&self, sub: u8) -> Option<(SubInfo, &dyn SubObjectAccess)> {
+            match sub {
+                0 => Some((
+                    SubInfo::MAX_SUB_NUMBER,
+                    const { &ConstField::new(3u8.to_le_bytes()) },
+                )),
+                1 => Some((SubInfo::new_u32().rw_access(), &self.val1)),
+                2 => Some((SubInfo::new_u8().rw_access(), &self.val2)),
+                3 => Some((
+                    SubInfo::new_visibile_str(self.val3.len()).rw_access(),
+                    &self.val3,
+                )),
+                _ => None,
+            }
+        }
+
+        fn object_code(&self) -> ObjectCode {
+            ObjectCode::Record
+        }
+    }
+
+    #[test]
+    fn test_record_with_provides_sub_objects() {
+        let record = ExampleRecord::default();
+
+        assert_eq!(3, record.read_u8(0).unwrap());
+        record.write(1, &42u32.to_le_bytes()).unwrap();
+        assert_eq!(42, record.read_u32(1).unwrap());
+
+        record.begin_partial(3).unwrap();
+        // Do a write of the full length of the byte field
+        record
+            .write_partial(3, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+            .unwrap();
+        let mut buf = [0; 10];
+        record.read(3, 0, &mut buf).unwrap();
+        assert_eq!([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], buf);
+        // Do a write smaller than the size, and make sure it gets null terminated
+        record.begin_partial(3).unwrap();
+        record.write_partial(3, &[0, 1, 2, 3]).unwrap();
+        record.write_partial(3, &[4, 5, 6, 7]).unwrap();
+        record.end_partial(3).unwrap();
+        let mut buf = [0; 9];
+        record.read(3, 0, &mut buf).unwrap();
+        assert_eq!([0u8, 1, 2, 3, 4, 5, 6, 7, 0], buf)
+    }
 }

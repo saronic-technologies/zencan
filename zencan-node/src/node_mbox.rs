@@ -60,10 +60,6 @@ impl NodeMbox {
         }
     }
 
-    pub(crate) fn num_rx_pdos(&self) -> usize {
-        self.rx_pdos.len()
-    }
-
     pub(crate) fn set_sdo_cob_id(&self, cob_id: Option<CanId>) {
         self.sdo_cob_id.store(cob_id);
     }

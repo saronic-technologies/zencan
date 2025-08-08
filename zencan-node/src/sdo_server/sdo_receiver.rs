@@ -129,8 +129,25 @@ impl SdoReceiver {
         self.request.take()
     }
 
+    /// Get a reference to the receive data buffer
+    ///
+    /// The buffer is shared between receive context and process context. See
+    /// [`SdoReceiver::buffer_mut`] for more.
     pub(crate) unsafe fn buffer(&self) -> &[u8] {
         self.buffer.get().as_ref().unwrap()
+    }
+
+    /// Get a mutable reference to the receive buffer
+    ///
+    /// The buffer is shared between the receive context (often an IRQ) and the process context, and
+    /// depending on the type of SDO transaction, may be written by both. Callers should not create
+    /// any other refs while the returned ref lives (neither using `buffer` or `buffer_mut`). The
+    /// receive context only access the buffer when it is configured to a particular state by the
+    /// process context (see [`ReceiverState`]) and the process context does not access the buffer
+    /// when in that state.
+    #[allow(clippy::mut_from_ref)]
+    pub(crate) unsafe fn buffer_mut(&self) -> &mut [u8] {
+        self.buffer.get().as_mut().unwrap()
     }
 
     pub(crate) fn begin_block_download(&self, blksize: u8) {

@@ -15,7 +15,7 @@ pub fn test_raw_object_access(obj: &dyn ObjectRawAccess, sub: u8, size: u16) {
         write_data[i as usize] = i as u8;
     }
 
-    let write_result = obj.write(sub, 0, &write_data);
+    let write_result = obj.write(sub, &write_data);
     if sub_info.access_type.is_writable() {
         assert_eq!(Ok(()), write_result);
     } else {

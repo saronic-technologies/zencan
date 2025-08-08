@@ -260,21 +260,16 @@ pub fn restore_stored_objects(od: &[ODEntry], stored_data: &[u8]) {
         match item {
             PersistNodeRef::ObjectValue(restore) => {
                 if let Some(obj) = find_object(od, restore.index) {
-                    if let Ok(sub_info) = obj.sub_info(restore.sub) {
+                    if let Ok(_sub_info) = obj.sub_info(restore.sub) {
                         debug!(
                             "Restoring 0x{:x}sub{} with {:?}",
                             restore.index, restore.sub, restore.data
                         );
-                        if let Err(abort_code) = obj.write(restore.sub, 0, restore.data) {
+                        if let Err(abort_code) = obj.write(restore.sub, restore.data) {
                             warn!(
                                 "Error restoring object 0x{:x}sub{}: {:x}",
                                 restore.index, restore.sub, abort_code as u32
                             );
-                        }
-                        // Null terminate short strings when restoring
-                        if sub_info.data_type.is_str() && restore.data.len() < sub_info.size {
-                            obj.write(restore.sub, restore.data.len(), &[0])
-                                .expect("Error null terminated restored string");
                         }
                     } else {
                         warn!(
@@ -294,28 +289,74 @@ pub fn restore_stored_objects(od: &[ODEntry], stored_data: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zencan_common::objects::ODEntry;
-    use zencan_macro::record_object;
+    use zencan_common::objects::{
+        ConstField, DataType, NullTermByteField, ODEntry, ObjectCode, ProvidesSubObjects,
+        ScalarField, SubInfo, SubObjectAccess,
+    };
 
-    // The `record_object` macro output references `zencan_node`, so in the context of the
-    // zencan_node crate, we have to provide this name
-    use crate::{self as zencan_node, persist::serialize};
+    use crate::persist::serialize;
 
     #[test]
     fn test_serialize_deserialize() {
         #[derive(Debug, Default)]
-        #[record_object]
         struct Object100 {
-            #[record(persist)]
-            value1: u32,
-            value2: u16,
+            value1: ScalarField<u32>,
+            value2: ScalarField<u16>,
+        }
+
+        impl ProvidesSubObjects for Object100 {
+            fn get_sub_object(&self, sub: u8) -> Option<(SubInfo, &dyn SubObjectAccess)> {
+                match sub {
+                    0 => Some((
+                        SubInfo::MAX_SUB_NUMBER,
+                        const { &ConstField::new(2u8.to_le_bytes()) },
+                    )),
+                    1 => Some((
+                        SubInfo {
+                            size: 4,
+                            data_type: DataType::UInt32,
+                            persist: true,
+                            ..Default::default()
+                        },
+                        &self.value1,
+                    )),
+                    2 => Some((
+                        SubInfo {
+                            size: 4,
+                            data_type: DataType::UInt32,
+                            persist: false,
+                            ..Default::default()
+                        },
+                        &self.value2,
+                    )),
+                    _ => None,
+                }
+            }
+
+            fn object_code(&self) -> ObjectCode {
+                ObjectCode::Record
+            }
         }
 
         #[derive(Debug, Default)]
-        #[record_object]
         struct Object200 {
-            #[record(persist)]
-            string: [u8; 15],
+            string: NullTermByteField<15>,
+        }
+
+        impl ProvidesSubObjects for Object200 {
+            fn get_sub_object(&self, sub: u8) -> Option<(SubInfo, &dyn SubObjectAccess)> {
+                match sub {
+                    0 => Some((
+                        SubInfo::new_visibile_str(self.string.len()).persist(true),
+                        &self.string,
+                    )),
+                    _ => None,
+                }
+            }
+
+            fn object_code(&self) -> ObjectCode {
+                ObjectCode::Var
+            }
         }
 
         let inst100 = Box::leak(Box::new(Object100::default()));
@@ -331,8 +372,8 @@ mod tests {
                 data: zencan_common::objects::ObjectData::Storage(inst200),
             },
         ]));
-        inst100.set_value1(42);
-        inst200.set_string("test".as_bytes());
+        inst100.value1.store(42);
+        inst200.string.set_str("test".as_bytes()).unwrap();
 
         let data = RefCell::new(Vec::new());
         serialize(od, |reader, _size| {
@@ -364,7 +405,7 @@ mod tests {
             deser.next().unwrap(),
             PersistNodeRef::ObjectValue(ObjectValue {
                 index: 0x200,
-                sub: 1,
+                sub: 0,
                 data: "test".as_bytes()
             })
         );

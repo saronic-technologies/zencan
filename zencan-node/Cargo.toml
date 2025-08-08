@@ -19,15 +19,15 @@ zencan-macro.workspace = true
 # External
 crc16.workspace = true
 critical-section.workspace = true
-defmt = {workspace = true, optional = true}
+defmt = { workspace = true, optional = true }
 defmt-or-log.workspace = true
 embedded-io.workspace = true
 futures.workspace = true
 heapless.workspace = true
-log = { version = "0.4", optional = true}
+log = { version = "0.4", optional = true }
 
 [features]
-default = ["log", "pdo"]
+default = ["log", "pdo", "std"]
 std = ["critical-section/std", "zencan-common/std"]
 log = ["defmt-or-log/log", "zencan-common/log", "dep:log"]
 defmt = ["defmt-or-log/defmt", "zencan-common/defmt", "dep:defmt"]

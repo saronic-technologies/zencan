@@ -1,9 +1,8 @@
 mod utils;
+
 use utils::setup_single_node;
-use zencan_common::constants::{
-    self,
-    values::{BOOTLOADER_ERASE_CMD, BOOTLOADER_RESET_CMD},
-};
+use zencan_common::constants::values::{BOOTLOADER_ERASE_CMD, BOOTLOADER_RESET_CMD};
+use zencan_node::BootloaderSectionCallbacks;
 
 use crate::utils::{test_with_background_process, BusLogger};
 
@@ -52,6 +51,33 @@ async fn test_program() {
         &object_dict3::NODE_MBOX,
         &object_dict3::NODE_STATE,
     );
+
+    struct Callbacks {}
+    impl BootloaderSectionCallbacks for Callbacks {
+        fn erase(&self) -> bool {
+            true
+        }
+
+        /// Write a chunk of data
+        ///
+        /// Write will be called 1 or more times after an erase with a sequence of new data to write to
+        /// the section
+        fn write(&self, _data: &[u8]) {}
+
+        /// Finalize writing a section
+        ///
+        /// Will be called once after all data has been written to allow the storage driver to finalize
+        /// writing the data and return any errors.
+        ///
+        /// Returns true on successful write
+        fn finalize(&self) -> bool {
+            true
+        }
+    }
+
+    let callbacks = Box::leak(Box::new(Callbacks {}));
+
+    object_dict3::BOOTLOADER_SECTION0.register_callbacks(callbacks);
 
     let _logger = BusLogger::new(bus.new_receiver());
 

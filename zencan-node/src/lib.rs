@@ -147,21 +147,20 @@ mod lss_slave;
 mod node;
 mod node_mbox;
 mod node_state;
-pub(crate) mod pdo;
+pub mod pdo;
 mod persist;
 mod sdo_server;
-mod storage;
+pub mod storage;
 
 // Re-export proc macros
 pub use zencan_macro::build_object_dict;
-pub use zencan_macro::record_object;
 
 // Re-export types used by generated code
 pub use critical_section;
 pub use heapless;
 pub use zencan_common as common;
 
-pub use bootloader::{BootloaderInfo, BootloaderSection};
+pub use bootloader::{BootloaderInfo, BootloaderSection, BootloaderSectionCallbacks};
 pub use node::Node;
 pub use node_mbox::NodeMbox;
 pub use node_state::{NodeState, NodeStateAccess};
