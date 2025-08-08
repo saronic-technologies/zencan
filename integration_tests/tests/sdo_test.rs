@@ -4,7 +4,7 @@ use zencan_common::NodeId;
 use zencan_node::Node;
 
 mod utils;
-use utils::test_with_background_process;
+use utils::{test_with_background_process, BusLogger};
 
 #[tokio::test]
 #[serial_test::serial]
@@ -45,6 +45,7 @@ async fn test_block_download() {
     let mut node = Node::init(NodeId::new(SLAVE_NODE_ID).unwrap(), mbox, state, od).finalize();
     let mut bus = SimBus::new(vec![mbox]);
     let mut sender = bus.new_sender();
+    let _bus_logger = BusLogger::new(bus.new_receiver());
 
     test_with_background_process(&mut [&mut node], &mut sender, async move {
         let sender = bus.new_sender();
