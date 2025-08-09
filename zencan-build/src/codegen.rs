@@ -41,6 +41,7 @@ fn get_storage_type(data_type: DCDataType) -> (syn::Type, usize) {
             n,
         ),
         DCDataType::OctetString(n) => (syn::parse_str(&format!("ByteField::<{}>", n)).unwrap(), n),
+        DCDataType::Domain => (syn::parse_quote!(CallbackSubObject), 0),
         _ => panic!("Unsupported data type {:?}", data_type),
     }
 }
@@ -58,6 +59,7 @@ fn get_rust_type_and_size(data_type: DCDataType) -> (syn::Type, usize) {
         DCDataType::VisibleString(n)
         | DCDataType::OctetString(n)
         | DCDataType::UnicodeString(n) => (syn::parse_str(&format!("[u8; {}]", n)).unwrap(), n),
+        DCDataType::Domain => (syn::parse_quote!(None), 0),
         _ => panic!("Unsupported data type {:?}", data_type),
     }
 }
@@ -125,7 +127,6 @@ fn object_supports_tpdo(obj: &ObjectDefinition) -> bool {
         Object::Var(def) => def.pdo_mapping.supports_tpdo(),
         Object::Array(def) => def.pdo_mapping.supports_tpdo(),
         Object::Record(def) => def.subs.iter().any(|s| s.pdo_mapping.supports_tpdo()),
-        Object::Domain(_) => false,
     }
 }
 
@@ -181,9 +182,6 @@ fn generate_object_definition(obj: &ObjectDefinition) -> Result<TokenStream, Com
             tpdo_mapping |= def.pdo_mapping.supports_tpdo();
             highest_sub_index = 0;
         }
-        Object::Domain(_) => {
-            panic!("Domain objects are only supported with application callback enabled")
-        }
     }
 
     if tpdo_mapping {
@@ -226,6 +224,9 @@ fn get_default_tokens(
     value: &DefaultValue,
     data_type: DCDataType,
 ) -> Result<TokenStream, CompileError> {
+    if matches!(data_type, DCDataType::Domain) {
+        return Ok(quote!(CallbackSubObject::new()));
+    }
     match value {
         DefaultValue::String(s) => {
             if !data_type.is_str() {
@@ -315,17 +316,20 @@ fn get_object_impls(
                 flag_number = 1;
             }
 
-            accessor_methods.extend(quote! {
-                #[allow(dead_code)]
-                pub fn #setter_name(&self, value: #field_type) {
-                    self.#field_name.store(value);
-                }
+            // Accessors are generated for all data types, except Domain
+            if !matches!(def.data_type, DCDataType::Domain) {
+                accessor_methods.extend(quote! {
+                    #[allow(dead_code)]
+                    pub fn #setter_name(&self, value: #field_type) {
+                        self.#field_name.store(value);
+                    }
 
-                #[allow(dead_code)]
-                pub fn #getter_name(&self) -> #field_type {
-                    self.#field_name.load()
-                }
-            });
+                    #[allow(dead_code)]
+                    pub fn #getter_name(&self) -> #field_type {
+                        self.#field_name.load()
+                    }
+                });
+            }
 
             get_sub_tokens.extend(quote! {
                 match sub {
@@ -364,23 +368,25 @@ fn get_object_impls(
                 .map(|v| get_default_tokens(v, def.data_type))
                 .collect::<Result<Vec<_>, CompileError>>()?;
 
-            accessor_methods.extend(quote! {
-                #[allow(dead_code)]
-                pub fn set(&self, idx: usize, value: #field_type) -> Result<(), AbortCode> {
-                    if idx >= #array_size {
-                        return Err(AbortCode::NoSuchSubIndex)
+            if !matches!(def.data_type, DCDataType::Domain) {
+                accessor_methods.extend(quote! {
+                    #[allow(dead_code)]
+                    pub fn set(&self, idx: usize, value: #field_type) -> Result<(), AbortCode> {
+                        if idx >= #array_size {
+                            return Err(AbortCode::NoSuchSubIndex)
+                        }
+                        self.array[idx].store(value);
+                        Ok(())
                     }
-                    self.array[idx].store(value);
-                    Ok(())
-                }
-                #[allow(dead_code)]
-                pub fn get(&self, idx: usize) -> Result<#field_type, AbortCode> {
-                    if idx >= #array_size {
-                        return Err(AbortCode::NoSuchSubIndex)
+                    #[allow(dead_code)]
+                    pub fn get(&self, idx: usize) -> Result<#field_type, AbortCode> {
+                        if idx >= #array_size {
+                            return Err(AbortCode::NoSuchSubIndex)
+                        }
+                        Ok(self.array[idx].load())
                     }
-                    Ok(self.array[idx].load())
-                }
-            });
+                });
+            }
 
             default_init_tokens.extend(quote! {
                 array: [#(#default_tokens),*],
@@ -457,17 +463,19 @@ fn get_object_impls(
                 let default_tokens = get_default_tokens(&default_value, sub.data_type)?;
 
                 let access_type = access_type_to_tokens(sub.access_type.0);
-                accessor_methods.extend(quote! {
-                    #[allow(dead_code)]
-                    pub fn #setter_name(&self, value: #field_type) {
-                        self.#field_name.store(value)
-                    }
-                    #[allow(dead_code)]
-                    pub fn #getter_name(&self) -> #field_type {
-                        self.#field_name.load()
-                    }
-                });
 
+                if !matches!(sub.data_type, DCDataType::Domain) {
+                    accessor_methods.extend(quote! {
+                        #[allow(dead_code)]
+                        pub fn #setter_name(&self, value: #field_type) {
+                            self.#field_name.store(value)
+                        }
+                        #[allow(dead_code)]
+                        pub fn #getter_name(&self) -> #field_type {
+                            self.#field_name.load()
+                        }
+                    });
+                }
                 match_statements.extend(quote! {
                     #sub_index => Some(
                         (
@@ -496,7 +504,6 @@ fn get_object_impls(
 
             object_code = quote!(zencan_node::common::objects::ObjectCode::Record);
         }
-        Object::Domain(_) => todo!(),
     }
 
     let mut flag_method_tokens = TokenStream::new();
@@ -727,7 +734,22 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
         #[allow(unused_imports)]
         use zencan_node::critical_section::Mutex;
         #[allow(unused_imports)]
-        use zencan_node::common::objects::{CallbackObject, ObjectFlags, ODEntry, ObjectData, ObjectRawAccess, SubInfo, ProvidesSubObjects, SubObjectAccess, ObjectFlagAccess, ScalarField, ByteField, ConstField, NullTermByteField};
+        use zencan_node::common::objects::{
+            CallbackObject,
+            CallbackSubObject,
+            ObjectFlags,
+            ODEntry,
+            ObjectData,
+            ObjectRawAccess,
+            SubInfo,
+            ProvidesSubObjects,
+            SubObjectAccess,
+            ObjectFlagAccess,
+            ScalarField,
+            ByteField,
+            ConstField,
+            NullTermByteField
+        };
         #[allow(unused_imports)]
         use zencan_node::common::sdo::AbortCode;
         #[allow(unused_imports)]

@@ -714,8 +714,6 @@ pub enum Object {
     Array(ArrayDefinition),
     /// A record is a collection of sub objects all with different types
     Record(RecordDefinition),
-    /// A domain is a chunk of bytes which can be accessed via the object
-    Domain(DomainDefinition),
 }
 
 /// Descriptor for a var object
@@ -795,7 +793,6 @@ impl ObjectDefinition {
             Object::Var(_) => ObjectCode::Var,
             Object::Array(_) => ObjectCode::Array,
             Object::Record(_) => ObjectCode::Record,
-            Object::Domain(_) => ObjectCode::Domain,
         }
     }
 }

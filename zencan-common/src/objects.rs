@@ -168,15 +168,25 @@ impl<const N: usize> ObjectFlagAccess for ObjectFlags<N> {
 /// Defines the type of an object or sub object
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
-#[allow(missing_docs)]
 pub enum ObjectCode {
+    /// An empty object
+    ///
+    /// Zencan does not support Null objects
     Null = 0,
+    /// A large chunk of data
+    ///
+    /// Zencan does not support Domain Object; it only supports domain sub-objects.
     Domain = 2,
+    /// Unused
     DefType = 5,
+    /// Unused
     DefStruct = 6,
+    /// An object which has a single sub object
     #[default]
     Var = 7,
+    /// An array of sub-objects all with the same data type
     Array = 8,
+    /// A collection of sub-objects with varying types
     Record = 9,
 }
 
@@ -754,34 +764,8 @@ pub fn find_object_entry<'a, 'b>(table: &'b [ODEntry<'a>], index: u16) -> Option
         .map(|i| &table[i])
 }
 
-/// A sub object which contains a single scalar value of type T, which is a standard rust type
-#[derive(Debug)]
-pub struct ScalarField<T: Copy> {
-    value: AtomicCell<T>,
-}
-
-impl<T: Send + Copy + PartialEq> ScalarField<T> {
-    /// Atomically read the value of the field
-    pub fn load(&self) -> T {
-        self.value.load()
-    }
-
-    /// Atomically store a new value into the field
-    pub fn store(&self, value: T) {
-        self.value.store(value);
-    }
-}
-
-impl<T: Copy + Default> Default for ScalarField<T> {
-    fn default() -> Self {
-        Self {
-            value: AtomicCell::default(),
-        }
-    }
-}
-
 /// Allow transparent byte level access to a sub object
-pub trait SubObjectAccess {
+pub trait SubObjectAccess: Sync + Send + core::fmt::Debug {
     /// Read data from the sub object
     ///
     /// Read `buf.len()` bytes, starting at offset
@@ -845,6 +829,32 @@ pub trait SubObjectAccess {
     /// Finish a multi-part write
     fn end_partial(&self) -> Result<(), AbortCode> {
         Err(AbortCode::UnsupportedAccess)
+    }
+}
+
+/// A sub object which contains a single scalar value of type T, which is a standard rust type
+#[derive(Debug)]
+pub struct ScalarField<T: Copy> {
+    value: AtomicCell<T>,
+}
+
+impl<T: Send + Copy + PartialEq> ScalarField<T> {
+    /// Atomically read the value of the field
+    pub fn load(&self) -> T {
+        self.value.load()
+    }
+
+    /// Atomically store a new value into the field
+    pub fn store(&self, value: T) {
+        self.value.store(value);
+    }
+}
+
+impl<T: Copy + Default> Default for ScalarField<T> {
+    fn default() -> Self {
+        Self {
+            value: AtomicCell::default(),
+        }
     }
 }
 
@@ -1102,6 +1112,98 @@ impl<const N: usize> SubObjectAccess for ByteField<N> {
     }
 }
 
+#[derive(Debug)]
+/// A struct for a constant sub object whose value never changes
+///
+/// For simplicity, the value is stored directly as bytes, so use `to_le_bytes` when creating the
+/// const object.
+pub struct ConstField<const N: usize> {
+    bytes: [u8; N],
+}
+
+impl<const N: usize> ConstField<N> {
+    /// Create a const field
+    pub const fn new(bytes: [u8; N]) -> Self {
+        Self { bytes }
+    }
+}
+
+impl<const N: usize> SubObjectAccess for ConstField<N> {
+    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+        if offset + buf.len() > self.bytes.len() {
+            return Err(AbortCode::DataTypeMismatchLengthHigh);
+        }
+        buf.copy_from_slice(&self.bytes[offset..offset + buf.len()]);
+        Ok(())
+    }
+
+    fn write(&self, _data: &[u8]) -> Result<(), AbortCode> {
+        Err(AbortCode::ReadOnly)
+    }
+}
+
+/// A subobject which is a place holder for a handler to be registered at runtime
+#[derive(Debug)]
+pub struct CallbackSubObject {
+    handler: AtomicCell<Option<&'static dyn SubObjectAccess>>,
+}
+
+impl CallbackSubObject {
+    /// Create a new object
+    pub const fn new() -> Self {
+        Self {
+            handler: AtomicCell::new(None),
+        }
+    }
+
+    /// Register a handler for this sub object
+    pub fn register_handler(&self, handler: &'static dyn SubObjectAccess) {
+        self.handler.store(Some(handler));
+    }
+}
+
+impl SubObjectAccess for CallbackSubObject {
+    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+        if let Some(handler) = self.handler.load() {
+            handler.read(offset, buf)
+        } else {
+            Err(AbortCode::ResourceNotAvailable)
+        }
+    }
+
+    fn write(&self, data: &[u8]) -> Result<(), AbortCode> {
+        if let Some(handler) = self.handler.load() {
+            handler.write(data)
+        } else {
+            Err(AbortCode::ResourceNotAvailable)
+        }
+    }
+
+    fn begin_partial(&self) -> Result<(), AbortCode> {
+        if let Some(handler) = self.handler.load() {
+            handler.begin_partial()
+        } else {
+            Err(AbortCode::ResourceNotAvailable)
+        }
+    }
+
+    fn write_partial(&self, buf: &[u8]) -> Result<(), AbortCode> {
+        if let Some(handler) = self.handler.load() {
+            handler.write_partial(buf)
+        } else {
+            Err(AbortCode::ResourceNotAvailable)
+        }
+    }
+
+    fn end_partial(&self) -> Result<(), AbortCode> {
+        if let Some(handler) = self.handler.load() {
+            handler.end_partial()
+        } else {
+            Err(AbortCode::ResourceNotAvailable)
+        }
+    }
+}
+
 /// A trait for structs which represent Objects to implement
 ///
 /// Implementing this type allows a type sub object which implements [`SubObjectAccess`] to
@@ -1212,36 +1314,6 @@ impl<T: ProvidesSubObjects + Sync + Send> ObjectRawAccess for T {
         } else {
             Err(AbortCode::NoSuchSubIndex)
         }
-    }
-}
-
-#[derive(Debug)]
-/// A struct for a constant sub object whose value never changes
-///
-/// For simplicity, the value is stored directly as bytes, so use `to_le_bytes` when creating the
-/// const object.
-pub struct ConstField<const N: usize> {
-    bytes: [u8; N],
-}
-
-impl<const N: usize> ConstField<N> {
-    /// Create a const field
-    pub const fn new(bytes: [u8; N]) -> Self {
-        Self { bytes }
-    }
-}
-
-impl<const N: usize> SubObjectAccess for ConstField<N> {
-    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
-        if offset + buf.len() > self.bytes.len() {
-            return Err(AbortCode::DataTypeMismatchLengthHigh);
-        }
-        buf.copy_from_slice(&self.bytes[offset..offset + buf.len()]);
-        Ok(())
-    }
-
-    fn write(&self, _data: &[u8]) -> Result<(), AbortCode> {
-        Err(AbortCode::ReadOnly)
     }
 }
 

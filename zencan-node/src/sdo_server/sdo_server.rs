@@ -14,6 +14,11 @@ const BLKSIZE: u8 = 127;
 const SDO_TIMEOUT_US: u32 = 25000;
 
 fn validate_download_size(dl_size: usize, subobj: &SubInfo) -> Result<(), AbortCode> {
+    if subobj.size == 0 {
+        // Some objects (e.g. domains) do not provide a size, and we simply must write to them and
+        // see if it fails. These objects report a size of 0.
+        return Ok(());
+    }
     if subobj.data_type.is_str() {
         // Strings can write shorter lengths
         if dl_size > subobj.size {
@@ -318,7 +323,7 @@ impl SdoState {
                 let segment_size = 7 - n as usize;
                 let mut write_len = offset + segment_size;
                 // Make sure this segment won't overrun the allocated storage
-                if write_len > subinfo.size {
+                if subinfo.size != 0 && write_len > subinfo.size {
                     return SdoResult::abort(
                         state.object.index,
                         state.sub,
