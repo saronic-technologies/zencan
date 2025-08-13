@@ -8,7 +8,8 @@ use std::{
 
 use integration_tests::sim_bus::SimBus;
 use zencan_client::{RawAbortCode, SdoClient, SdoClientError};
-use zencan_common::{objects::SubObjectAccess, sdo::AbortCode, NodeId};
+use zencan_common::{sdo::AbortCode, NodeId};
+use zencan_node::object_dict::SubObjectAccess;
 use zencan_node::Node;
 
 mod utils;
@@ -22,6 +23,7 @@ async fn test_sdo_read() {
     let od = &integration_tests::object_dict1::OD_TABLE;
     let state = &integration_tests::object_dict1::NODE_STATE;
     let mbox = &integration_tests::object_dict1::NODE_MBOX;
+
     let mut node = Node::init(NodeId::new(SLAVE_NODE_ID).unwrap(), mbox, state, od).finalize();
     let mut bus = SimBus::new(vec![mbox]);
     let mut sender = bus.new_sender();
@@ -104,14 +106,22 @@ impl MockDomainData {
 }
 
 impl SubObjectAccess for MockDomainData {
-    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<usize, AbortCode> {
         let lock = self.buffer.lock().unwrap();
         let buffer = lock.borrow();
-        if offset + buf.len() > buffer.len() {
-            return Err(AbortCode::DataTypeMismatchLengthHigh);
+        if offset < buffer.len() {
+            let read_len = buf.len().min(buffer.len() - offset);
+            buf[..read_len].copy_from_slice(&buffer[offset..offset + read_len]);
+            Ok(read_len)
+        } else {
+            Ok(0)
         }
-        buf.copy_from_slice(&buffer[offset..offset + buf.len()]);
-        Ok(())
+    }
+
+    fn read_size(&self) -> usize {
+        let lock = self.buffer.lock().unwrap();
+        let buffer = lock.borrow_mut();
+        buffer.len()
     }
 
     fn write(&self, data: &[u8]) -> Result<(), AbortCode> {

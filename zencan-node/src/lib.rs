@@ -147,6 +147,7 @@ mod lss_slave;
 mod node;
 mod node_mbox;
 mod node_state;
+pub mod object_dict;
 pub mod pdo;
 mod persist;
 mod sdo_server;
@@ -161,14 +162,14 @@ pub use heapless;
 pub use zencan_common as common;
 
 pub use bootloader::{BootloaderInfo, BootloaderSection, BootloaderSectionCallbacks};
+#[cfg(feature = "socketcan")]
+#[cfg_attr(docsrs, doc(cfg(feature = "socketcan")))]
+pub use common::open_socketcan;
 pub use node::Node;
 pub use node_mbox::NodeMbox;
 pub use node_state::{NodeState, NodeStateAccess};
 pub use persist::restore_stored_objects;
-
-#[cfg(feature = "socketcan")]
-#[cfg_attr(docsrs, doc(cfg(feature = "socketcan")))]
-pub use common::open_socketcan;
+pub use sdo_server::SDO_BUFFER_SIZE;
 
 /// Include the code generated for the object dict in the build script.
 #[macro_export]

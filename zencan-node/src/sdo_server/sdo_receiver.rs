@@ -1,4 +1,7 @@
-use core::cell::UnsafeCell;
+use core::{
+    cell::UnsafeCell,
+    ops::{Deref, DerefMut},
+};
 
 use zencan_common::{
     sdo::{BlockSegment, SdoRequest},
@@ -16,8 +19,30 @@ pub enum ReceiverState {
     },
 }
 
-/// To support maximum block transfer size, SDO buffer is 7*127
-const SDO_BUF_SIZE: usize = 889;
+pub struct BufferGuard<'a> {
+    buf: Option<&'static mut [u8]>,
+    home: &'a AtomicCell<Option<&'static mut [u8]>>,
+}
+
+impl Drop for BufferGuard<'_> {
+    fn drop(&mut self) {
+        self.home.store(Some(self.buf.take().unwrap()));
+    }
+}
+
+impl Deref for BufferGuard<'_> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.buf.as_ref().unwrap()
+    }
+}
+
+impl DerefMut for BufferGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.buf.as_mut().unwrap()
+    }
+}
 
 /// Data structure for communicating SDO data between receiving and processing threads
 ///
@@ -30,7 +55,7 @@ const SDO_BUF_SIZE: usize = 889;
 pub(crate) struct SdoReceiver {
     request: AtomicCell<Option<SdoRequest>>,
     state: AtomicCell<ReceiverState>,
-    buffer: UnsafeCell<[u8; SDO_BUF_SIZE]>,
+    buffer: AtomicCell<Option<&'static mut [u8]>>,
     timer: UnsafeCell<u32>,
     last_seqnum: UnsafeCell<u8>,
     blksize: UnsafeCell<u8>,
@@ -39,11 +64,11 @@ pub(crate) struct SdoReceiver {
 unsafe impl Sync for SdoReceiver {}
 
 impl SdoReceiver {
-    pub const fn new() -> Self {
+    pub const fn new(sdo_buffer: &'static mut [u8]) -> Self {
         Self {
             request: AtomicCell::new(None),
             state: AtomicCell::new(ReceiverState::Normal),
-            buffer: UnsafeCell::new([0; SDO_BUF_SIZE]),
+            buffer: AtomicCell::new(Some(sdo_buffer)),
             timer: UnsafeCell::new(0),
             last_seqnum: UnsafeCell::new(0),
             blksize: UnsafeCell::new(0),
@@ -56,7 +81,8 @@ impl SdoReceiver {
         if msg_data.len() != 8 {
             return false;
         }
-        match self.state() {
+
+        match self.state.load() {
             ReceiverState::Normal => match msg_data.try_into() {
                 Ok(req) => {
                     self.request.store(Some(req));
@@ -87,13 +113,14 @@ impl SdoReceiver {
                     return false;
                 }
 
+                let mut buffer = self.borrow_buffer();
+
                 let mut process_required = false;
                 critical_section::with(|_| unsafe {
                     *self.timer.get() = 0;
                     // seqnum comes from a 7-bit field so max possible value is 127
                     let pos = (segment.seqnum - 1) as usize * 7;
-                    let buffer = self.buffer.get().as_mut().unwrap();
-                    if pos + 7 <= (*self.buffer.get()).len() {
+                    if pos + 7 <= buffer.len() {
                         buffer[pos..pos + 7].copy_from_slice(&segment.data);
                     }
 
@@ -125,29 +152,23 @@ impl SdoReceiver {
         self.state.load()
     }
 
+    /// Borrow the SDO buffer from the receiver
+    ///
+    /// It will be returned on drop.
+    ///
+    /// This function will panic if the buffer has already been borrowed, or if the buffer was never
+    /// set via `store_buffer`.
+    pub(crate) fn borrow_buffer<'a>(&'a self) -> BufferGuard<'a> {
+        let buf = self.buffer.take();
+
+        BufferGuard {
+            buf,
+            home: &self.buffer,
+        }
+    }
+
     pub(crate) fn take_request(&self) -> Option<SdoRequest> {
         self.request.take()
-    }
-
-    /// Get a reference to the receive data buffer
-    ///
-    /// The buffer is shared between receive context and process context. See
-    /// [`SdoReceiver::buffer_mut`] for more.
-    pub(crate) unsafe fn buffer(&self) -> &[u8] {
-        self.buffer.get().as_ref().unwrap()
-    }
-
-    /// Get a mutable reference to the receive buffer
-    ///
-    /// The buffer is shared between the receive context (often an IRQ) and the process context, and
-    /// depending on the type of SDO transaction, may be written by both. Callers should not create
-    /// any other refs while the returned ref lives (neither using `buffer` or `buffer_mut`). The
-    /// receive context only access the buffer when it is configured to a particular state by the
-    /// process context (see [`ReceiverState`]) and the process context does not access the buffer
-    /// when in that state.
-    #[allow(clippy::mut_from_ref)]
-    pub(crate) unsafe fn buffer_mut(&self) -> &mut [u8] {
-        self.buffer.get().as_mut().unwrap()
     }
 
     pub(crate) fn begin_block_download(&self, blksize: u8) {

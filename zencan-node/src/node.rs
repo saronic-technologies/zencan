@@ -7,13 +7,13 @@ use zencan_common::{
     messages::{
         CanId, CanMessage, Heartbeat, NmtCommandSpecifier, NmtState, ZencanMessage, LSS_RESP_ID,
     },
-    objects::{find_object, ODEntry, ObjectRawAccess},
     NodeId,
 };
 
 use crate::{
     lss_slave::{LssConfig, LssSlave},
     node_mbox::NodeMbox,
+    object_dict::{find_object, ODEntry},
     storage::StoreObjectsCallback,
 };
 use crate::{node_state::NodeStateAccess, sdo_server::SdoServer};
@@ -63,7 +63,7 @@ fn read_autostart(od: &[ODEntry]) -> Option<bool> {
 ///    that these objects are accessible via the OD.
 /// 2) Initialize application default values -- this is the time to write things like software
 ///    versions, serial number, or to restore object values that were previously stored to flash.
-/// 3) Create the Node object from teh InitializedOd.
+/// 3) Create the Node object from the InitializedOd.
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
 pub struct InitNode {
@@ -184,9 +184,6 @@ impl Node {
     /// - `state`: The NodeState object created by code generator
     /// - `od`: The Object Dictionary, created by code generator
     fn new(source: InitNode) -> Self {
-        let message_count = 0;
-        let sdo_server = SdoServer::new();
-
         let InitNode {
             node_id,
             mbox,
@@ -194,6 +191,8 @@ impl Node {
             od,
         } = source;
 
+        let message_count = 0;
+        let sdo_server = SdoServer::new();
         let lss_slave = LssSlave::new(LssConfig {
             identity: read_identity(od).unwrap(),
             node_id,

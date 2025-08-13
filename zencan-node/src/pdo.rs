@@ -1,10 +1,11 @@
 //! Implementation of PDO configuration objects and PDO transmission
 //!
+
+use crate::object_dict::{
+    find_object_entry, ConstField, ODEntry, ObjectRawAccess, ProvidesSubObjects, SubObjectAccess,
+};
 use zencan_common::{
-    objects::{
-        find_object_entry, AccessType, DataType, ODEntry, ObjectCode, ObjectRawAccess, PdoMapping,
-        SubInfo,
-    },
+    objects::{AccessType, DataType, ObjectCode, PdoMapping, SubInfo},
     sdo::AbortCode,
     AtomicCell, CanId,
 };
@@ -216,129 +217,138 @@ impl Pdo {
     }
 }
 
-/// Implements a PDO communications config object for both RPDOs and TPDOs
-#[allow(missing_debug_implementations)]
-pub struct PdoCommObject {
+struct PdoCobSubObject {
     pdo: &'static Pdo,
 }
 
-impl PdoCommObject {
-    /// Create a new PdoCommObject
+impl PdoCobSubObject {
     pub const fn new(pdo: &'static Pdo) -> Self {
         Self { pdo }
     }
 }
 
-impl ObjectRawAccess for PdoCommObject {
-    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
-        let pdo = &self.pdo;
-        match sub {
-            0 => {
-                if offset != 0 {
-                    return Err(AbortCode::UnsupportedAccess);
-                }
-                if buf.len() != 1 {
-                    return Err(AbortCode::DataTypeMismatch);
-                }
-                buf[0] = 2;
-                Ok(())
-            }
-            1 => {
-                if offset + buf.len() > 4 {
-                    return Err(AbortCode::DataTypeMismatch);
-                }
+impl SubObjectAccess for PdoCobSubObject {
+    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<usize, AbortCode> {
+        let cob_id = self.pdo.cob_id.load();
+        let mut value = cob_id.raw();
+        if cob_id.is_extended() {
+            value |= 1 << 29;
+        }
+        if self.pdo.rtr_disabled.load() {
+            value |= 1 << 30;
+        }
+        if !self.pdo.valid.load() {
+            value |= 1 << 31;
+        }
 
-                let cob_id = pdo.cob_id.load();
-                let mut value = cob_id.raw();
-                if cob_id.is_extended() {
-                    value |= 1 << 29;
-                }
-                if pdo.rtr_disabled.load() {
-                    value |= 1 << 30;
-                }
-                if !pdo.valid.load() {
-                    value |= 1 << 31;
-                }
-
-                let bytes = value.to_le_bytes();
-                buf.copy_from_slice(&bytes[offset..offset + buf.len()]);
-                Ok(())
-            }
-            2 => {
-                if buf.len() != 1 {
-                    return Err(AbortCode::DataTypeMismatch);
-                }
-                let value = pdo.transmission_type.load();
-                buf[0] = value;
-                Ok(())
-            }
-            _ => Err(AbortCode::NoSuchSubIndex),
+        let bytes = value.to_le_bytes();
+        if offset < bytes.len() {
+            let read_len = buf.len().min(bytes.len() - offset);
+            buf[0..read_len].copy_from_slice(&bytes[offset..offset + read_len]);
+            Ok(read_len)
+        } else {
+            Ok(0)
         }
     }
 
-    fn write(&self, sub: u8, data: &[u8]) -> Result<(), AbortCode> {
-        match sub {
-            0 => Err(AbortCode::ReadOnly),
-            1 => {
-                if data.len() != 4 {
-                    return Err(AbortCode::DataTypeMismatch);
-                }
-                let value = u32::from_le_bytes(data.try_into().unwrap());
-                let not_valid = (value & (1 << 31)) != 0;
-                let no_rtr = (value & (1 << 30)) != 0;
-                let extended_id = (value & (1 << 29)) != 0;
+    fn read_size(&self) -> usize {
+        4
+    }
 
-                let can_id = if extended_id {
-                    CanId::Extended(value & 0x1FFFFFFF)
-                } else {
-                    CanId::Std((value & 0x7FF) as u16)
-                };
-                self.pdo.cob_id.store(can_id);
-                self.pdo.valid.store(!not_valid);
-                self.pdo.rtr_disabled.store(no_rtr);
-                Ok(())
-            }
-            2 => {
-                if data.len() != 1 {
-                    return Err(AbortCode::DataTypeMismatch);
-                }
-                let value = data[0];
-                self.pdo.transmission_type.store(value);
-                Ok(())
-            }
-            _ => Err(AbortCode::NoSuchSubIndex),
+    fn write(&self, data: &[u8]) -> Result<(), AbortCode> {
+        if data.len() < 4 {
+            Err(AbortCode::DataTypeMismatchLengthLow)
+        } else if data.len() > 4 {
+            Err(AbortCode::DataTypeMismatchLengthHigh)
+        } else {
+            let value = u32::from_le_bytes(data.try_into().unwrap());
+            let not_valid = (value & (1 << 31)) != 0;
+            let no_rtr = (value & (1 << 30)) != 0;
+            let extended_id = (value & (1 << 29)) != 0;
+
+            let can_id = if extended_id {
+                CanId::Extended(value & 0x1FFFFFFF)
+            } else {
+                CanId::Std((value & 0x7FF) as u16)
+            };
+            self.pdo.cob_id.store(can_id);
+            self.pdo.valid.store(!not_valid);
+            self.pdo.rtr_disabled.store(no_rtr);
+            Ok(())
+        }
+    }
+}
+
+struct PdoTransmissionTypeSubObject {
+    pdo: &'static Pdo,
+}
+
+impl PdoTransmissionTypeSubObject {
+    pub const fn new(pdo: &'static Pdo) -> Self {
+        Self { pdo }
+    }
+}
+
+impl SubObjectAccess for PdoTransmissionTypeSubObject {
+    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<usize, AbortCode> {
+        if offset > 1 {
+            return Ok(0);
+        }
+        buf[0] = self.pdo.transmission_type();
+        Ok(1)
+    }
+
+    fn read_size(&self) -> usize {
+        1
+    }
+
+    fn write(&self, data: &[u8]) -> Result<(), AbortCode> {
+        if data.len() < 1 {
+            Err(AbortCode::DataTypeMismatchLengthLow)
+        } else {
+            self.pdo.set_transmission_type(data[0]);
+            Ok(())
+        }
+    }
+}
+
+/// Implements a PDO communications config object for both RPDOs and TPDOs
+#[allow(missing_debug_implementations)]
+pub struct PdoCommObject {
+    cob: PdoCobSubObject,
+    transmission_type: PdoTransmissionTypeSubObject,
+}
+
+impl PdoCommObject {
+    /// Create a new PdoCommObject
+    pub const fn new(pdo: &'static Pdo) -> Self {
+        let cob = PdoCobSubObject::new(pdo);
+        let transmission_type = PdoTransmissionTypeSubObject::new(pdo);
+        Self {
+            cob,
+            transmission_type,
+        }
+    }
+}
+
+impl ProvidesSubObjects for PdoCommObject {
+    fn get_sub_object(&self, sub: u8) -> Option<(SubInfo, &dyn SubObjectAccess)> {
+        match sub {
+            0 => Some((
+                SubInfo::MAX_SUB_NUMBER,
+                const { &ConstField::new(2u8.to_le_bytes()) },
+            )),
+            1 => Some((SubInfo::new_u32().rw_access().persist(true), &self.cob)),
+            2 => Some((
+                SubInfo::new_u8().rw_access().persist(true),
+                &self.transmission_type,
+            )),
+            _ => None,
         }
     }
 
     fn object_code(&self) -> ObjectCode {
         ObjectCode::Record
-    }
-
-    fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
-        match sub {
-            0 => Ok(SubInfo {
-                data_type: DataType::UInt8,
-                size: 1,
-                access_type: AccessType::Ro,
-                pdo_mapping: PdoMapping::None,
-                persist: false,
-            }),
-            1 => Ok(SubInfo {
-                data_type: DataType::UInt32,
-                size: 4,
-                access_type: AccessType::Rw,
-                pdo_mapping: PdoMapping::None,
-                persist: true,
-            }),
-            2 => Ok(SubInfo {
-                data_type: DataType::UInt8,
-                size: 1,
-                access_type: AccessType::Rw,
-                pdo_mapping: PdoMapping::None,
-                persist: true,
-            }),
-            _ => Err(AbortCode::NoSuchSubIndex),
-        }
     }
 }
 
@@ -357,17 +367,15 @@ impl PdoMappingObject {
 }
 
 impl ObjectRawAccess for PdoMappingObject {
-    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<usize, AbortCode> {
         if sub == 0 {
-            if offset != 0 || buf.len() != 1 {
-                return Err(AbortCode::DataTypeMismatch);
+            if offset < 1 && buf.len() > 0 {
+                buf[0] = self.pdo.valid_maps.load();
+                Ok(1)
+            } else {
+                Ok(0)
             }
-            buf[0] = self.pdo.valid_maps.load();
-            Ok(())
         } else if sub <= self.pdo.mapping_params.len() as u8 {
-            if offset + buf.len() > 4 {
-                return Err(AbortCode::DataTypeMismatchLengthHigh);
-            }
             let value = if let Some(param) = self.pdo.mapping_params[(sub - 1) as usize].load() {
                 ((param.object.index as u32) << 16)
                     + ((param.sub as u32) << 8)
@@ -376,8 +384,19 @@ impl ObjectRawAccess for PdoMappingObject {
                 0u32
             };
             let bytes = value.to_le_bytes();
-            buf.copy_from_slice(&bytes[offset..offset + buf.len()]);
-            Ok(())
+            let read_len = buf.len().min(bytes.len() - offset);
+            buf[..read_len].copy_from_slice(&bytes[offset..offset + read_len]);
+            Ok(read_len)
+        } else {
+            Err(AbortCode::NoSuchSubIndex)
+        }
+    }
+
+    fn read_size(&self, sub: u8) -> Result<usize, AbortCode> {
+        if sub == 0 {
+            Ok(1)
+        } else if sub <= N_MAPPING_PARAMS as u8 {
+            Ok(4)
         } else {
             Err(AbortCode::NoSuchSubIndex)
         }

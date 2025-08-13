@@ -6,10 +6,10 @@ use integration_tests::sim_bus::{SimBus, SimBusReceiver, SimBusSender};
 use zencan_client::SdoClient;
 use zencan_common::{
     messages::ZencanMessage,
-    objects::ODEntry,
     traits::{AsyncCanReceiver, AsyncCanSender},
     NodeId,
 };
+use zencan_node::object_dict::ODEntry;
 use zencan_node::{Node, NodeMbox, NodeStateAccess};
 
 pub fn setup_single_node<'a, S: NodeStateAccess>(

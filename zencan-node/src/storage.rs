@@ -6,10 +6,12 @@ use core::convert::Infallible;
 
 use zencan_common::{
     constants::values::SAVE_CMD,
-    objects::{ODEntry, ObjectCode, ObjectRawAccess, SubInfo},
+    objects::{ObjectCode, SubInfo},
     sdo::AbortCode,
     AtomicCell,
 };
+
+use crate::object_dict::{ODEntry, ObjectRawAccess};
 
 /// A callback function type for handling a store objects event
 pub type StoreObjectsCallback =
@@ -52,20 +54,17 @@ impl StorageCommandObject {
 }
 
 impl ObjectRawAccess for StorageCommandObject {
-    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<usize, AbortCode> {
         match sub {
             0 => {
                 if offset != 0 || buf.len() != 1 {
                     Err(AbortCode::DataTypeMismatch)
                 } else {
                     buf[0] = 1;
-                    Ok(())
+                    Ok(1)
                 }
             }
             1 => {
-                if offset + buf.len() > 4 {
-                    return Err(AbortCode::DataTypeMismatchLengthHigh);
-                }
                 // Bit 0 indicates the node is capable of saving objects. Set it if a callback has
                 // been registered.
                 let mut value = 0u32;
@@ -73,9 +72,22 @@ impl ObjectRawAccess for StorageCommandObject {
                     value |= 1;
                 }
                 let value_bytes = value.to_le_bytes();
-                buf.copy_from_slice(&value_bytes[offset..offset + buf.len()]);
-                Ok(())
+                if offset < value_bytes.len() {
+                    let read_len = buf.len().min(value_bytes.len() - offset);
+                    buf[..read_len].copy_from_slice(&value_bytes[offset..offset + read_len]);
+                    Ok(read_len)
+                } else {
+                    Ok(0)
+                }
             }
+            _ => Err(AbortCode::NoSuchSubIndex),
+        }
+    }
+
+    fn read_size(&self, sub: u8) -> Result<usize, AbortCode> {
+        match sub {
+            0 => Ok(1),
+            1 => Ok(4),
             _ => Err(AbortCode::NoSuchSubIndex),
         }
     }

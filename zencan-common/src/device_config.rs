@@ -467,7 +467,7 @@ fn bootloader_objects(cfg: &BootloaderConfig) -> Vec<ObjectDefinition> {
                         sub_index: 5,
                         parameter_name: "Data".into(),
                         data_type: DataType::Domain,
-                        access_type: AccessType::Wo.into(),
+                        access_type: AccessType::Rw.into(),
                         ..Default::default()
                     },
                 ],

@@ -6,8 +6,8 @@ use core::{
     task::Context,
 };
 
+use crate::object_dict::{find_object, ODEntry};
 use futures::{pending, task::noop_waker_ref};
-use zencan_common::objects::{find_object, ODEntry, ObjectRawAccess};
 
 use defmt_or_log::{debug, warn};
 
@@ -52,7 +52,7 @@ async fn write_bytes(bytes: &[u8], reg: &RefCell<u8>) {
 async fn serialize_object(obj: &ODEntry<'_>, sub: u8, reg: &RefCell<u8>) {
     // Unwrap safety: This can only fail if the sub doesn't exist, and we already
     // checked for that above
-    let data_size = obj.data.current_size(sub).unwrap() as u16;
+    let data_size = obj.data.read_size(sub).unwrap() as u16;
     // Serialized node size is the variable length object data, plus node type (u8), index (u16), and sub index (u8)
     let node_size = data_size + 4;
 
@@ -61,10 +61,24 @@ async fn serialize_object(obj: &ODEntry<'_>, sub: u8, reg: &RefCell<u8>) {
     write_bytes(&obj.index.to_le_bytes(), reg).await;
     write_bytes(&[sub], reg).await;
 
-    let mut buf = [0u8];
-    for i in 0..data_size as usize {
-        obj.data.read(sub, i, &mut buf).unwrap();
-        write_bytes(&buf, reg).await;
+    const CHUNK_SIZE: usize = 32;
+    let mut buf = [0u8; CHUNK_SIZE];
+    let mut read_pos = 0;
+    loop {
+        // Note: returned read_len is not checked, on purpose. We already committed above to writing
+        // a certain number of bytes, and we must write them. This is fine for fields which are
+        // shorter than CHUNK_SIZE. This is a problem for fields which are larger than CHUNK_SIZE,
+        // and can lead to "torn reads", where different chunks come from different values because
+        // the value changed between the two chunks. This is only a problem for large fields which
+        // can be modified on a different thread than `Node::process()` is called. Fixing it
+        // requires an object locking mechanism, which may be worth considering in the future.
+        obj.data.read(sub, read_pos, &mut buf).unwrap();
+        let copy_len = data_size as usize - read_pos;
+        read_pos += copy_len;
+        write_bytes(&buf[0..copy_len], reg).await;
+        if read_pos >= data_size as usize {
+            break;
+        }
     }
 }
 
@@ -104,7 +118,7 @@ pub fn serialized_size(objects: &[ODEntry]) -> usize {
             }
             // Unwrap safety: This can only fail if the sub doesn't exist, and we already
             // checked for that above
-            let data_size = obj.data.current_size(sub).unwrap();
+            let data_size = obj.data.read_size(sub).unwrap();
             // Serialized node size is the variable length object data, plus node type (u8),
             // index (u16), and sub index (u8), plus a length header (u16)
             size += data_size + OVERHEAD_SIZE;
@@ -289,16 +303,16 @@ pub fn restore_stored_objects(od: &[ODEntry], stored_data: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zencan_common::objects::{
-        ConstField, DataType, NullTermByteField, ODEntry, ObjectCode, ProvidesSubObjects,
-        ScalarField, SubInfo, SubObjectAccess,
+    use crate::object_dict::{
+        ConstField, NullTermByteField, ODEntry, ProvidesSubObjects, ScalarField, SubObjectAccess,
     };
+    use zencan_common::objects::{DataType, ObjectCode, SubInfo};
 
     use crate::persist::serialize;
 
     #[test]
     fn test_serialize_deserialize() {
-        #[derive(Debug, Default)]
+        #[derive(Default)]
         struct Object100 {
             value1: ScalarField<u32>,
             value2: ScalarField<u16>,
@@ -338,7 +352,7 @@ mod tests {
             }
         }
 
-        #[derive(Debug, Default)]
+        #[derive(Default)]
         struct Object200 {
             string: NullTermByteField<15>,
         }
@@ -365,11 +379,11 @@ mod tests {
         let od = Box::leak(Box::new([
             ODEntry {
                 index: 0x100,
-                data: zencan_common::objects::ObjectData::Storage(inst100),
+                data: inst100,
             },
             ODEntry {
                 index: 0x200,
-                data: zencan_common::objects::ObjectData::Storage(inst200),
+                data: inst200,
             },
         ]));
         inst100.value1.store(42);

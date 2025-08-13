@@ -1,12 +1,10 @@
 //! Implements node state struct
-use zencan_common::objects::ObjectFlagSync;
+use crate::object_dict::ObjectFlagSync;
 
 use crate::pdo::Pdo;
 use crate::storage::StorageContext;
 
 /// A trait by which NodeState is accessed
-///
-/// TODO: This should probably be sealed
 pub trait NodeStateAccess: Sync + Send {
     /// Get the receive PDO objects
     fn get_rpdos(&self) -> &[Pdo];
@@ -29,12 +27,6 @@ pub struct NodeState<const N_RPDO: usize, const N_TPDO: usize> {
     tpdos: [Pdo; N_TPDO],
     pdo_sync: ObjectFlagSync,
     storage_context: StorageContext,
-}
-
-impl<const N_RPDO: usize, const N_TPDO: usize> Default for NodeState<N_RPDO, N_TPDO> {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl<const N_RPDO: usize, const N_TPDO: usize> NodeState<N_RPDO, N_TPDO> {

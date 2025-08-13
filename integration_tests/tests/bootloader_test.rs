@@ -1,5 +1,10 @@
 mod utils;
 
+use std::{
+    cell::RefCell,
+    sync::{atomic::AtomicBool, Mutex},
+};
+
 use utils::setup_single_node;
 use zencan_common::constants::values::{BOOTLOADER_ERASE_CMD, BOOTLOADER_RESET_CMD};
 use zencan_node::BootloaderSectionCallbacks;
@@ -52,7 +57,11 @@ async fn test_program() {
         &object_dict3::NODE_STATE,
     );
 
-    struct Callbacks {}
+    struct Callbacks {
+        erase_flag: AtomicBool,
+        data: Mutex<RefCell<Vec<u8>>>,
+    }
+
     impl BootloaderSectionCallbacks for Callbacks {
         fn erase(&self) -> bool {
             true
@@ -75,7 +84,10 @@ async fn test_program() {
         }
     }
 
-    let callbacks = Box::leak(Box::new(Callbacks {}));
+    let callbacks = Box::leak(Box::new(Callbacks {
+        erase_flag: AtomicBool::new(false),
+        data: Mutex::new(RefCell::new(Vec::new())),
+    }));
 
     object_dict3::BOOTLOADER_SECTION0.register_callbacks(callbacks);
 
@@ -98,6 +110,13 @@ async fn test_program() {
         // Send erase command
         client
             .write_u32(BOOTLOADER_SECTION0_INDEX, 3, BOOTLOADER_ERASE_CMD)
+            .await
+            .unwrap();
+
+        let download_data = Vec::from_iter(0u8..128);
+        // Send program
+        client
+            .block_download(BOOTLOADER_SECTION0_INDEX, 4, &download_data)
             .await
             .unwrap();
     };

@@ -193,7 +193,6 @@ fn generate_object_definition(obj: &ObjectDefinition) -> Result<TokenStream, Com
 
     Ok(quote! {
         #[allow(dead_code)]
-        #[derive(Debug)]
         pub struct #struct_name {
             #field_tokens
         }
@@ -620,8 +619,11 @@ pub fn generate_state_inst(dev: &DeviceConfig) -> TokenStream {
     }
 
     tokens.extend(quote! {
+        #[allow(static_mut_refs)]
+        static mut SDO_BUFFER: [u8; SDO_BUFFER_SIZE] = [0; SDO_BUFFER_SIZE];
         pub static NODE_STATE: NodeState<#n_rpdo, #n_tpdo> = NodeState::new();
-        pub static NODE_MBOX: NodeMbox = NodeMbox::new(NODE_STATE.rpdos());
+        #[allow(static_mut_refs)]
+        pub static NODE_MBOX: NodeMbox = NodeMbox::new(NODE_STATE.rpdos(), unsafe { &mut SDO_BUFFER });
     });
 
     tokens
@@ -644,7 +646,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
             table_entries.extend(quote! {
                 ODEntry {
                     index: #index,
-                    data: ObjectData::Storage(&STORAGE_COMMAND_OBJECT),
+                    data: &STORAGE_COMMAND_OBJECT,
                 },
             });
         } else if obj.index == 0x5500 {
@@ -652,7 +654,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
             table_entries.extend(quote! {
                 ODEntry {
                     index: #index,
-                    data: ObjectData::Storage(&BOOTLOADER_INFO),
+                    data: &BOOTLOADER_INFO,
                 },
             });
         } else if obj.index >= 0x5510 && obj.index <= 0x551f {
@@ -661,7 +663,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
             table_entries.extend(quote! {
                 ODEntry {
                     index: #index,
-                    data: ObjectData::Storage(&#object_ident),
+                    data: &#object_ident,
                 },
             });
         } else if obj.index >= 0x1400 && obj.index < 0x1600 {
@@ -669,7 +671,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
             table_entries.extend(quote! {
                 ODEntry {
                     index: #index,
-                    data: ObjectData::Storage(&RPDO_COMM_OBJECTS[#n])
+                    data: &RPDO_COMM_OBJECTS[#n]
                 },
             })
         } else if obj.index >= 0x1600 && obj.index < 0x1800 {
@@ -677,7 +679,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
             table_entries.extend(quote! {
                 ODEntry {
                     index: #index,
-                    data: ObjectData::Storage(&RPDO_MAPPING_OBJECTS[#n])
+                    data: &RPDO_MAPPING_OBJECTS[#n]
                 },
             })
         } else if obj.index >= 0x1800 && obj.index < 0x1A00 {
@@ -685,7 +687,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
             table_entries.extend(quote! {
                 ODEntry {
                     index: #index,
-                    data: ObjectData::Storage(&TPDO_COMM_OBJECTS[#n])
+                    data: &TPDO_COMM_OBJECTS[#n]
                 },
             })
         } else if obj.index >= 0x1A00 && obj.index < 0x1C00 {
@@ -693,7 +695,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
             table_entries.extend(quote! {
                 ODEntry {
                     index: #index,
-                    data: ObjectData::Storage(&TPDO_MAPPING_OBJECTS[#n])
+                    data: &TPDO_MAPPING_OBJECTS[#n]
                 },
             })
         } else if !obj.application_callback {
@@ -704,7 +706,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
             table_entries.extend(quote! {
                 ODEntry {
                     index: #index,
-                    data: ObjectData::Storage(&#inst_name),
+                    data: &#inst_name,
                 },
             });
         } else {
@@ -715,7 +717,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
             table_entries.extend(quote! {
                 ODEntry {
                     index: #index,
-                    data: ObjectData::Callback(&#inst_name),
+                    data: &#inst_name,
                 },
             });
         }
@@ -734,26 +736,29 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
         #[allow(unused_imports)]
         use zencan_node::critical_section::Mutex;
         #[allow(unused_imports)]
-        use zencan_node::common::objects::{
+        use zencan_node::common::objects::SubInfo;
+        #[allow(unused_imports)]
+        use zencan_node::common::sdo::AbortCode;
+        #[allow(unused_imports)]
+        use zencan_node::object_dict::{
             CallbackObject,
             CallbackSubObject,
             ObjectFlags,
             ODEntry,
-            ObjectData,
             ObjectRawAccess,
-            SubInfo,
             ProvidesSubObjects,
             SubObjectAccess,
             ObjectFlagAccess,
             ScalarField,
             ByteField,
             ConstField,
-            NullTermByteField
+            NullTermByteField,
         };
         #[allow(unused_imports)]
-        use zencan_node::common::sdo::AbortCode;
+        use zencan_node::SDO_BUFFER_SIZE;
         #[allow(unused_imports)]
         use zencan_node::pdo::{PdoCommObject, PdoMappingObject};
+        #[allow(unused_imports)]
         use zencan_node::storage::StorageCommandObject;
         #[allow(unused_imports)]
         use zencan_node::NodeMbox;

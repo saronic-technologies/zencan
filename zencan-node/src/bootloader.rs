@@ -4,9 +4,12 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use crate::object_dict::{
+    ConstByteRefField, ConstField, ObjectRawAccess, ProvidesSubObjects, SubObjectAccess,
+};
 use zencan_common::{
     constants::values::BOOTLOADER_ERASE_CMD,
-    objects::{ObjectCode, ObjectRawAccess, SubInfo},
+    objects::{ObjectCode, SubInfo},
     sdo::AbortCode,
     AtomicCell,
 };
@@ -14,14 +17,14 @@ use zencan_common::{
 /// Implements a Bootloader info (0x5500) object
 #[derive(Debug, Default)]
 pub struct BootloaderInfo<const APP: bool, const NUM_SECTIONS: u8> {
-    reset_flag: AtomicBool,
+    reset_flag: ResetField,
 }
 
 impl<const APP: bool, const NUM_SECTIONS: u8> BootloaderInfo<APP, NUM_SECTIONS> {
     /// Create new BootloaderInfo
     pub const fn new() -> Self {
         Self {
-            reset_flag: AtomicBool::new(false),
+            reset_flag: ResetField::new(),
         }
     }
 
@@ -30,80 +33,86 @@ impl<const APP: bool, const NUM_SECTIONS: u8> BootloaderInfo<APP, NUM_SECTIONS> 
     /// The flag is set when a reset command is written to the object, and this function can be used
     /// by the application to determed when a reset to bootloader is commanded
     pub fn reset_flag(&self) -> bool {
-        self.reset_flag.load(Ordering::Relaxed)
+        self.reset_flag.load()
     }
 }
 
-impl<const APP: bool, const NUM_SECTIONS: u8> ObjectRawAccess
-    for BootloaderInfo<APP, NUM_SECTIONS>
-{
-    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
-        if offset != 0 {
-            return Err(AbortCode::UnsupportedAccess);
-        }
-        match sub {
-            0 => {
-                if buf.len() > 1 {
-                    return Err(AbortCode::DataTypeMismatchLengthHigh);
-                }
-                buf[0] = 3;
-                Ok(())
-            }
-            1 => {
-                if buf.len() > 4 {
-                    return Err(AbortCode::DataTypeMismatchLengthHigh);
-                } else if buf.len() < 4 {
-                    return Err(AbortCode::DataTypeMismatchLengthLow);
-                }
+#[derive(Debug, Default)]
+struct ResetField {
+    flag: AtomicBool,
+}
 
-                let mut config = 1u32;
-                if APP {
-                    config |= 1 << 1;
-                }
-                buf[0..4].copy_from_slice(&config.to_le_bytes());
-                Ok(())
-            }
-            2 => {
-                if buf.len() > 1 {
-                    return Err(AbortCode::DataTypeMismatchLengthHigh);
-                }
-                buf[0] = NUM_SECTIONS;
-                Ok(())
-            }
-            3 => Err(AbortCode::WriteOnly),
-            _ => Err(AbortCode::NoSuchSubIndex),
+impl ResetField {
+    pub const fn new() -> Self {
+        Self {
+            flag: AtomicBool::new(false),
         }
     }
 
-    fn write(&self, sub: u8, data: &[u8]) -> Result<(), AbortCode> {
-        match sub {
-            0..=2 => Err(AbortCode::ReadOnly),
-            3 => {
-                if !APP {
-                    Err(AbortCode::UnsupportedAccess)
-                } else if data.len() == 4 && data == [0x42, 0x4F, 0x4F, 0x54] {
-                    self.reset_flag.store(true, Ordering::Relaxed);
-                    Ok(())
-                } else {
-                    Err(AbortCode::InvalidValue)
-                }
+    pub fn load(&self) -> bool {
+        self.flag.load(Ordering::Relaxed)
+    }
+}
+
+impl SubObjectAccess for ResetField {
+    fn read(&self, _offset: usize, _buf: &mut [u8]) -> Result<usize, AbortCode> {
+        Err(AbortCode::WriteOnly)
+    }
+
+    fn read_size(&self) -> usize {
+        0
+    }
+
+    fn write(&self, data: &[u8]) -> Result<(), AbortCode> {
+        if data.len() == 4 {
+            if data == [0x42, 0x4F, 0x4F, 0x54] {
+                self.flag.store(true, Ordering::Relaxed);
+                Ok(())
+            } else {
+                Err(AbortCode::InvalidValue)
             }
-            _ => Err(AbortCode::NoSuchSubIndex),
+        } else if data.len() < 4 {
+            Err(AbortCode::DataTypeMismatchLengthLow)
+        } else {
+            Err(AbortCode::DataTypeMismatchLengthHigh)
+        }
+    }
+}
+
+/// Get the value to return for the config object
+///
+/// `app` - Indicates whether the current node is running as an application, rather than a
+/// bootloader
+const fn get_config_value(app: bool) -> u32 {
+    let mut config = 1;
+    if app {
+        config |= 2;
+    }
+    config
+}
+
+impl<const APP: bool, const NUM_SECTIONS: u8> ProvidesSubObjects
+    for BootloaderInfo<APP, NUM_SECTIONS>
+{
+    fn get_sub_object(&self, sub: u8) -> Option<(SubInfo, &dyn SubObjectAccess)> {
+        match sub {
+            0 => Some((
+                SubInfo::MAX_SUB_NUMBER,
+                const { &ConstField::new(3u8.to_le_bytes()) },
+            )),
+            1 => Some((SubInfo::new_u32().ro_access(), {
+                const { &ConstField::new(get_config_value(APP).to_le_bytes()) }
+            })),
+            2 => Some((SubInfo::new_u8().ro_access(), {
+                const { &ConstField::new(NUM_SECTIONS.to_le_bytes()) }
+            })),
+            3 => Some((SubInfo::new_u32().wo_access(), &self.reset_flag)),
+            _ => None,
         }
     }
 
     fn object_code(&self) -> ObjectCode {
         ObjectCode::Record
-    }
-
-    fn sub_info(&self, sub: u8) -> Result<SubInfo, AbortCode> {
-        match sub {
-            0 => Ok(SubInfo::MAX_SUB_NUMBER),
-            1 => Ok(SubInfo::new_u32().ro_access()),
-            2 => Ok(SubInfo::new_u8().ro_access()),
-            3 => Ok(SubInfo::new_u32().wo_access()),
-            _ => Err(AbortCode::NoSuchSubIndex),
-        }
     }
 }
 
@@ -153,31 +162,25 @@ impl BootloaderSection {
     }
 }
 
-fn read_u8(value: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
-    if offset != 0 {
-        return Err(AbortCode::UnsupportedAccess);
-    }
-    if buf.len() != 1 {
-        return Err(AbortCode::DataTypeMismatchLengthHigh);
-    }
-    buf[0] = value;
-    Ok(())
-}
-
-fn read_str(value: &str, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
-    let read_len = buf.len().min(value.len() - offset);
-    buf[0..read_len].copy_from_slice(&value.as_bytes()[offset..offset + read_len]);
-    Ok(())
-}
-
 impl ObjectRawAccess for BootloaderSection {
-    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<(), AbortCode> {
+    fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<usize, AbortCode> {
         match sub {
-            0 => read_u8(4, offset, buf),
-            1 => read_u8(1, offset, buf),
-            2 => read_str(self.name, offset, buf),
+            0 => ConstField::new(4u8.to_le_bytes()).read(offset, buf),
+            1 => ConstField::new(1u8.to_le_bytes()).read(offset, buf),
+            2 => ConstByteRefField::new(self.name.as_bytes()).read(offset, buf),
             3 => Err(AbortCode::WriteOnly),
             4 => Err(AbortCode::WriteOnly),
+            _ => Err(AbortCode::NoSuchSubIndex),
+        }
+    }
+
+    fn read_size(&self, sub: u8) -> Result<usize, AbortCode> {
+        match sub {
+            0 => Ok(1),
+            1 => Ok(1),
+            2 => Ok(self.name.len()),
+            3 => Ok(0),
+            4 => Ok(0),
             _ => Err(AbortCode::NoSuchSubIndex),
         }
     }
@@ -200,6 +203,19 @@ impl ObjectRawAccess for BootloaderSection {
                     }
                 } else {
                     Err(AbortCode::InvalidValue)
+                }
+            }
+            4 => {
+                if let Some(callbacks) = self.callbacks.load() {
+                    callbacks.write(data);
+                    if callbacks.finalize() {
+                        // success
+                        Ok(())
+                    } else {
+                        Err(AbortCode::GeneralError)
+                    }
+                } else {
+                    Err(AbortCode::ResourceNotAvailable)
                 }
             }
             _ => Err(AbortCode::NoSuchSubIndex),
