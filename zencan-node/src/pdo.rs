@@ -2,7 +2,7 @@
 //!
 
 use crate::object_dict::{
-    find_object_entry, ConstField, ODEntry, ObjectRawAccess, ProvidesSubObjects, SubObjectAccess,
+    find_object_entry, ConstField, ODEntry, ObjectAccess, ProvidesSubObjects, SubObjectAccess,
 };
 use zencan_common::{
     objects::{AccessType, DataType, ObjectCode, PdoMapping, SubInfo},
@@ -366,7 +366,7 @@ impl PdoMappingObject {
     }
 }
 
-impl ObjectRawAccess for PdoMappingObject {
+impl ObjectAccess for PdoMappingObject {
     fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<usize, AbortCode> {
         if sub == 0 {
             if offset < 1 && buf.len() > 0 {

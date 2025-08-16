@@ -11,7 +11,7 @@ use zencan_common::{
     AtomicCell,
 };
 
-use crate::object_dict::{ODEntry, ObjectRawAccess};
+use crate::object_dict::{ODEntry, ObjectAccess};
 
 /// A callback function type for handling a store objects event
 pub type StoreObjectsCallback =
@@ -53,7 +53,7 @@ impl StorageCommandObject {
     }
 }
 
-impl ObjectRawAccess for StorageCommandObject {
+impl ObjectAccess for StorageCommandObject {
     fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<usize, AbortCode> {
         match sub {
             0 => {

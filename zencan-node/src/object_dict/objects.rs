@@ -11,7 +11,7 @@ use super::{ObjectFlagAccess, SubObjectAccess};
 /// A trait for accessing objects
 ///
 /// Any struct which implements an object in the object dictionary must implement this trait
-pub trait ObjectRawAccess: Sync + Send {
+pub trait ObjectAccess: Sync + Send {
     /// Read raw bytes from a subobject
     ///
     /// If the specified read goes out of range (i.e. offset + buf.len() > current_size) an error is
@@ -206,7 +206,7 @@ pub trait ObjectRawAccess: Sync + Send {
 /// A trait for structs which represent Objects to implement
 ///
 /// Implementing this type allows a type sub object which implements [`SubObjectAccess`] to
-/// implement [`ObjectRawAccess`] simply by implementing this trait to provide a sub object for each
+/// implement [`ObjectAccess`] simply by implementing this trait to provide a sub object for each
 /// sub index.
 pub trait ProvidesSubObjects {
     /// Get a slice of sub objects
@@ -233,8 +233,8 @@ pub trait ProvidesSubObjects {
     fn object_code(&self) -> ObjectCode;
 }
 
-// Implement ObjectRawAccess for any type that implements ProvidesSubObjects
-impl<T: ProvidesSubObjects + Sync + Send> ObjectRawAccess for T {
+// Implement ObjectAccess for any type that implements ProvidesSubObjects
+impl<T: ProvidesSubObjects + Sync + Send> ObjectAccess for T {
     fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<usize, AbortCode> {
         if let Some((info, access)) = self.get_sub_object(sub) {
             if info.access_type.is_readable() {
@@ -328,7 +328,7 @@ impl<T: ProvidesSubObjects + Sync + Send> ObjectRawAccess for T {
 /// OD placeholder for an object which will have a handler registered at runtime
 #[allow(missing_debug_implementations)]
 pub struct CallbackObject<'a> {
-    obj: AtomicCell<Option<&'a dyn ObjectRawAccess>>,
+    obj: AtomicCell<Option<&'a dyn ObjectAccess>>,
     object_code: ObjectCode,
 }
 
@@ -342,7 +342,7 @@ impl CallbackObject<'_> {
     }
 }
 
-impl ObjectRawAccess for CallbackObject<'_> {
+impl ObjectAccess for CallbackObject<'_> {
     fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<usize, AbortCode> {
         if let Some(obj) = self.obj.load() {
             obj.read(sub, offset, buf)
@@ -402,16 +402,13 @@ pub struct ODEntry<'a> {
     /// The object index
     pub index: u16,
     /// The object implementation
-    pub data: &'a dyn ObjectRawAccess,
+    pub data: &'a dyn ObjectAccess,
 }
 
 /// Lookup an object from the Object dictionary table
 ///
 /// Note: `table` must be sorted by index
-pub fn find_object<'a, 'b>(
-    table: &'b [ODEntry<'a>],
-    index: u16,
-) -> Option<&'a dyn ObjectRawAccess> {
+pub fn find_object<'a, 'b>(table: &'b [ODEntry<'a>], index: u16) -> Option<&'a dyn ObjectAccess> {
     find_object_entry(table, index).map(|entry| entry.data)
 }
 

@@ -745,7 +745,7 @@ pub fn device_config_to_tokens(dev: &DeviceConfig) -> Result<TokenStream, Compil
             CallbackSubObject,
             ObjectFlags,
             ODEntry,
-            ObjectRawAccess,
+            ObjectAccess,
             ProvidesSubObjects,
             SubObjectAccess,
             ObjectFlagAccess,

@@ -5,7 +5,7 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::object_dict::{
-    ConstByteRefField, ConstField, ObjectRawAccess, ProvidesSubObjects, SubObjectAccess,
+    ConstByteRefField, ConstField, ObjectAccess, ProvidesSubObjects, SubObjectAccess,
 };
 use zencan_common::{
     constants::values::BOOTLOADER_ERASE_CMD,
@@ -162,7 +162,7 @@ impl BootloaderSection {
     }
 }
 
-impl ObjectRawAccess for BootloaderSection {
+impl ObjectAccess for BootloaderSection {
     fn read(&self, sub: u8, offset: usize, buf: &mut [u8]) -> Result<usize, AbortCode> {
         match sub {
             0 => ConstField::new(4u8.to_le_bytes()).read(offset, buf),
