@@ -28,12 +28,11 @@ log = { version = "0.4", optional = true }
 static_cell = "2.1.1"
 
 [features]
-default = ["log", "pdo", "std"]
+default = ["log", "std"]
 std = ["critical-section/std", "zencan-common/std"]
 log = ["defmt-or-log/log", "zencan-common/log", "dep:log"]
 defmt = ["defmt-or-log/defmt", "zencan-common/defmt", "dep:defmt"]
 socketcan = ["zencan-common/socketcan", "std"]
-pdo = []
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]

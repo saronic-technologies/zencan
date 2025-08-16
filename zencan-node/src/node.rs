@@ -80,14 +80,6 @@ impl InitNode {
         state: &'static dyn NodeStateAccess,
         od: &'static [ODEntry<'static>],
     ) -> Self {
-        // This is disabled as a) you have to write the object to turn on PDOs anyway, so the
-        // configuration can write the defaults, and b) the idea of restoring default values to
-        // objects deserves general solution so that ANY modified objects can be restored to
-        // default.
-        //
-        //  #[cfg(feature = "pdo")]
-        // Self::set_pdo_defaults(state, node_id);
-
         Self {
             node_id,
             mbox,
@@ -95,30 +87,6 @@ impl InitNode {
             od,
         }
     }
-
-    // fn set_pdo_defaults(state: &dyn NodeStateAccess, node_id: NodeId) {
-    //     for (i, pdo) in state.get_rpdos().iter().enumerate() {
-    //         if i < 4 {
-    //             pdo.set_cob_id(CanId::Std(0x200 + i as u16 * 0x100 + node_id.raw() as u16));
-    //         } else {
-    //             pdo.set_cob_id(CanId::Std(0x0));
-    //         }
-    //         pdo.set_valid(false);
-    //         pdo.set_transmission_type(0);
-    //         pdo.buffered_value.store(None);
-    //     }
-
-    //     for (i, pdo) in state.get_tpdos().iter().enumerate() {
-    //         if i < 4 {
-    //             pdo.set_cob_id(CanId::Std(0x180 + i as u16 * 0x100 + node_id.raw() as u16));
-    //         } else {
-    //             pdo.set_cob_id(CanId::Std(0x0));
-    //         }
-    //         pdo.set_valid(false);
-    //         pdo.set_transmission_type(0);
-    //         pdo.buffered_value.store(None);
-    //     }
-    // }
 
     /// Convert the InitNode into a ready-to-operate [`Node`]
     ///
