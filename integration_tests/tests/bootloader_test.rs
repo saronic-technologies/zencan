@@ -2,7 +2,10 @@ mod utils;
 
 use std::{
     cell::RefCell,
-    sync::{atomic::AtomicBool, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
 };
 
 use utils::setup_single_node;
@@ -60,10 +63,26 @@ async fn test_program() {
     struct Callbacks {
         erase_flag: AtomicBool,
         data: Mutex<RefCell<Vec<u8>>>,
+        finalize_flag: AtomicBool,
+    }
+
+    impl Callbacks {
+        fn erase_flag(&self) -> bool {
+            self.erase_flag.load(Ordering::Relaxed)
+        }
+
+        fn data(&self) -> Vec<u8> {
+            self.data.lock().unwrap().borrow_mut().clone()
+        }
+
+        fn finalize_flag(&self) -> bool {
+            self.finalize_flag.load(Ordering::Relaxed)
+        }
     }
 
     impl BootloaderSectionCallbacks for Callbacks {
         fn erase(&self) -> bool {
+            self.erase_flag.store(true, Ordering::Relaxed);
             true
         }
 
@@ -71,7 +90,10 @@ async fn test_program() {
         ///
         /// Write will be called 1 or more times after an erase with a sequence of new data to write to
         /// the section
-        fn write(&self, _data: &[u8]) {}
+        fn write(&self, data: &[u8]) {
+            let write_buffer = self.data.lock().unwrap();
+            write_buffer.borrow_mut().extend_from_slice(data);
+        }
 
         /// Finalize writing a section
         ///
@@ -80,13 +102,15 @@ async fn test_program() {
         ///
         /// Returns true on successful write
         fn finalize(&self) -> bool {
+            self.finalize_flag.store(true, Ordering::Relaxed);
             true
         }
     }
 
-    let callbacks = Box::leak(Box::new(Callbacks {
+    let callbacks: &Callbacks = Box::leak(Box::new(Callbacks {
         erase_flag: AtomicBool::new(false),
         data: Mutex::new(RefCell::new(Vec::new())),
+        finalize_flag: AtomicBool::new(false),
     }));
 
     object_dict3::BOOTLOADER_SECTION0.register_callbacks(callbacks);
@@ -119,6 +143,10 @@ async fn test_program() {
             .block_download(BOOTLOADER_SECTION0_INDEX, 4, &download_data)
             .await
             .unwrap();
+
+        assert_eq!(true, callbacks.erase_flag());
+        assert_eq!(download_data, callbacks.data());
+        assert_eq!(true, callbacks.finalize_flag())
     };
 
     test_with_background_process(&mut [&mut node], &mut bus.new_sender(), test_task).await;
