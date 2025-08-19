@@ -51,52 +51,6 @@ fn read_autostart(od: &[ODEntry]) -> Option<bool> {
     Some(obj.read_u8(0).unwrap() != 0)
 }
 
-/// The first step to creating a node
-///
-/// In order to create a [`Node`], you first have to create one of these from the static data. This
-/// allows the node creation process to be broken into a setup and an init step, while allowing the
-/// compiler to ensure the first is not forgotten.
-///
-/// The proper sequence is:
-///
-/// 1) Create the InitializedOd. This will register all of the zencan provided object callbacks, so
-///    that these objects are accessible via the OD.
-/// 2) Initialize application default values -- this is the time to write things like software
-///    versions, serial number, or to restore object values that were previously stored to flash.
-/// 3) Create the Node object from the InitializedOd.
-#[derive(Clone)]
-#[allow(missing_debug_implementations)]
-pub struct InitNode {
-    node_id: NodeId,
-    mbox: &'static NodeMbox,
-    state: &'static dyn NodeStateAccess,
-    od: &'static [ODEntry<'static>],
-}
-
-impl InitNode {
-    pub fn new(
-        node_id: NodeId,
-        mbox: &'static NodeMbox,
-        state: &'static dyn NodeStateAccess,
-        od: &'static [ODEntry<'static>],
-    ) -> Self {
-        Self {
-            node_id,
-            mbox,
-            state,
-            od,
-        }
-    }
-
-    /// Convert the InitNode into a ready-to-operate [`Node`]
-    ///
-    /// Before calling finalize, make sure you've loaded any application specific values to the
-    /// object dictionary
-    pub fn finalize(self) -> Node {
-        Node::new(self)
-    }
-}
-
 /// The main object representing a node
 ///
 /// # Operation
@@ -127,38 +81,20 @@ pub struct Node {
 }
 
 impl Node {
-    /// Create an [`InitNode`], the first step in creating a Node.
-    ///
-    /// Creating the InitNode registers all of the library provided callbacks to objects, e.g. the
-    /// PDO object handlers, making them functional. After init, the application should register any
-    /// custom handlers of its own, and then initialize any objects it needs to, before calling
-    /// [`InitNode::finalize`] to create the node.
-    pub fn init(
+    /// Create a new [`Node`]
+    /// 
+    /// # Arguments
+    /// 
+    /// * `node_id` - Initial node ID assignment
+    /// * `mbox` - The `NODE_MBOX` object created by `zencan-build`
+    /// * `state` - The `NODE_STATE` state object created by `zencan-build`
+    /// * `od` - The `OD_TABLE` object containing the object dictionary created by `zencan-build`
+    pub fn new(
         node_id: NodeId,
         mbox: &'static NodeMbox,
         state: &'static dyn NodeStateAccess,
         od: &'static [ODEntry<'static>],
-    ) -> InitNode {
-        InitNode::new(node_id, mbox, state, od)
-    }
-
-    /// Create a new Node
-    ///
-    /// # Arguments
-    ///
-    /// - `node_id`: The initial ID for the node. It may be assigned an ID at boot time by the
-    ///   application, or it may be left as [NodeId::Unconfigured].
-    /// - `mbox`: The NodeMbox object created by code generator
-    /// - `state`: The NodeState object created by code generator
-    /// - `od`: The Object Dictionary, created by code generator
-    fn new(source: InitNode) -> Self {
-        let InitNode {
-            node_id,
-            mbox,
-            state,
-            od,
-        } = source;
-
+    ) -> Self {
         let message_count = 0;
         let sdo_server = SdoServer::new();
         let lss_slave = LssSlave::new(LssConfig {

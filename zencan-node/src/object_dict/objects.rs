@@ -209,14 +209,13 @@ pub trait ObjectAccess: Sync + Send {
 /// implement [`ObjectAccess`] simply by implementing this trait to provide a sub object for each
 /// sub index.
 pub trait ProvidesSubObjects {
-    /// Get a slice of sub objects
+    /// Get a sub object by index
     ///
     /// This is used for objects which have a fixed number of sub objects, such as arrays or records.
-    /// The slice must be at least as long as the maximum sub index of the object.
     ///
     /// It should return None if the sub object does not exist, and when it does exist it returns a
-    /// tuple containing a [`SubInfo`] with metadata about the sub object, and [`dyn
-    /// SubObjectAccess`] which provides read/write access to the sub object data.
+    /// tuple containing a [`SubInfo`] with metadata about the sub object, and [`&dyn
+    /// SubObjectAccess`](SubObjectAccess) which provides read/write access to the sub object data.
     fn get_sub_object(&self, sub: u8) -> Option<(SubInfo, &dyn SubObjectAccess)>;
 
     /// Get the object flags for this object

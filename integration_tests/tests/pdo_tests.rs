@@ -32,7 +32,7 @@ fn setup<'a, S: NodeStateAccess>(
 ) {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let node = Node::init(NodeId::new(SLAVE_NODE_ID).unwrap(), mbox, state, od).finalize();
+    let node = Node::new(NodeId::new(SLAVE_NODE_ID).unwrap(), mbox, state, od);
 
     let mut bus = SimBus::new(vec![mbox]);
 

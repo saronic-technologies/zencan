@@ -64,13 +64,6 @@ async fn main() {
     log::info!("Starting node...");
     let node_id = NodeId::try_from(args.node_id).unwrap();
 
-    let node = Node::init(
-        node_id,
-        &zencan::NODE_MBOX,
-        &zencan::NODE_STATE,
-        &zencan::OD_TABLE,
-    );
-
     // Set the serial number using the provided serial, or a random number if none is provided
     zencan::OBJECT1018.set_serial(args.serial.unwrap_or(rand::random()));
     // Load saved object values if they are found
@@ -83,7 +76,12 @@ async fn main() {
         }
     }
 
-    let mut node = node.finalize();
+    let mut node = Node::new(
+        node_id,
+        &zencan::NODE_MBOX,
+        &zencan::NODE_STATE,
+        &zencan::OD_TABLE,
+    );
 
     node.register_store_objects(&store_objects_callback);
     let (mut tx, mut rx) = open_socketcan(&args.socket).unwrap();

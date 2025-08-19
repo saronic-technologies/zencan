@@ -8,24 +8,41 @@ use zencan_common::{sdo::AbortCode, AtomicCell};
 pub trait SubObjectAccess: Sync + Send {
     /// Read data from the sub object
     ///
-    /// Read `buf.len()` bytes, starting at offset
+    /// Read up to `buf.len()` bytes, starting at offset
     ///
-    /// All sub objects are required to support partial read
+    /// # Arguments
+    ///
+    /// - `offset`: The offset into the object to begin the read
+    /// - `buf`: The output buffer to fill
+    ///
+    /// # Returns
+    ///
+    /// The number of bytes read into `buf`, on success
     ///
     /// # Errors
     ///
-    /// - [`AbortCode::DataTypeMismatchLengthHigh`] if `offset` + `buf.len()` exceeds the object
-    ///   size
     /// - [`AbortCode::WriteOnly`] if the sub object does not support reading
+    /// - [`AbortCode::ResourceNotAvailable`] if the sub object depends on a runtime registered
+    ///   handler which has not been registered
     fn read(&self, offset: usize, buf: &mut [u8]) -> Result<usize, AbortCode>;
 
     /// Return the amount of data which can be read
+    ///
+    /// This should return the maximum number of bytes which can be read from the object
+    ///
+    /// For most objects, this is simply it's allocated size -- e.g. for a UInt32 DataType
+    /// `read_size` always return 4. Others may have variable or run-time determined size, for
+    /// example VisibleString objects can ctonshorter than their allocated size.
+    ///
+    /// Note: Callers cannot assume that a call to read will return the same number of bytes as
+    /// read_size. It is possible for the available number of bytes to change between a call to
+    /// read_size and a subsequent call to read.
     fn read_size(&self) -> usize;
 
     /// Write data to the sub object
     ///
     /// For most objects, the length of data must match the size of the object exactly. However, for
-    /// some objects, such as Domain, VisibleString, or UnicodeString, or objects with custom
+    /// some objects, such as Domain, VisibleString, UnicodeString, or objects with custom
     /// callback implementations it may be possible to write shorter values.
     ///
     /// # Errors
@@ -48,24 +65,33 @@ pub trait SubObjectAccess: Sync + Send {
     /// Begin a multi-part write to the object
     ///
     /// Not all objects support partial writes. Primarily it is large objects which support it in
-    /// order to allow transfer of the data in multiple blocks. It is up to the application to
-    /// ensure that no other writes occur while a partial write is in progress, or else the object
-    /// data may be corrupted and/or a call to `write_partial` may return an abort code on a
-    /// subsequent call.
+    /// order to allow transfer of data in multiple blocks. It is up to the application to ensure
+    /// that no other writes occur while a partial write is in progress, or else the object data may
+    /// be corrupted and/or a call to `write_partial` may return an abort code on a subsequent call.
     ///
-    /// Partial writes should always include the following, in this order:
+    /// Partial writes should always be performed according to the following sequence:
     /// - One call to `begin_partial`
-    /// - N calls to `write_partial`
+    /// - Zero or more calls to `write_partial`
     /// - One call to `end_partial`
     ///
     /// # Errors
     ///
-    /// - [`AbortCode::UnsupportedAccess`] when the object does not support partial writes.
+    /// - [`AbortCode::UnsupportedAccess] if the object does not support partial writes
+    /// - [`AbortCode::ReadOnly`] if the object does not support writing
+    /// - [`AbortCode::ResourceNotAvailable`] if the object cannot be written because of the
+    ///   application state. For example, this is returned if a required callback has not been
+    ///   registered on the object.
     fn begin_partial(&self) -> Result<(), AbortCode> {
         Err(AbortCode::UnsupportedAccess)
     }
 
     /// Write part of multi-part data to the object
+    ///
+    /// Calls to write_partial must be preceded by a call to begin_partial, and followed by a call
+    /// to end_partial.
+    ///
+    /// # Errors
+    /// - [`AbortCode::DataTypeMismatchLengthHigh`] if `data.len()` exceeds the object size
     fn write_partial(&self, _buf: &[u8]) -> Result<(), AbortCode> {
         Err(AbortCode::UnsupportedAccess)
     }

@@ -34,8 +34,8 @@ async fn test_fast_scan() {
     object_dict1::OBJECT1018.set_serial(9999);
     object_dict2::OBJECT1018.set_serial(5432);
 
-    let mut node1 = Node::init(NodeId::new(255).unwrap(), mbox1, state1, od1).finalize();
-    let mut node2 = Node::init(NodeId::new(255).unwrap(), mbox2, state2, od2).finalize();
+    let mut node1 = Node::new(NodeId::new(255).unwrap(), mbox1, state1, od1);
+    let mut node2 = Node::new(NodeId::new(255).unwrap(), mbox2, state2, od2);
 
     let mut bus = SimBus::new(vec![mbox1, mbox2]);
 

@@ -97,23 +97,38 @@ pub enum PdoMapping {
 /// Indicate the type of data stored in an object
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[repr(u16)]
-#[allow(missing_docs)]
 pub enum DataType {
+    /// A true false value, encoded as a single byte, with 0 for false and 1 for true
     Boolean = 1,
     #[default]
+    /// A signed 8-bit integer
     Int8 = 2,
+    /// A signed 16-bit integer
     Int16 = 3,
+    /// A signed 32-bit integer
     Int32 = 4,
+    /// An unsigned 8-bit integer
     UInt8 = 5,
+    /// An unsigned 16-bit integer
     UInt16 = 6,
+    /// An unsigned 32-bit integer
     UInt32 = 7,
+    /// A 32-bit floating point value
     Real32 = 8,
+    /// An ASCII/utf-8 string
     VisibleString = 9,
+    /// A byte string
     OctetString = 0xa,
+    /// A unicode string
     UnicodeString = 0xb,
+    /// Currently Unimplemented
     TimeOfDay = 0xc,
+    /// Currently Unimplemented
     TimeDifference = 0xd,
+    /// An arbitrary byte access type for e.g. data streams, or large chunks of
+    /// data. Size is typically not known at build time.
     Domain = 0xf,
+    /// A contained for an unrecognized data type value
     Other(u16),
 }
 
@@ -200,6 +215,50 @@ impl SubInfo {
         Self {
             size: 1,
             data_type: DataType::UInt8,
+            access_type: AccessType::Ro,
+            pdo_mapping: PdoMapping::None,
+            persist: false,
+        }
+    }
+
+        /// Convenience function for creating a new sub-info by type
+    pub const fn new_i32() -> Self {
+        Self {
+            size: 4,
+            data_type: DataType::Int32,
+            access_type: AccessType::Ro,
+            pdo_mapping: PdoMapping::None,
+            persist: false,
+        }
+    }
+
+    /// Convenience function for creating a new sub-info by type
+    pub const fn new_i16() -> Self {
+        Self {
+            size: 2,
+            data_type: DataType::Int16,
+            access_type: AccessType::Ro,
+            pdo_mapping: PdoMapping::None,
+            persist: false,
+        }
+    }
+
+    /// Convenience function for creating a new sub-info by type
+    pub const fn new_i8() -> Self {
+        Self {
+            size: 1,
+            data_type: DataType::Int8,
+            access_type: AccessType::Ro,
+            pdo_mapping: PdoMapping::None,
+            persist: false,
+        }
+    }
+
+    /// Convenience function for creating a new sub-info by type
+    pub const fn new_f32() -> Self {
+        Self {
+            size: 4,
+            data_type: DataType::Real32,
             access_type: AccessType::Ro,
             pdo_mapping: PdoMapping::None,
             persist: false,
