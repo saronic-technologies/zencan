@@ -36,6 +36,7 @@ I like CAN, and I wanted to make it easy to build devices with lots of communica
 ## Example Projects
 
 [can-io-firmware](https://github.com/mcbridejc/can-io-firmware) - A simple program to read analog inputs and make then available on a CAN bus
+[i4-controller-firmware](https://github.com/mcbridejc/i4-controller-firmware) - A 4-channel current controller
 
 ## Building docs
 
@@ -44,37 +45,6 @@ Uses nightly docs features on docs.rs. To build docs locally using nightly featu
 ```
 RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --no-deps
 ```
-
-## Some TODOs
-
-No doubt this is a very incomplete list...
-
-- Support for multiple SDO servers
-- Support for SYNC driven RPDO
-- EDS generation
-- Direct response in receive IRQ
-    - Should support an optional immediate TX message queuing for fast turnaround, e.g. on LSS
-      fastscan messages, regardless of process timing. It isn't required, but could be implemented
-      on a lot of systems.
-- Non-async API for zencan-client
-- EMCY service
-  - Send EMCY message on receiving PDO of invalid length
-- zencandump needs to display COB-ID, e.g. for SdoRequest messages to distinguish nodes or servers
-- integration test wrapper
-  - DRY up the node process task creation
-  - print returned errors with Display
-- Add better validity checking on PDO configuration
-  - Don't allow changing things while operating
-- zencan-build should maybe be exported and documented via zencan-node (?)
-- Bootload support
-- Implement domain objects
-- Implement block upload
-  - This requires new message sending semantics with pushback to support sending segments as fast as
-    possible while prioritizing other messages
-- Support object value range limits: return AbortCode if SDO client attempts to write out of range value
-- SDO buffer size should be configurable
-- SDO segmented downloads should use buffer so object access is atomic
-- Building a node example with a no_std target needs to be part of CI test
 
 ## License
 

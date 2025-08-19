@@ -7,13 +7,13 @@ use zencan_common::{
     messages::{
         CanId, CanMessage, Heartbeat, NmtCommandSpecifier, NmtState, ZencanMessage, LSS_RESP_ID,
     },
-    objects::{find_object, ODEntry, ObjectData, ObjectRawAccess},
     NodeId,
 };
 
 use crate::{
     lss_slave::{LssConfig, LssSlave},
     node_mbox::NodeMbox,
+    object_dict::{find_object, ODEntry},
     storage::StoreObjectsCallback,
 };
 use crate::{node_state::NodeStateAccess, sdo_server::SdoServer};
@@ -51,170 +51,6 @@ fn read_autostart(od: &[ODEntry]) -> Option<bool> {
     Some(obj.read_u8(0).unwrap() != 0)
 }
 
-/// The first step to creating a node
-///
-/// In order to create a [`Node`], you first have to create one of these from the static data. This
-/// allows the node creation process to be broken into a setup and an init step, while allowing the
-/// compiler to ensure the first is not forgotten.
-///
-/// The proper sequence is:
-///
-/// 1) Create the InitializedOd. This will register all of the zencan provided object callbacks, so
-///    that these objects are accessible via the OD.
-/// 2) Initialize application default values -- this is the time to write things like software
-///    versions, serial number, or to restore object values that were previously stored to flash.
-/// 3) Create the Node object from teh InitializedOd.
-#[derive(Clone)]
-#[allow(missing_debug_implementations)]
-pub struct InitNode {
-    node_id: NodeId,
-    mbox: &'static NodeMbox,
-    state: &'static dyn NodeStateAccess,
-    od: &'static [ODEntry<'static>],
-}
-
-impl InitNode {
-    pub fn new(
-        node_id: NodeId,
-        mbox: &'static NodeMbox,
-        state: &'static dyn NodeStateAccess,
-        od: &'static [ODEntry<'static>],
-    ) -> Self {
-        Self::set_pdo_defaults(state, node_id);
-        Self::register_pdo_callbacks(od, mbox, state);
-        Self::register_storage_callbacks(od, state);
-        Self {
-            node_id,
-            mbox,
-            state,
-            od,
-        }
-    }
-
-    fn set_pdo_defaults(state: &dyn NodeStateAccess, node_id: NodeId) {
-        for (i, pdo) in state.get_rpdos().iter().enumerate() {
-            if i < 4 {
-                pdo.set_cob_id(CanId::Std(0x200 + i as u16 * 0x100 + node_id.raw() as u16));
-            } else {
-                pdo.set_cob_id(CanId::Std(0x0));
-            }
-            pdo.set_valid(false);
-            pdo.set_transmission_type(0);
-            pdo.buffered_value.store(None);
-        }
-
-        for (i, pdo) in state.get_tpdos().iter().enumerate() {
-            if i < 4 {
-                pdo.set_cob_id(CanId::Std(0x180 + i as u16 * 0x100 + node_id.raw() as u16));
-            } else {
-                pdo.set_cob_id(CanId::Std(0x0));
-            }
-            pdo.set_valid(false);
-            pdo.set_transmission_type(0);
-            pdo.buffered_value.store(None);
-        }
-    }
-
-    fn register_pdo_callbacks(
-        od: &'static [ODEntry],
-        mbox: &'static NodeMbox,
-        state: &'static dyn NodeStateAccess,
-    ) {
-        // register RPDO handlers
-        for i in 0..mbox.num_rx_pdos() {
-            let comm_id = 0x1400 + i as u16;
-            let mapping_id = 0x1600 + i as u16;
-            let comm = find_object(od, comm_id).expect("Missing PDO comm object");
-            match comm {
-                zencan_common::objects::ObjectData::Storage(_) => {
-                    panic!("PDO comm object is not a callback")
-                }
-                zencan_common::objects::ObjectData::Callback(callback_object) => {
-                    callback_object.register(
-                        Some(crate::pdo::pdo_comm_write_callback),
-                        Some(crate::pdo::pdo_comm_read_callback),
-                        Some(crate::pdo::pdo_comm_info_callback),
-                        Some(&state.get_rpdos()[i]),
-                    );
-                }
-            }
-            let mapping = find_object(od, mapping_id).expect("Missing PDO mapping object");
-            match mapping {
-                zencan_common::objects::ObjectData::Storage(_) => {
-                    panic!("PDO mapping object is not a callback")
-                }
-                zencan_common::objects::ObjectData::Callback(callback_object) => {
-                    callback_object.register(
-                        Some(crate::pdo::pdo_mapping_write_callback),
-                        Some(crate::pdo::pdo_mapping_read_callback),
-                        Some(crate::pdo::pdo_mapping_info_callback),
-                        Some(&state.get_rpdos()[i]),
-                    );
-                }
-            }
-        }
-
-        // Register TPDO handlers
-        let tpdos = state.get_tpdos();
-        for (i, tpdo) in tpdos.iter().enumerate() {
-            let comm_id = 0x1800 + i as u16;
-            let mapping_id = 0x1A00 + i as u16;
-            let comm = find_object(od, comm_id).expect("Missing PDO comm object");
-            match comm {
-                zencan_common::objects::ObjectData::Storage(_) => {
-                    panic!("PDO comm object is not a callback")
-                }
-                zencan_common::objects::ObjectData::Callback(callback_object) => {
-                    callback_object.register(
-                        Some(crate::pdo::pdo_comm_write_callback),
-                        Some(crate::pdo::pdo_comm_read_callback),
-                        Some(crate::pdo::pdo_comm_info_callback),
-                        Some(tpdo),
-                    );
-                }
-            }
-            let mapping = find_object(od, mapping_id).expect("Missing PDO mapping object");
-            match mapping {
-                zencan_common::objects::ObjectData::Storage(_) => {
-                    panic!("PDO mapping object is not a callback")
-                }
-                zencan_common::objects::ObjectData::Callback(callback_object) => {
-                    callback_object.register(
-                        Some(crate::pdo::pdo_mapping_write_callback),
-                        Some(crate::pdo::pdo_mapping_read_callback),
-                        Some(crate::pdo::pdo_mapping_info_callback),
-                        Some(tpdo),
-                    );
-                }
-            }
-        }
-    }
-
-    fn register_storage_callbacks(od: &'static [ODEntry], state: &'static dyn NodeStateAccess) {
-        // If the 0x1010 object is present, hook it up
-        if let Some(obj) = find_object(od, 0x1010) {
-            if let ObjectData::Callback(obj) = obj {
-                obj.register(
-                    Some(crate::storage::handle_1010_write),
-                    Some(crate::storage::handle_1010_read),
-                    Some(crate::storage::handle_1010_subinfo),
-                    Some(state.storage_context()),
-                );
-            } else {
-                panic!("Object 1010 must be a callback object")
-            }
-        }
-    }
-
-    /// Convert the InitNode into a ready-to-operate [`Node`]
-    ///
-    /// Before calling finalize, make sure you've loaded any application specific values to the
-    /// object dictionary
-    pub fn finalize(self) -> Node {
-        Node::new(self)
-    }
-}
-
 /// The main object representing a node
 ///
 /// # Operation
@@ -245,41 +81,22 @@ pub struct Node {
 }
 
 impl Node {
-    /// Create an [`InitNode`], the first step in creating a Node.
-    ///
-    /// Creating the InitNode registers all of the library provided callbacks to objects, e.g. the
-    /// PDO object handlers, making them functional. After init, the application should register any
-    /// custom handlers of its own, and then initialize any objects it needs to, before calling
-    /// [`InitNode::finalize`] to create the node.
-    pub fn init(
+    /// Create a new [`Node`]
+    /// 
+    /// # Arguments
+    /// 
+    /// * `node_id` - Initial node ID assignment
+    /// * `mbox` - The `NODE_MBOX` object created by `zencan-build`
+    /// * `state` - The `NODE_STATE` state object created by `zencan-build`
+    /// * `od` - The `OD_TABLE` object containing the object dictionary created by `zencan-build`
+    pub fn new(
         node_id: NodeId,
         mbox: &'static NodeMbox,
         state: &'static dyn NodeStateAccess,
         od: &'static [ODEntry<'static>],
-    ) -> InitNode {
-        InitNode::new(node_id, mbox, state, od)
-    }
-
-    /// Create a new Node
-    ///
-    /// # Arguments
-    ///
-    /// - `node_id`: The initial ID for the node. It may be assigned an ID at boot time by the
-    ///   application, or it may be left as [NodeId::Unconfigured].
-    /// - `mbox`: The NodeMbox object created by code generator
-    /// - `state`: The NodeState object created by code generator
-    /// - `od`: The Object Dictionary, created by code generator
-    fn new(source: InitNode) -> Self {
+    ) -> Self {
         let message_count = 0;
         let sdo_server = SdoServer::new();
-
-        let InitNode {
-            node_id,
-            mbox,
-            state,
-            od,
-        } = source;
-
         let lss_slave = LssSlave::new(LssConfig {
             identity: read_identity(od).unwrap(),
             node_id,

@@ -1,23 +1,37 @@
 # zencan-node
 
-Crate for implementing a zencan device. Usually used in an embedded `no_std` context, but also can be used elsewhere.
+Crate for implementing a zencan device. Usually used in an embedded `no_std` context, but also can
+be used elsewhere.
 
 ## Usage
 
 ### Create a device config
 
-First create a TOML file to define the properties of your node. This include some options, like the device name and identity information, as well as a list of application specific object to be created. All nodes get a set of standard objects, in addition to the custom ones defined in the device config.
+First create a TOML file to define the properties of your node. This includes information like the
+device name and identity information, as well as a list of application specific objects to be
+created. All nodes get a set of standard objects, in addition to the custom ones defined in the
+device config.
 
 #### Sample device config
 
 ```toml
 device_name = "can-io"
 
+# The device identity includes the vendor, product, revision and a serial
+# number. The serial number should be unique among all device instances, so it
+# is provided by the application at run-time -- e.g. from a value stored in
+# flash, or a MCU UID register.
 [identity]
 vendor_id = 0xCAFE
 product_code = 32
 revision_number = 1
 
+# PDOs are used for sending "process data". Values which are transferred
+# frequency on the bus, such as control commands or sensor readings, are
+# typically sent and recieved using Transmit PDOs (TPDOs) and Receive PDOs
+# (RPDOS). These are configured at run-time by writing to the appropriate PDO
+# configuration objects, but the number of PDOs which can be configured must be
+# defined here, at compile time.
 [[pdos]]
 num_tpdos = 4
 num_rpdos = 4
@@ -46,7 +60,6 @@ array_size = 4
 default_value = [0, 0, 0, 0]
 pdo_mapping = "tpdo"
 
-
 # A configuration object for controlling the frequency of analog readings
 [[objects]]
 index = 0x2100
@@ -55,7 +68,6 @@ object_type = "var"
 data_type = "uint32"
 access_type = "rw"
 default_value = 10
-
 
 # A configuration object which can be used to adjust the linear offset and scale transform used to
 # calculate the value in 0x2001
@@ -83,10 +95,19 @@ access_type = "rw"
 default_value = 0
 ```
 
-### Add a zencan-build as a dev-dependency
+### Add zencan-build and zencan-node as a dev-dependency
+
+`zencan-build` contains functions for generating the object dictionary code, and can be used as a
+build dependency.
 
 ```
 cargo add --build zencan-build
+```
+
+`zencan-node` is compiled in as a normal dependency.
+
+```
+cargo add zencan-node
 ```
 
 ### Build the generated code in `build.rs`
@@ -104,7 +125,10 @@ fn main() {
 
 ### Include the generated code in your application
 
-For example, in main.rs:
+When including the code, it is included using the name specified in build -- `ZENCAN_CONFIG` in this
+case. This allows creating multiple object dictionaries in a single applicaation.
+
+Typically, an application would add a snippet like this into `main.rs`:
 
 ```rust
 mod zencan {
@@ -115,29 +139,38 @@ mod zencan {
 ### Instantiate a node
 
 ```rust
+    // Use the UID register or some other method to set a unique 32-bit serial number
+    let serial_number: u32 = get_serial();
+    zencan::OBJECT1018.set_serial(serial_number);
+
     let node = Node::new(
         NodeId::Unconfigured,
         &zencan::NODE_MBOX,
         &zencan::NODE_STATE,
         &zencan::OD_TABLE,
     );
-
-    // Use the UID register or some other method to set a unique 32-bit serial number
-    let serial_number: u32 = get_serial();
-    zencan::OBJECT1018.set_serial(serial_number);
 ```
 
 ### Feed it incoming messages, and poll process
 
-Since Zencan doesn't know what your CAN interface looks like, you have to do some plumbing here to wire it up to how you send and receive messages.
+Since Zencan doesn't know what your CAN interface looks like, you have to do some plumbing to wire
+it up.
 
-Received messages can be passed in using the `NODE_MBOX` struct, e.g.:
+Received messages can be passed in using the `NODE_MBOX` struct, which serves as a Sync buffer
+between the receive and process contexts. For example:
 
 ```rust
 zencan::NODE_MBOX.store_message(msg)?;
 ```
 
-The node `process()` method must be called from time to time. It isn't critical how fast, but your node's response time depend on it. The NODE_MBOX also provides the `set_process_notify_callback` method, to register a callback which will be called whenever there is new information to be processed so that the `process()` call can be accelerated.
+The node `process()` method must be called from time to time. It isn't critical how fast, but your
+node's response time depends on it. The NODE_MBOX also provides the `set_process_notify_callback`
+method. This can optionally be used to register a callback for whenever there is new information to
+be processed, so that the `process()` call can be accelerated by the application.
+
+Here's an example snippet which uses lilos and a Notify object -- which is set by a register process
+notify callback function to trigger the process task to run immediately on process, or after a 10ms
+timeout when no callback is received.
 
 ```rust
 /// A task for running the CAN node processing periodically, or when triggered by the CAN receive
@@ -177,5 +210,5 @@ async fn can_task(
 
 ### Socketcan Example
 
-You can also run a node on linux, in socketcan. Useful for testing with a virtual can adapter. See
+You can also run a node on linux, with socketcan. This can be useful for testing with a virtual can adapter. See
 [this example](../examples/socketcan_node/) for a full implementation.

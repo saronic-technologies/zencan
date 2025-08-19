@@ -12,10 +12,10 @@ use tokio::time::timeout;
 use zencan_client::{nmt_master::NmtMaster, PdoConfig, PdoMapping, SdoClient};
 use zencan_common::{
     messages::{CanId, CanMessage, SyncObject},
-    objects::{find_object, ODEntry, ObjectRawAccess},
     traits::{AsyncCanReceiver, AsyncCanSender},
     NodeId,
 };
+use zencan_node::object_dict::{find_object, ODEntry};
 use zencan_node::{Node, NodeMbox, NodeStateAccess};
 
 mod utils;
@@ -32,7 +32,7 @@ fn setup<'a, S: NodeStateAccess>(
 ) {
     const SLAVE_NODE_ID: u8 = 1;
 
-    let node = Node::init(NodeId::new(SLAVE_NODE_ID).unwrap(), mbox, state, od).finalize();
+    let node = Node::new(NodeId::new(SLAVE_NODE_ID).unwrap(), mbox, state, od);
 
     let mut bus = SimBus::new(vec![mbox]);
 
