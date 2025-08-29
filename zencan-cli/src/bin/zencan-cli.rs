@@ -218,7 +218,7 @@ async fn main() {
     let node_state = Arc::new(Mutex::new(0));
     let prompt = ZencanPrompt::new(&args.socket, node_state.clone());
 
-    let (tx, rx) = open_socketcan(&args.socket).expect("Failed to open bus socket");
+    let (tx, rx) = open_socketcan(&args.socket, None).expect("Failed to open bus socket");
     let mut manager = BusManager::new(tx, rx);
 
     let completion_menu = Box::new(

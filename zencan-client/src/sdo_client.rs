@@ -1,12 +1,10 @@
 use std::time::Duration;
 
 use snafu::Snafu;
+use socketcan::CanFilter;
+
 use zencan_common::{
-    constants::{object_ids, values::SAVE_CMD},
-    lss::LssIdentity,
-    messages::CanId,
-    sdo::{AbortCode, BlockSegment, SdoRequest, SdoResponse},
-    traits::{AsyncCanReceiver, AsyncCanSender},
+    constants::{object_ids, values::SAVE_CMD}, lss::LssIdentity, messages::CanId, open_socketcan, sdo::{AbortCode, BlockSegment, SdoRequest, SdoResponse}, traits::{AsyncCanReceiver, AsyncCanSender}, SocketCanReceiver, SocketCanSender
 };
 
 use crate::node_configuration::PdoConfig;
@@ -131,10 +129,28 @@ pub struct SdoClient<S, R> {
     req_cob_id: CanId,
     resp_cob_id: CanId,
     sender: S,
-    receiver: R,
+    receiver: R
 }
 
-impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
+impl SdoClient<SocketCanSender, SocketCanReceiver> {
+    pub fn new_socketcan(
+        server_node_id :u8,
+        device :&str
+    ) -> Self {
+        let req_cob_id = CanId::Std(0x600 + server_node_id as u16);
+        let resp_cob_id = CanId::Std(0x580 + server_node_id as u16);
+        
+        let txrx = open_socketcan(
+            device, 
+            Some(&[CanFilter::new(req_cob_id.raw(), 0x7FF), CanFilter::new(resp_cob_id.raw(), 0x7FF)])
+        ).expect("Error opening CAN socket");
+
+        Self::new(req_cob_id, resp_cob_id, txrx.0, txrx.1)
+    }
+}
+
+impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
+    ///
     /// Create a new SdoClient using a node ID
     ///
     /// Nodes have a default SDO server, which uses a COB ID based on the node ID. This is a
@@ -142,14 +158,23 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     ///
     /// It is possible for nodes to have other SDO servers on other COB IDs, and clients for these
     /// can be created using [`Self::new()`]
-    pub fn new_std(server_node_id: u8, sender: S, receiver: R) -> Self {
+    pub fn new_std(
+        server_node_id: u8, 
+        sender: S,
+        receiver: R
+    ) -> Self {
         let req_cob_id = CanId::Std(0x600 + server_node_id as u16);
         let resp_cob_id = CanId::Std(0x580 + server_node_id as u16);
         Self::new(req_cob_id, resp_cob_id, sender, receiver)
     }
 
     /// Create a new SdoClient from request and response COB IDs
-    pub fn new(req_cob_id: CanId, resp_cob_id: CanId, sender: S, receiver: R) -> Self {
+    pub fn new(
+        req_cob_id: CanId, 
+        resp_cob_id: CanId, 
+        sender: S,
+        receiver: R
+    ) -> Self {
         Self {
             req_cob_id,
             resp_cob_id,

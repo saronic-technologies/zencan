@@ -1,5 +1,6 @@
+result
+result/
 target/
-Cargo.lock
 
 *.swp
 

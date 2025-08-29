@@ -84,7 +84,7 @@ async fn main() {
     );
 
     node.register_store_objects(&store_objects_callback);
-    let (mut tx, mut rx) = open_socketcan(&args.socket).unwrap();
+    let (mut tx, mut rx) = open_socketcan(&args.socket, None).unwrap();
 
     // Node requires callbacks be static, so use Box::leak to make static ref from closure on heap
     let process_notify = Box::leak(Box::new(tokio::sync::Notify::new()));

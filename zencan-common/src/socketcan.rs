@@ -5,7 +5,9 @@ use crate::{
     traits::{AsyncCanReceiver, AsyncCanSender},
 };
 use snafu::{ResultExt, Snafu};
-use socketcan::{tokio::CanSocket, CanFrame, EmbeddedFrame, Frame, ShouldRetry};
+
+#[cfg(feature = "socketcan")]
+use socketcan::{tokio::CanSocket, CanFilter, CanFrame, EmbeddedFrame, Frame, ShouldRetry, IoError, SocketOptions};
 
 fn socketcan_id_to_zencan_id(id: socketcan::CanId) -> CanId {
     match id {
@@ -105,9 +107,13 @@ impl AsyncCanSender for SocketCanSender {
 #[cfg_attr(docsrs, doc(cfg(feature = "socketcan")))]
 pub fn open_socketcan<S: AsRef<str>>(
     device: S,
-) -> Result<(SocketCanSender, SocketCanReceiver), socketcan::IoError> {
+    filters :Option<&[CanFilter]>
+) -> Result<(SocketCanSender, SocketCanReceiver), IoError> {
     let device: &str = device.as_ref();
     let socket = CanSocket::open(device)?;
+    if let Some(socket_filters) = filters {
+        socket.set_filters(socket_filters)?;
+    }
     let socket = Arc::new(socket);
     let receiver = SocketCanReceiver {
         socket: socket.clone(),

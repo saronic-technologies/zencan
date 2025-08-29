@@ -34,7 +34,7 @@ impl From<CanMessage> for Message {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let (_tx, mut rx) = zencan_client::open_socketcan(&args.socket).unwrap();
+    let (_tx, mut rx) = zencan_client::open_socketcan(&args.socket, None).unwrap();
 
     loop {
         if let Ok(msg) = rx.recv().await {

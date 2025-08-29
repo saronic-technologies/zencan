@@ -18,14 +18,18 @@ int-enum = "1.2.0"
 regex = { version = "1.11.1", optional = true }
 serde = { workspace = true, optional = true }
 snafu.workspace = true
-socketcan = { workspace = true, optional = true }
 toml = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+socketcan = {workspace = true, optional = true}
+
 
 [dev-dependencies]
 assertables = "9.8.0"
+socketcan.workspace = true
 
 [features]
-default = ["socketcan", "std", "log"]
+default = ["std"]
 std = ["critical-section/std", "snafu/std", "dep:toml", "dep:regex", "dep:serde"]
 socketcan = ["dep:socketcan", "std"]
 defmt = ["defmt-or-log/defmt", "dep:defmt"]

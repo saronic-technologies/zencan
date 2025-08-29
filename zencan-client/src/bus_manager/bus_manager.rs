@@ -153,18 +153,16 @@ async fn scan_node<S: AsyncCanSender + Sync + Send>(
 
 #[derive(Debug)]
 pub struct SdoClientGuard<'a, S, R>
-where
-    S: AsyncCanSender,
-    R: AsyncCanReceiver,
+    where S : AsyncCanSender,
+          R : AsyncCanReceiver
 {
     _guard: std::sync::MutexGuard<'a, ()>,
     client: SdoClient<S, R>,
 }
 
 impl<S, R> Deref for SdoClientGuard<'_, S, R>
-where
-    S: AsyncCanSender,
-    R: AsyncCanReceiver,
+    where S : AsyncCanSender,
+          R : AsyncCanReceiver,
 {
     type Target = SdoClient<S, R>;
 
@@ -174,9 +172,8 @@ where
 }
 
 impl<S, R> DerefMut for SdoClientGuard<'_, S, R>
-where
-    S: AsyncCanSender,
-    R: AsyncCanReceiver,
+    where S : AsyncCanSender,
+          R : AsyncCanReceiver,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.client

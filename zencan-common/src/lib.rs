@@ -26,6 +26,11 @@ mod socketcan;
 #[cfg_attr(docsrs, doc(cfg(feature = "socketcan")))]
 pub use socketcan::open_socketcan;
 
+#[cfg(feature = "socketcan")]
+pub use socketcan::SocketCanSender;
+#[cfg(feature = "socketcan")]
+pub use socketcan::SocketCanReceiver;
+
 pub use node_id::NodeId;
 
 pub use messages::{CanError, CanId, CanMessage};
