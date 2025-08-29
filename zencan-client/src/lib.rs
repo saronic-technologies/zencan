@@ -30,6 +30,8 @@ pub use zencan_common as common;
 
 pub use bus_manager::BusManager;
 pub use common::open_socketcan;
+pub use common::SocketCanReceiver;
+pub use common::SocketCanSender;
 pub use lss_master::{LssError, LssMaster};
 pub use node_configuration::{NodeConfig, PdoConfig, PdoMapping};
 pub use sdo_client::{RawAbortCode, SdoClient, SdoClientError};
