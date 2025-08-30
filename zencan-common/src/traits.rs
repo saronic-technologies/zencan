@@ -53,7 +53,6 @@ pub trait AsyncCanReceiver: Send {
         &mut self,
     ) -> impl core::future::Future<Output = Result<CanMessage, Self::Error>> + Send;
 
-    /// Remove any pending messages from the receiver
     fn flush(&mut self) {
         while self.try_recv().is_some() {}
     }

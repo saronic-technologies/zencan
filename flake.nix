@@ -29,7 +29,7 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
             outputHashes = {
-              "socketcan-3.5.0" = "sha256-g76mLbGRlh6rV4GmlWioF9FEoUQq/TXs2kWhJ9FPyKQ=";
+              "socketcan-3.5.0" = "sha256-Nfg22TOtvKr26m/jN632Z/SNsuxOGQd5hcqvwicqaLg=";
             };
           };
 
@@ -44,9 +44,6 @@
           ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
           ];
-
-          # Enable Linux features
-          cargoBuildFlags = [ "--features" "linux" ];
 
           # Skip tests that require CAN hardware
           doCheck = false;

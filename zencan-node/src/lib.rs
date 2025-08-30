@@ -193,7 +193,6 @@ pub use critical_section;
 pub use zencan_common as common;
 
 pub use bootloader::{BootloaderInfo, BootloaderSection, BootloaderSectionCallbacks};
-#[cfg(feature = "socketcan")]
 #[cfg_attr(docsrs, doc(cfg(feature = "socketcan")))]
 pub use common::open_socketcan;
 pub use node::Node;

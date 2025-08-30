@@ -58,10 +58,11 @@ impl AsyncCanReceiver for SocketCanReceiver {
     type Error = ReceiveError;
 
     fn try_recv(&mut self) -> Option<CanMessage> {
-        match self.socket.try_read_frame() {
-            Ok(frame) => Some(socketcan_frame_to_zencan_message(frame).unwrap()),
-            _ => None,
-        }
+        panic!("Not implemented as our socketcan doesn't support try_read_frame yet!");
+    //    match self.socket.try_read_frame() {
+    //        Ok(frame) => Some(socketcan_frame_to_zencan_message(frame).unwrap()),
+    //        _ => None,
+    //    }
     }
 
     async fn recv(&mut self) -> Result<CanMessage, ReceiveError> {

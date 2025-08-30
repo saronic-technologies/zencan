@@ -132,21 +132,22 @@ pub struct SdoClient<S, R> {
     receiver: R
 }
 
-impl SdoClient<SocketCanSender, SocketCanReceiver> {
-    pub fn new_socketcan(
-        server_node_id :u8,
-        device :&str
-    ) -> Self {
-        let req_cob_id = CanId::Std(0x600 + server_node_id as u16);
-        let resp_cob_id = CanId::Std(0x580 + server_node_id as u16);
-        
-        let txrx = open_socketcan(
-            device, 
-            Some(&[CanFilter::new(req_cob_id.raw(), 0x7FF), CanFilter::new(resp_cob_id.raw(), 0x7FF)])
-        ).expect("Error opening CAN socket");
+pub fn new_socketcan(
+    server_node_id :u8,
+    device :&str
+) -> SdoClient<SocketCanSender, SocketCanReceiver> {
+    let req_cob_id = CanId::Std(0x600 + server_node_id as u16);
+    let resp_cob_id = CanId::Std(0x580 + server_node_id as u16);
+    
+    // Open our socketcan socket with the proper filters, to avoid it
+    // having to process every single message
+    let txrx = open_socketcan(
+        device, 
+        Some(&[CanFilter::new(req_cob_id.raw(), 0x7FF),
+               CanFilter::new(resp_cob_id.raw(), 0x7FF)])
+    ).expect("Error opening CAN socket");
 
-        Self::new(req_cob_id, resp_cob_id, txrx.0, txrx.1)
-    }
+    SdoClient::<SocketCanSender, SocketCanReceiver>::new(req_cob_id, resp_cob_id, txrx.0, txrx.1)
 }
 
 impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
