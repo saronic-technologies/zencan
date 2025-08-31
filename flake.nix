@@ -29,7 +29,7 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
             outputHashes = {
-              "socketcan-3.5.0" = "sha256-Nfg22TOtvKr26m/jN632Z/SNsuxOGQd5hcqvwicqaLg=";
+              "socketcan-3.5.0" = "sha256-w6XfYGrehsV/QOOB+RWG2za955VRyY2UqRhCX5amNLE=";
             };
           };
 

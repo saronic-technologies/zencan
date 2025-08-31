@@ -1324,7 +1324,7 @@ dependencies = [
 [[package]]
 name = "socketcan"
 version = "3.5.0"
-source = "git+https://github.com/saronic-technologies/socketcan-rs#727f9539dc4b72b4837c20bccf1ab493463f540c"
+source = "git+https://github.com/saronic-technologies/socketcan-rs#e7f05127e201a274cd3862560c224895ccf9ba42"
 dependencies = [
  "bitflags 2.9.3",
  "embedded-can",
@@ -1933,7 +1933,6 @@ dependencies = [
  "log",
  "serde",
  "snafu",
- "socketcan",
  "tokio",
  "toml",
  "zencan-common",

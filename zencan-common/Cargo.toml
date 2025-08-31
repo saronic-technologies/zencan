@@ -19,16 +19,7 @@ regex = { version = "1.11.1", optional = true }
 serde = { workspace = true, optional = true }
 snafu.workspace = true
 toml = { workspace = true, optional = true }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-socketcan = { features = [
-    "tokio", "netlink"
-], git = "https://github.com/saronic-technologies/socketcan-rs", optional = true }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-socketcan = { features = [
-    "tokio", "osx_compatible"
-], git = "https://github.com/saronic-technologies/socketcan-rs", optional = true }
+socketcan = { workspace = true, optional = true }
 
 [dev-dependencies]
 assertables = "9.8.0"

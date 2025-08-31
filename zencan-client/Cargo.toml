@@ -33,16 +33,6 @@ serde = { version = "1.0.219", features = ["derive"] }
 
 zencan-common = { workspace = true, features = ["socketcan", "log"] }
 
-[target.'cfg(target_os = "linux")'.dependencies]
-socketcan = { features = [
-    "tokio", "netlink"
-], git = "https://github.com/saronic-technologies/socketcan-rs" }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-socketcan = { features = [
-    "tokio", "osx_compatible"
-], git = "https://github.com/saronic-technologies/socketcan-rs" }
-
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
 # defines the configuration attribute `docsrs`

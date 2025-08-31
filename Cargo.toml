@@ -43,5 +43,8 @@ log = "0.4.27"
 serde = { version = "1.0.219", features = ["derive"] }
 snafu = { version = "0.8.5", default-features = false }
 
+socketcan = { features = [
+    "tokio"
+], git = "https://github.com/saronic-technologies/socketcan-rs" }
 
 toml = "0.8.20"

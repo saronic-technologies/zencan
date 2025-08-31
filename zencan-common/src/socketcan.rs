@@ -43,6 +43,42 @@ fn zencan_message_to_socket_frame(frame: CanMessage) -> socketcan::CanFrame {
     }
 }
 
+// We want to support filtering, but we also want socketcan-rs to only be used
+// here, so external callers use this struct instead of socketcan's filter
+/// A CAN filter for socketcan interfaces.
+/// 
+/// This struct wraps socketcan filter functionality, allowing callers to filter
+/// incoming CAN messages by ID and mask without directly depending on socketcan types.
+#[derive(Copy, Clone)]
+pub struct SocketCanFilter {
+    id :u32,
+    mask :u32
+}
+
+impl SocketCanFilter {
+    /// Create a new CAN filter with the specified ID and mask.
+    /// 
+    /// # Arguments
+    /// * `id` - The CAN ID to filter for
+    /// * `mask` - The mask to apply to the ID filter
+    /// 
+    /// # Returns
+    /// A new `SocketCanFilter` instance
+    pub fn new(
+        id :u32,
+        mask :u32
+    ) -> Self {
+        Self {
+            id,
+            mask
+        }
+    }
+}
+
+/// A socketcan-based CAN message receiver.
+/// 
+/// This struct implements `AsyncCanReceiver` for receiving CAN messages from a socketcan interface.
+/// Multiple receivers can share the same underlying socket through `Arc<CanSocket>`.
 #[derive(Debug, Clone)]
 pub struct SocketCanReceiver {
     socket: Arc<CanSocket>,
@@ -79,6 +115,10 @@ impl AsyncCanReceiver for SocketCanReceiver {
     }
 }
 
+/// A socketcan-based CAN message sender.
+/// 
+/// This struct implements `AsyncCanSender` for sending CAN messages to a socketcan interface.
+/// Multiple senders can share the same underlying socket through `Arc<CanSocket>`.
 #[derive(Debug, Clone)]
 pub struct SocketCanSender {
     socket: Arc<CanSocket>,
@@ -108,12 +148,17 @@ impl AsyncCanSender for SocketCanSender {
 #[cfg_attr(docsrs, doc(cfg(feature = "socketcan")))]
 pub fn open_socketcan<S: AsRef<str>>(
     device: S,
-    filters :Option<&[CanFilter]>
+    filters :Option<&[SocketCanFilter]>
 ) -> Result<(SocketCanSender, SocketCanReceiver), IoError> {
     let device: &str = device.as_ref();
     let socket = CanSocket::open(device)?;
     if let Some(socket_filters) = filters {
-        socket.set_filters(socket_filters)?;
+        // Map our SocketCanFilters to the native CanFilter
+        let mapped_filters :Vec<CanFilter> = socket_filters.iter().
+            map(|filter| CanFilter::new(filter.id, filter.mask)).collect();
+        socket.set_filters(
+            &mapped_filters
+        )?;
     }
     let socket = Arc::new(socket);
     let receiver = SocketCanReceiver {
