@@ -32,4 +32,4 @@ pub use bus_manager::BusManager;
 pub use common::open_socketcan;
 pub use lss_master::{LssError, LssMaster};
 pub use node_configuration::{NodeConfig, PdoConfig, PdoMapping};
-pub use sdo_client::{RawAbortCode, SdoClient, SdoClientError, new_socketcan};
+pub use sdo_client::{RawAbortCode, SdoClient, SdoClientError, new_socketcan, SdoSocketCANClient};

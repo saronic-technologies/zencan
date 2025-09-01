@@ -131,6 +131,12 @@ pub struct SdoClient<S, R> {
     receiver: R
 }
 
+/// Type alias for an SDO client using SocketCAN for communication.
+/// 
+/// This combines the generic `SdoClient` with SocketCAN-specific sender and receiver
+/// implementations for CANopen SDO communication over Linux SocketCAN interfaces.
+pub type SdoSocketCANClient = SdoClient<SocketCanSender, SocketCanReceiver>;
+
 /// Create a new SDO client using socketcan for communication.
 /// 
 /// This function opens a socketcan device and creates an SDO client with appropriate
@@ -148,7 +154,7 @@ pub struct SdoClient<S, R> {
 pub fn new_socketcan(
     server_node_id :u8,
     device :&str
-) -> SdoClient<SocketCanSender, SocketCanReceiver> {
+) -> SdoSocketCANClient {
     let req_cob_id = CanId::Std(0x600 + server_node_id as u16);
     let resp_cob_id = CanId::Std(0x580 + server_node_id as u16);
     
