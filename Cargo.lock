@@ -147,10 +147,11 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "cc"
-version = "1.2.34"
+version = "1.2.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42bc4aea80032b7bf409b0bc7ccad88853858911b7713a8062fdc0623867bedc"
+checksum = "590f9024a68a8c40351881787f1934dc11afd69090f5edb6831464694d836ea3"
 dependencies = [
+ "find-msvc-tools",
  "shlex",
 ]
 
@@ -463,6 +464,12 @@ dependencies = [
  "rustix 1.0.8",
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "find-msvc-tools"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e178e4fba8a2726903f6ba98a6d221e76f9c12c650d5dc0e6afdc50677b49650"
 
 [[package]]
 name = "fnv"
@@ -1324,7 +1331,7 @@ dependencies = [
 [[package]]
 name = "socketcan"
 version = "3.5.0"
-source = "git+https://github.com/saronic-technologies/socketcan-rs#e7f05127e201a274cd3862560c224895ccf9ba42"
+source = "git+https://github.com/saronic-technologies/socketcan-rs?branch=aomahony/compile-on-OSX#e7f05127e201a274cd3862560c224895ccf9ba42"
 dependencies = [
  "bitflags 2.9.3",
  "embedded-can",

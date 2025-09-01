@@ -45,6 +45,6 @@ snafu = { version = "0.8.5", default-features = false }
 
 socketcan = { features = [
     "tokio"
-], git = "https://github.com/saronic-technologies/socketcan-rs" }
+], git = "https://github.com/saronic-technologies/socketcan-rs", branch = "aomahony/compile-on-OSX" }
 
 toml = "0.8.20"
