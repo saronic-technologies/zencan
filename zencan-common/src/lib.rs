@@ -39,6 +39,8 @@ pub use socketcan::SocketCanSender;
 #[cfg(feature = "socketcan")]
 pub use socketcan::SocketCanReceiver;
 
+pub use traits::{AsyncCanSender, AsyncCanReceiver};
+
 pub use node_id::NodeId;
 
 pub use messages::{CanError, CanId, CanMessage};

@@ -1,8 +1,6 @@
 use clap::Parser;
 use zencan_client::common::{
-    messages::{MessageError, ZencanMessage},
-    traits::AsyncCanReceiver,
-    CanMessage,
+    self, messages::{MessageError, ZencanMessage}, traits::AsyncCanReceiver, CanMessage
 };
 
 #[derive(Parser)]
@@ -34,7 +32,7 @@ impl From<CanMessage> for Message {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let (_tx, mut rx) = zencan_client::open_socketcan(&args.socket, None).unwrap();
+    let (_tx, mut rx) = common::open_socketcan(&args.socket, None).unwrap();
 
     loop {
         if let Ok(msg) = rx.recv().await {

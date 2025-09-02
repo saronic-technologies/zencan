@@ -126,9 +126,7 @@ pub struct SocketCanSender {
 
 impl AsyncCanSender for SocketCanSender {
     async fn send(&mut self, msg: CanMessage) -> Result<(), CanMessage> {
-        let socketcan_frame = zencan_message_to_socket_frame(msg);
-
-        let result = self.socket.write_frame(socketcan_frame).await;
+        let result = self.socket.write_frame(msg.into()).await;
         if result.is_err() {
             Err(msg)
         } else {

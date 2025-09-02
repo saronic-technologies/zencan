@@ -19,8 +19,8 @@ use reedline::{
 use shlex::Shlex;
 use zencan_cli::command::{Cli, Commands, LssCommands, NmtAction, SdoDataType};
 use zencan_client::{
-    common::{lss::LssState, NodeId},
-    open_socketcan, BusManager, NodeConfig,
+    common::{lss::LssState, NodeId, open_socketcan},
+    BusManager, NodeConfig,
 };
 
 #[derive(Parser)]

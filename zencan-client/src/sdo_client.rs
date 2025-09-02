@@ -3,7 +3,7 @@ use std::time::Duration;
 use snafu::Snafu;
 
 use zencan_common::{
-    constants::{object_ids, values::SAVE_CMD}, lss::LssIdentity, messages::CanId, open_socketcan, sdo::{AbortCode, BlockSegment, SdoRequest, SdoResponse}, traits::{AsyncCanReceiver, AsyncCanSender}, SocketCanFilter, SocketCanReceiver, SocketCanSender
+    constants::{object_ids, values::SAVE_CMD}, lss::LssIdentity, messages::CanId, sdo::{AbortCode, BlockSegment, SdoRequest, SdoResponse}, traits::{AsyncCanReceiver, AsyncCanSender}, 
 };
 
 use crate::node_configuration::PdoConfig;
@@ -129,45 +129,6 @@ pub struct SdoClient<S, R> {
     resp_cob_id: CanId,
     sender: S,
     receiver: R
-}
-
-/// Type alias for an SDO client using SocketCAN for communication.
-/// 
-/// This combines the generic `SdoClient` with SocketCAN-specific sender and receiver
-/// implementations for CANopen SDO communication over Linux SocketCAN interfaces.
-pub type SdoSocketCANClient = SdoClient<SocketCanSender, SocketCanReceiver>;
-
-/// Create a new SDO client using socketcan for communication.
-/// 
-/// This function opens a socketcan device and creates an SDO client with appropriate
-/// filters for the request and response COB-IDs based on the server node ID.
-/// 
-/// # Arguments
-/// * `server_node_id` - The CANopen node ID of the server to communicate with
-/// * `device` - The socketcan device name (e.g., "vcan0", "can0")
-/// 
-/// # Returns
-/// An `SdoClient` configured for socketcan communication
-/// 
-/// # Panics
-/// Panics if the CAN socket cannot be opened
-pub fn new_socketcan(
-    server_node_id :u8,
-    device :&str
-) -> SdoSocketCANClient {
-    let req_cob_id = CanId::Std(0x600 + server_node_id as u16);
-    let resp_cob_id = CanId::Std(0x580 + server_node_id as u16);
-    
-    // Open our socketcan socket with the proper filters, to avoid it
-    // having to process every single message
-    let txrx = open_socketcan(
-        device, 
-        Some(&[SocketCanFilter::new(req_cob_id.raw(), 0x7FF),
-               SocketCanFilter::new(resp_cob_id.raw(), 0x7FF)])
-    ).expect("Error opening CAN socket");
-
-    // Create our SdoClient using the Socketcan Sender/Receivers
-    SdoClient::<SocketCanSender, SocketCanReceiver>::new(req_cob_id, resp_cob_id, txrx.0, txrx.1)
 }
 
 impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
