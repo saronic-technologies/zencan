@@ -16,7 +16,7 @@ repository.workspace = true
 crc16.workspace = true
 futures.workspace = true
 log.workspace = true
-snafu.workspace = true
+snafu = {workspace = true, features = ["std"]}
 
 tokio = { version = "1.45.0", features = [
     "net",
