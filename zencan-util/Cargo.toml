@@ -1,0 +1,27 @@
+[package]
+name = "zencan-util"
+version = "0.1.0"
+authors = ["Jeff McBride <jeff@jeffmcbride.net>", "Andrew O'Mahony <andrew.omahony@saronic.com>"]
+description = "Zencan utility methods"
+
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+zencan-common = { workspace = true, features = ["log"] }
+snafu.workspace = true
+socketcan = { workspace = true, optional = true }
+
+[dev-dependencies]
+assertables = "9.8.0"
+
+[features]
+socketcan = ["dep:socketcan"]
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+# defines the configuration attribute `docsrs`
+rustdoc-args = ["--cfg", "docsrs"]

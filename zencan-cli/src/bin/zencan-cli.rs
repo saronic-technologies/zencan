@@ -19,9 +19,12 @@ use reedline::{
 use shlex::Shlex;
 use zencan_cli::command::{Cli, Commands, LssCommands, NmtAction, SdoDataType};
 use zencan_client::{
-    common::{lss::LssState, NodeId, open_socketcan},
+    common::{lss::LssState, NodeId},
     BusManager, NodeConfig,
 };
+
+#[cfg(feature = "socketcan")]
+use zencan_util::socketcan::open_socketcan;
 
 #[derive(Parser)]
 struct Args {
@@ -212,270 +215,278 @@ fn convert_read_bytes_to_string(
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
-    let args = Args::parse();
+    #[cfg(not(feature = "socketcan"))]
+    {
+        panic!("This program only runs with socketcan enabled")
+    }
 
-    let node_state = Arc::new(Mutex::new(0));
-    let prompt = ZencanPrompt::new(&args.socket, node_state.clone());
+    #[cfg(feature = "socketcan")]
+    {
+        env_logger::init();
+        let args = Args::parse();
 
-    let (tx, rx) = open_socketcan(&args.socket, None).expect("Failed to open bus socket");
-    let mut manager = BusManager::new(tx, rx);
+        let node_state = Arc::new(Mutex::new(0));
+        let prompt = ZencanPrompt::new(&args.socket, node_state.clone());
 
-    let completion_menu = Box::new(
-        reedline::IdeMenu::default()
-            .with_default_border()
-            .with_name("completion_menu"),
-    );
-    let mut keybindings = default_emacs_keybindings();
-    keybindings.add_binding(
-        KeyModifiers::NONE,
-        reedline::KeyCode::Tab,
-        ReedlineEvent::UntilFound(vec![
-            ReedlineEvent::Menu("completion_menu".to_string()),
-            ReedlineEvent::MenuNext,
-        ]),
-    );
-    let edit_mode = Box::new(Emacs::new(keybindings));
+        let (tx, rx) = open_socketcan(&args.socket, None).expect("Failed to open bus socket");
+        let mut manager = BusManager::new(tx, rx);
 
-    let mut rl = Reedline::create()
-        .with_completer(Box::new(Completer::<Cli>::new()))
-        .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
-        .with_history(Box::new(
-            FileBackedHistory::with_file(10000, "/tmp/zencan-cli-history".into()).unwrap(),
-        ))
-        .with_edit_mode(edit_mode);
+        let completion_menu = Box::new(
+            reedline::IdeMenu::default()
+                .with_default_border()
+                .with_name("completion_menu"),
+        );
+        let mut keybindings = default_emacs_keybindings();
+        keybindings.add_binding(
+            KeyModifiers::NONE,
+            reedline::KeyCode::Tab,
+            ReedlineEvent::UntilFound(vec![
+                ReedlineEvent::Menu("completion_menu".to_string()),
+                ReedlineEvent::MenuNext,
+            ]),
+        );
+        let edit_mode = Box::new(Emacs::new(keybindings));
 
-    loop {
-        let nodes = manager.node_list().await;
-        *node_state.lock().unwrap() = nodes.len();
-        let line = match rl.read_line(&prompt) {
-            Ok(Signal::Success(line)) => line,
-            Ok(Signal::CtrlC) => continue,
-            Ok(Signal::CtrlD) => {
-                println!("Exiting...");
-                break;
-            }
-            Err(e) => panic!("Reedline error: {e}"),
-        };
+        let mut rl = Reedline::create()
+            .with_completer(Box::new(Completer::<Cli>::new()))
+            .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
+            .with_history(Box::new(
+                FileBackedHistory::with_file(10000, "/tmp/zencan-cli-history".into()).unwrap(),
+            ))
+            .with_edit_mode(edit_mode);
 
-        let cmd = match shlex::split(&line) {
-            Some(split) => {
-                match Cli::try_parse_from(
-                    std::iter::once("").chain(split.iter().map(String::as_str)),
-                ) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        println!("{e}");
-                        continue;
+        loop {
+            let nodes = manager.node_list().await;
+            *node_state.lock().unwrap() = nodes.len();
+            let line = match rl.read_line(&prompt) {
+                Ok(Signal::Success(line)) => line,
+                Ok(Signal::CtrlC) => continue,
+                Ok(Signal::CtrlD) => {
+                    println!("Exiting...");
+                    break;
+                }
+                Err(e) => panic!("Reedline error: {e}"),
+            };
+
+            let cmd = match shlex::split(&line) {
+                Some(split) => {
+                    match Cli::try_parse_from(
+                        std::iter::once("").chain(split.iter().map(String::as_str)),
+                    ) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            println!("{e}");
+                            continue;
+                        }
                     }
                 }
-            }
-            None => {
-                panic!("shlex!");
-            }
-        };
+                None => {
+                    panic!("shlex!");
+                }
+            };
 
-        match cmd.command {
-            Commands::Scan => {
-                let nodes = manager.scan_nodes().await;
-                for n in &nodes {
-                    println!("{n}");
-                }
-            }
-            Commands::Info => {
-                let nodes = manager.node_list().await;
-                for n in &nodes {
-                    println!("{n}");
-                }
-            }
-            Commands::Nmt(cmd) => match cmd.action {
-                NmtAction::ResetApp => manager.nmt_reset_app(cmd.node.raw()).await,
-                NmtAction::ResetComms => manager.nmt_reset_comms(cmd.node.raw()).await,
-                NmtAction::Start => manager.nmt_start(cmd.node.raw()).await,
-                NmtAction::Stop => manager.nmt_stop(cmd.node.raw()).await,
-            },
-            Commands::LoadConfig(args) => {
-                let config = match NodeConfig::load_from_file(&args.path) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        println!("Error reading config file: ");
-                        println!("{e}");
-                        return;
-                    }
-                };
-                let mut client = manager.sdo_client(args.node_id);
-                for (pdo_num, cfg) in config.tpdos() {
-                    if let Err(e) = client.configure_tpdo(*pdo_num, cfg).await {
-                        println!("Error configuring TPDO {pdo_num}:");
-                        println!("{e}");
-                        continue;
+            match cmd.command {
+                Commands::Scan => {
+                    let nodes = manager.scan_nodes().await;
+                    for n in &nodes {
+                        println!("{n}");
                     }
                 }
-                for (pdo_num, cfg) in config.rpdos() {
-                    if let Err(e) = client.configure_rpdo(*pdo_num, cfg).await {
-                        println!("Error configuring RPDO {pdo_num}:");
-                        println!("{e}");
-                        continue;
+                Commands::Info => {
+                    let nodes = manager.node_list().await;
+                    for n in &nodes {
+                        println!("{n}");
                     }
                 }
-                for store in config.stores() {
-                    if let Err(e) = client
-                        .download(store.index, store.sub, &store.raw_value())
-                        .await
-                    {
-                        println!(
-                            "Error storing object at index {:04X} sub {}: {e}",
-                            store.index, store.sub
-                        );
-                        continue;
+                Commands::Nmt(cmd) => match cmd.action {
+                    NmtAction::ResetApp => manager.nmt_reset_app(cmd.node.raw()).await,
+                    NmtAction::ResetComms => manager.nmt_reset_comms(cmd.node.raw()).await,
+                    NmtAction::Start => manager.nmt_start(cmd.node.raw()).await,
+                    NmtAction::Stop => manager.nmt_stop(cmd.node.raw()).await,
+                },
+                Commands::LoadConfig(args) => {
+                    let config = match NodeConfig::load_from_file(&args.path) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            println!("Error reading config file: ");
+                            println!("{e}");
+                            return;
+                        }
+                    };
+                    let mut client = manager.sdo_client(args.node_id);
+                    for (pdo_num, cfg) in config.tpdos() {
+                        if let Err(e) = client.configure_tpdo(*pdo_num, cfg).await {
+                            println!("Error configuring TPDO {pdo_num}:");
+                            println!("{e}");
+                            continue;
+                        }
+                    }
+                    for (pdo_num, cfg) in config.rpdos() {
+                        if let Err(e) = client.configure_rpdo(*pdo_num, cfg).await {
+                            println!("Error configuring RPDO {pdo_num}:");
+                            println!("{e}");
+                            continue;
+                        }
+                    }
+                    for store in config.stores() {
+                        if let Err(e) = client
+                            .download(store.index, store.sub, &store.raw_value())
+                            .await
+                        {
+                            println!(
+                                "Error storing object at index {:04X} sub {}: {e}",
+                                store.index, store.sub
+                            );
+                            continue;
+                        }
                     }
                 }
-            }
-            Commands::Lss(lss_cmd) => match lss_cmd {
-                LssCommands::Activate { identity } => {
-                    match manager.lss_activate(identity.into()).await {
-                        Ok(_) => println!("Success!"),
-                        Err(e) => println!("Error: {e}"),
+                Commands::Lss(lss_cmd) => match lss_cmd {
+                    LssCommands::Activate { identity } => {
+                        match manager.lss_activate(identity.into()).await {
+                            Ok(_) => println!("Success!"),
+                            Err(e) => println!("Error: {e}"),
+                        }
                     }
-                }
-                LssCommands::Fastscan { timeout } => {
-                    let timeout = Duration::from_millis(timeout);
-                    let ids = manager.lss_fastscan(timeout).await;
-                    println!("Found {} unconfigured nodes", ids.len());
-                    for id in ids {
-                        println!(
-                            "0x{:x} 0x{:x} 0x{:x} 0x{:x}",
-                            id.vendor_id, id.product_code, id.revision, id.serial
-                        );
+                    LssCommands::Fastscan { timeout } => {
+                        let timeout = Duration::from_millis(timeout);
+                        let ids = manager.lss_fastscan(timeout).await;
+                        println!("Found {} unconfigured nodes", ids.len());
+                        for id in ids {
+                            println!(
+                                "0x{:x} 0x{:x} 0x{:x} 0x{:x}",
+                                id.vendor_id, id.product_code, id.revision, id.serial
+                            );
+                        }
                     }
-                }
-                LssCommands::SetNodeId { node_id, identity } => {
-                    let node_id = match NodeId::try_from(node_id) {
+                    LssCommands::SetNodeId { node_id, identity } => {
+                        let node_id = match NodeId::try_from(node_id) {
+                            Ok(id) => id,
+                            Err(_) => {
+                                println!("Invalid node_id {node_id}");
+                                continue;
+                            }
+                        };
+
+                        if let Some(ident) = identity {
+                            match manager.lss_activate(ident.into()).await {
+                                Ok(_) => (),
+                                Err(e) => {
+                                    println!("Error activating node: {e}");
+                                    continue;
+                                }
+                            }
+                        }
+                        match manager.lss_set_node_id(node_id).await {
+                            Ok(_) => {
+                                println!("Success!");
+                            }
+                            Err(e) => {
+                                println!("Error setting node id: {e}");
+                            }
+                        }
+                    }
+                    LssCommands::StoreConfig { identity } => {
+                        if let Some(ident) = identity {
+                            match manager.lss_activate(ident.into()).await {
+                                Ok(_) => println!(
+                                    "Activated device 0x{:x} 0x{:x} 0x{:x} 0x{:x}",
+                                    ident.vendor_id, ident.product_code, ident.revision, ident.serial
+                                ),
+                                Err(e) => {
+                                    println!("Error activating node: {e}");
+                                    continue;
+                                }
+                            }
+                        }
+                        match manager.lss_store_config().await {
+                            Ok(_) => println!("Success!"),
+                            Err(e) => println!("Error storing config: {e}"),
+                        }
+                    }
+                    LssCommands::Global { enable } => {
+                        let mode = if enable == 0 {
+                            LssState::Waiting
+                        } else {
+                            LssState::Configuring
+                        };
+                        manager.lss_set_global_mode(mode).await;
+                        println!("Commanding global {mode:?}");
+                    }
+                },
+                Commands::Read(args) => {
+                    // Make sure node ID is valid
+                    let node_id = match NodeId::new(args.node_id) {
                         Ok(id) => id,
                         Err(_) => {
-                            println!("Invalid node_id {node_id}");
+                            println!("{} is not a valid node ID", args.node_id);
                             continue;
                         }
                     };
-
-                    if let Some(ident) = identity {
-                        match manager.lss_activate(ident.into()).await {
-                            Ok(_) => (),
-                            Err(e) => {
-                                println!("Error activating node: {e}");
-                                continue;
-                            }
-                        }
-                    }
-                    match manager.lss_set_node_id(node_id).await {
-                        Ok(_) => {
-                            println!("Success!");
-                        }
-                        Err(e) => {
-                            println!("Error setting node id: {e}");
-                        }
-                    }
-                }
-                LssCommands::StoreConfig { identity } => {
-                    if let Some(ident) = identity {
-                        match manager.lss_activate(ident.into()).await {
-                            Ok(_) => println!(
-                                "Activated device 0x{:x} 0x{:x} 0x{:x} 0x{:x}",
-                                ident.vendor_id, ident.product_code, ident.revision, ident.serial
-                            ),
-                            Err(e) => {
-                                println!("Error activating node: {e}");
-                                continue;
-                            }
-                        }
-                    }
-                    match manager.lss_store_config().await {
-                        Ok(_) => println!("Success!"),
-                        Err(e) => println!("Error storing config: {e}"),
-                    }
-                }
-                LssCommands::Global { enable } => {
-                    let mode = if enable == 0 {
-                        LssState::Waiting
-                    } else {
-                        LssState::Configuring
-                    };
-                    manager.lss_set_global_mode(mode).await;
-                    println!("Commanding global {mode:?}");
-                }
-            },
-            Commands::Read(args) => {
-                // Make sure node ID is valid
-                let node_id = match NodeId::new(args.node_id) {
-                    Ok(id) => id,
-                    Err(_) => {
-                        println!("{} is not a valid node ID", args.node_id);
-                        continue;
-                    }
-                };
-                let mut client = manager.sdo_client(node_id.raw());
-                match client.upload(args.index, args.sub).await {
-                    Ok(bytes) => match args.data_type {
-                        Some(data_type) => match convert_read_bytes_to_string(data_type, &bytes) {
-                            Ok(str) => {
-                                println!("Value: {str}");
-                            }
-                            Err(_) => {
-                                println!(
-                                    "Read invalid data size {} for type {:?}",
-                                    bytes.len(),
-                                    data_type
-                                );
-                                println!("Bytes: {:?}", &bytes);
+                    let mut client = manager.sdo_client(node_id.raw());
+                    match client.upload(args.index, args.sub).await {
+                        Ok(bytes) => match args.data_type {
+                            Some(data_type) => match convert_read_bytes_to_string(data_type, &bytes) {
+                                Ok(str) => {
+                                    println!("Value: {str}");
+                                }
+                                Err(_) => {
+                                    println!(
+                                        "Read invalid data size {} for type {:?}",
+                                        bytes.len(),
+                                        data_type
+                                    );
+                                    println!("Bytes: {:?}", &bytes);
+                                }
+                            },
+                            None => {
+                                println!("Read bytes: {:?}", &bytes);
                             }
                         },
-                        None => {
-                            println!("Read bytes: {:?}", &bytes);
-                        }
-                    },
-                    Err(e) => {
-                        println!("Error reading object: {e}");
-                        continue;
-                    }
-                }
-            }
-            Commands::Write(args) => {
-                // Make sure node ID is valid
-                let node_id = match NodeId::new(args.node_id) {
-                    Ok(id) => id,
-                    Err(_) => {
-                        println!("{} is not a valid node ID", args.node_id);
-                        continue;
-                    }
-                };
-                let mut client = manager.sdo_client(node_id.raw());
-                match convert_write_value_to_bytes(args.data_type, &args.value) {
-                    Ok(bytes) => match client.download(args.index, args.sub, &bytes).await {
-                        Ok(_) => {
-                            println!("Wrote {} bytes", bytes.len());
-                        }
                         Err(e) => {
-                            println!("Download error: {e}");
+                            println!("Error reading object: {e}");
+                            continue;
                         }
-                    },
-                    Err(e) => {
-                        println!("Cannot convert value to {:?}: {}", args.data_type, e);
                     }
                 }
-            }
-            Commands::SaveObjects(args) => {
-                // Make sure node ID is valid
-                let node_id = match NodeId::new(args.node_id) {
-                    Ok(id) => id,
-                    Err(_) => {
-                        println!("{} is not a valid node ID", args.node_id);
-                        continue;
+                Commands::Write(args) => {
+                    // Make sure node ID is valid
+                    let node_id = match NodeId::new(args.node_id) {
+                        Ok(id) => id,
+                        Err(_) => {
+                            println!("{} is not a valid node ID", args.node_id);
+                            continue;
+                        }
+                    };
+                    let mut client = manager.sdo_client(node_id.raw());
+                    match convert_write_value_to_bytes(args.data_type, &args.value) {
+                        Ok(bytes) => match client.download(args.index, args.sub, &bytes).await {
+                            Ok(_) => {
+                                println!("Wrote {} bytes", bytes.len());
+                            }
+                            Err(e) => {
+                                println!("Download error: {e}");
+                            }
+                        },
+                        Err(e) => {
+                            println!("Cannot convert value to {:?}: {}", args.data_type, e);
+                        }
                     }
-                };
-                let mut client = manager.sdo_client(node_id.raw());
-                match client.save_objects().await {
-                    Ok(_) => println!("Node {} save succeeded", node_id.raw()),
-                    Err(e) => println!("Error: {e}"),
+                }
+                Commands::SaveObjects(args) => {
+                    // Make sure node ID is valid
+                    let node_id = match NodeId::new(args.node_id) {
+                        Ok(id) => id,
+                        Err(_) => {
+                            println!("{} is not a valid node ID", args.node_id);
+                            continue;
+                        }
+                    };
+                    let mut client = manager.sdo_client(node_id.raw());
+                    match client.save_objects().await {
+                        Ok(_) => println!("Node {} save succeeded", node_id.raw()),
+                        Err(e) => println!("Error: {e}"),
+                    }
                 }
             }
         }

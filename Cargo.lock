@@ -1929,6 +1929,7 @@ dependencies = [
  "shlex",
  "tokio",
  "zencan-client",
+ "zencan-util",
 ]
 
 [[package]]
@@ -1957,7 +1958,6 @@ dependencies = [
  "regex",
  "serde",
  "snafu",
- "socketcan",
  "toml",
 ]
 
@@ -2000,6 +2000,17 @@ dependencies = [
  "static_cell",
  "zencan-common",
  "zencan-macro",
+ "zencan-util",
+]
+
+[[package]]
+name = "zencan-util"
+version = "0.1.0"
+dependencies = [
+ "assertables",
+ "snafu",
+ "socketcan",
+ "zencan-common",
 ]
 
 [[package]]

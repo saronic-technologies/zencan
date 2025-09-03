@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{
+use zencan_common::{
     messages::{CanError, CanId, CanMessage},
     traits::{AsyncCanReceiver, AsyncCanSender},
 };
@@ -126,7 +126,7 @@ pub struct SocketCanSender {
 
 impl AsyncCanSender for SocketCanSender {
     async fn send(&mut self, msg: CanMessage) -> Result<(), CanMessage> {
-        let result = self.socket.write_frame(msg.into()).await;
+        let result = self.socket.write_frame(zencan_message_to_socket_frame(msg)).await;
         if result.is_err() {
             Err(msg)
         } else {

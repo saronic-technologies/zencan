@@ -193,8 +193,11 @@ pub use critical_section;
 pub use zencan_common as common;
 
 pub use bootloader::{BootloaderInfo, BootloaderSection, BootloaderSectionCallbacks};
+
 #[cfg_attr(docsrs, doc(cfg(feature = "socketcan")))]
-pub use common::open_socketcan;
+#[cfg(feature = "socketcan")]
+pub use zencan_util::socketcan::open_socketcan;
+
 pub use node::Node;
 pub use node_mbox::NodeMbox;
 pub use node_state::{NodeState, NodeStateAccess};

@@ -1,7 +1,13 @@
 use clap::Parser;
 use zencan_client::common::{
-    self, messages::{MessageError, ZencanMessage}, traits::AsyncCanReceiver, CanMessage
+    messages::{MessageError, ZencanMessage}, CanMessage
 };
+
+#[cfg(feature = "socketcan")]
+use zencan_util::socketcan::open_socketcan;
+
+#[cfg(feature = "socketcan")]
+use zencan_client::common::traits::AsyncCanReceiver;
 
 #[derive(Parser)]
 struct Args {
@@ -31,19 +37,27 @@ impl From<CanMessage> for Message {
 
 #[tokio::main]
 async fn main() {
-    let args = Args::parse();
-    let (_tx, mut rx) = common::open_socketcan(&args.socket, None).unwrap();
+    #[cfg(not(feature = "socketcan"))]
+    {
+        panic!("This program is only supported with socketcan")
+    }
 
-    loop {
-        if let Ok(msg) = rx.recv().await {
-            let time = chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, false);
+    #[cfg(feature = "socketcan")]
+    {
+        let args = Args::parse();
+        let (_tx, mut rx) = open_socketcan(&args.socket, None).unwrap();
 
-            match msg.into() {
-                Message::Recognized(msg) => println!("{time}: {msg:?}"),
-                Message::Unrecognized { msg, reason } => {
-                    println!("{time}: {msg:?}");
-                    if args.verbose {
-                        println!("Unrecognized reason: {reason:?}");
+        loop {
+            if let Ok(msg) = rx.recv().await {
+                let time = chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, false);
+
+                match msg.into() {
+                    Message::Recognized(msg) => println!("{time}: {msg:?}"),
+                    Message::Unrecognized { msg, reason } => {
+                        println!("{time}: {msg:?}");
+                        if args.verbose {
+                            println!("Unrecognized reason: {reason:?}");
+                        }
                     }
                 }
             }

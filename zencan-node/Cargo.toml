@@ -14,6 +14,7 @@ repository.workspace = true
 [dependencies]
 # Local
 zencan-common = { workspace = true, default-features = false }
+zencan-util = { workspace = true }
 zencan-macro.workspace = true
 
 # External
@@ -31,7 +32,7 @@ default = ["log", "std"]
 std = ["critical-section/std", "zencan-common/std"]
 log = ["defmt-or-log/log", "zencan-common/log", "dep:log"]
 defmt = ["defmt-or-log/defmt", "zencan-common/defmt", "dep:defmt"]
-socketcan = ["zencan-common/socketcan", "std"]
+socketcan = ["zencan-util/socketcan", "std"]
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]

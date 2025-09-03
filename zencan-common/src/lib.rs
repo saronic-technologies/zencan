@@ -19,26 +19,6 @@ pub mod objects;
 pub mod sdo;
 pub mod traits;
 
-#[cfg(feature = "socketcan")]
-mod socketcan;
-
-#[cfg(feature = "socketcan")]
-#[cfg_attr(docsrs, doc(cfg(feature = "socketcan")))]
-pub use socketcan::open_socketcan;
-
-#[cfg(feature = "socketcan")]
-#[cfg_attr(docsrs, doc(cfg(feature = "socketcan")))]
-pub use socketcan::SocketCanFilter;
-
-// We expose these so we can use them explicitly in zencan-client or elsewhere,
-// such as in making an SDO client using socketcan directly and being able to
-// set filters and such
-
-#[cfg(feature = "socketcan")]
-pub use socketcan::SocketCanSender;
-#[cfg(feature = "socketcan")]
-pub use socketcan::SocketCanReceiver;
-
 pub use traits::{AsyncCanSender, AsyncCanReceiver};
 
 pub use node_id::NodeId;

@@ -19,7 +19,6 @@ regex = { version = "1.11.1", optional = true }
 serde = { workspace = true, optional = true }
 snafu.workspace = true
 toml = { workspace = true, optional = true }
-socketcan = { workspace = true, optional = true }
 
 [dev-dependencies]
 assertables = "9.8.0"
@@ -27,7 +26,6 @@ assertables = "9.8.0"
 [features]
 default = ["std"]
 std = ["critical-section/std", "snafu/std", "dep:toml", "dep:regex", "dep:serde"]
-socketcan = ["dep:socketcan", "std"]
 defmt = ["defmt-or-log/defmt", "dep:defmt"]
 log = ["defmt-or-log/log"]
 

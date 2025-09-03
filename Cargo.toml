@@ -1,7 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-
     "examples/socketcan_node",
     "integration_tests",
     "zencan-build",
@@ -11,6 +10,7 @@ members = [
     "zencan-eds",
     "zencan-macro",
     "zencan-node",
+    "zencan-util"
 ]
 
 
@@ -27,6 +27,7 @@ zencan-client = { path = "zencan-client" }
 zencan-common = { path = "zencan-common", default-features = false }
 zencan-macro = { path = "zencan-macro" }
 zencan-node = { path = "zencan-node" }
+zencan-util = { path = "zencan-util" }
 
 # External
 crc16 = "0.4.0"
