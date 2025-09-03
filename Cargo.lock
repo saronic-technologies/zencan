@@ -1331,7 +1331,7 @@ dependencies = [
 [[package]]
 name = "socketcan"
 version = "3.5.0"
-source = "git+https://github.com/saronic-technologies/socketcan-rs?branch=aomahony/compile-on-OSX#6eee182fa5b1087410cc5af32fede5ec9de7db69"
+source = "git+https://github.com/saronic-technologies/socketcan-rs?branch=aomahony/compile-on-OSX#1e085763af38ec3a4926321e00945a3d23dc0799"
 dependencies = [
  "bitflags 2.9.4",
  "embedded-can",
