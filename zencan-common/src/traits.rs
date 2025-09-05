@@ -1,6 +1,7 @@
 //! Common traits
 
 use core::time::Duration;
+use std::error::Error;
 
 use crate::messages::CanMessage;
 
@@ -14,7 +15,7 @@ impl core::fmt::Display for CanSendError {
     }
 }
 
-impl std::error::Error for CanSendError {}
+impl Error for CanSendError {}
 
 /// A trait for accessing a value
 ///
@@ -55,7 +56,7 @@ pub trait AsyncCanSender: Send {
 /// An async CAN receiver trait
 pub trait AsyncCanReceiver: Send {
     /// The error type returned by recv
-    type Error: std::error::Error + Send + 'static; //core::fmt::Debug + Send;
+    type Error: Error + Send + 'static; //core::fmt::Debug + Send;
 
     /// Receive available message immediately
     fn try_recv(&mut self) -> Result<Option<CanMessage>, Self::Error>;
