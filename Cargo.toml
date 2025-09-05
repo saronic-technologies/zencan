@@ -37,7 +37,7 @@ defmt = "1.0.1"
 defmt-or-log = { version = "0.2.1", default-features = false }
 embedded-io = { version = "0.6.1" }
 futures = { version = "0.3.31", default-features = false, features = [
-    "async-await",
+    "async-await", "alloc"
 ] }
 heapless = "0.8.0"
 log = "0.4.27"

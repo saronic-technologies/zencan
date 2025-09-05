@@ -320,7 +320,7 @@ impl<S: AsyncCanSender + Sync + Send> BusManager<S> {
         const N_PARALLEL: usize = 10;
 
         let ids = Vec::from_iter(1..128u8);
-        let mut nodes = Vec::new();
+        let mut nodes :Vec<NodeInfo> = Vec::new();
 
         let mut chunks = Vec::new();
         for chunk in ids.chunks(128 / N_PARALLEL) {
