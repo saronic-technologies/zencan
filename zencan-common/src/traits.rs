@@ -4,6 +4,18 @@ use core::time::Duration;
 
 use crate::messages::CanMessage;
 
+/// Error type for CAN send operations containing the failed message
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub struct CanSendError(pub CanMessage);
+
+impl core::fmt::Display for CanSendError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Failed to send CAN message: {:?}", self.0)
+    }
+}
+
+impl std::error::Error for CanSendError {}
+
 /// A trait for accessing a value
 ///
 /// E.g. from an AtomicCell
@@ -17,7 +29,7 @@ pub trait LoadStore<T> {
 /// A synchronous can sender
 pub trait CanSender {
     /// Send a message to the bus
-    fn send(&mut self, msg: CanMessage) -> Result<(), CanMessage>;
+    fn send(&mut self, msg: CanMessage) -> Result<(), CanSendError>;
 }
 
 /// A synchronous can receiver
@@ -37,16 +49,16 @@ pub trait AsyncCanSender: Send {
     fn send(
         &mut self,
         msg: CanMessage,
-    ) -> impl core::future::Future<Output = Result<(), CanMessage>>;
+    ) -> impl core::future::Future<Output = Result<(), CanSendError>>;
 }
 
 /// An async CAN receiver trait
 pub trait AsyncCanReceiver: Send {
     /// The error type returned by recv
-    type Error: core::fmt::Debug + Send;
+    type Error: std::error::Error + Send + 'static; //core::fmt::Debug + Send;
 
     /// Receive available message immediately
-    fn try_recv(&mut self) -> Option<CanMessage>;
+    fn try_recv(&mut self) -> Result<Option<CanMessage>, Self::Error>;
 
     /// A blocking receive
     fn recv(
@@ -54,7 +66,8 @@ pub trait AsyncCanReceiver: Send {
     ) -> impl core::future::Future<Output = Result<CanMessage, Self::Error>> + Send;
 
     /// Remove any pending messages from the receiver
-    fn flush(&mut self) {
-        while self.try_recv().is_some() {}
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        while self.try_recv()?.is_some() {}
+        Ok(())
     }
 }

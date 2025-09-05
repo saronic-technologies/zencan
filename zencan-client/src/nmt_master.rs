@@ -1,12 +1,13 @@
 //! Simple interface for sending NMT commands to a bus
-use std::time::Instant;
+use std::{time::Instant};
 
 use zencan_common::{
     messages::{CanMessage, NmtCommand, NmtCommandSpecifier, NmtState, ZencanMessage},
     traits::{AsyncCanReceiver, AsyncCanSender},
 };
 
-type Result<T> = std::result::Result<T, ()>;
+// !!! Preferrable to use anyhow, but this is more generic for now
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// Represents the information about a single node detected on the bus by the [NmtMaster]
 #[derive(Copy, Clone, Debug)]
@@ -61,10 +62,11 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
     }
 
     /// Receive and process all messages available from the message receiver
-    pub fn process_rx(&mut self) {
-        while let Some(msg) = self.receiver.try_recv() {
+    pub fn process_rx(&mut self) -> Result<()> {
+        while let Some(msg) = self.receiver.try_recv()? {
             self.handle_message(msg);
         }
+        Ok(())
     }
 
     fn handle_message(&mut self, msg: CanMessage) {
@@ -159,7 +161,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
 
     async fn send_nmt_cmd(&mut self, cmd: NmtCommandSpecifier, node: u8) -> Result<()> {
         let message = NmtCommand { cs: cmd, node };
-        self.sender.send(message.into()).await.map_err(|_| ())?;
+        self.sender.send(message.into()).await?;
         Ok(())
     }
 }

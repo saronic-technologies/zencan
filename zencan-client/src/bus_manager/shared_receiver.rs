@@ -1,6 +1,7 @@
 //! Utility for sharing a single socket among tasks
 //!
 
+use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -13,6 +14,13 @@ use zencan_common::{traits::AsyncCanReceiver, CanMessage};
 
 #[derive(Clone, Copy, Debug)]
 pub struct NoMsgError;
+
+impl Display for NoMsgError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NoMsgError")
+    }
+}
+impl std::error::Error for NoMsgError {}
 
 #[derive(Debug)]
 struct SharedRecieiverInner {
@@ -112,26 +120,27 @@ impl SharedReceiverChannel {
         self.receiver.recv().await.ok_or(NoMsgError)
     }
 
-    pub fn try_recv(&mut self) -> Option<CanMessage> {
-        self.receiver.try_recv().ok()
+    pub fn try_recv(&mut self) -> Result<Option<CanMessage>, NoMsgError> {
+        let message = self.receiver.try_recv().map_err(|_| NoMsgError)?;
+        Ok(Some(message))
     }
 }
 
 impl AsyncCanReceiver for SharedReceiverChannel {
     type Error = NoMsgError;
 
-    fn try_recv(&mut self) -> Option<CanMessage> {
+    fn try_recv(&mut self) -> Result<Option<CanMessage>, NoMsgError> {
         self.try_recv()
     }
 
-    fn recv(&mut self) -> impl core::future::Future<Output = Result<CanMessage, Self::Error>> {
-        self.recv()
+    async fn recv(&mut self) -> Result<CanMessage, NoMsgError> {
+        self.recv().await
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{fmt::Display, time::Duration};
     use zencan_common::CanId;
 
     use super::*;
@@ -149,13 +158,21 @@ mod tests {
     #[derive(Debug)]
     struct MockReceiveError {}
 
+    impl Display for MockReceiveError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "Mock Receive Error")
+        }
+    }
+
+    impl std::error::Error for MockReceiveError {}
+
     impl AsyncCanReceiver for MockReceiver {
         type Error = MockReceiveError;
 
-        fn try_recv(&mut self) -> Option<CanMessage> {
+        fn try_recv(&mut self) -> Result<Option<CanMessage>, MockReceiveError> {
             let result = self.rx.try_recv();
             println!("{result:?}");
-            result.ok()
+            Ok(result.ok())
         }
 
         async fn recv(&mut self) -> Result<CanMessage, Self::Error> {

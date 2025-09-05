@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use zencan_common::{
     messages::{CanError, CanId, CanMessage},
-    traits::{AsyncCanReceiver, AsyncCanSender},
+    traits::{AsyncCanReceiver, AsyncCanSender, CanSendError},
 };
 use snafu::{ResultExt, Snafu};
 
@@ -93,8 +93,8 @@ pub enum ReceiveError {
 impl AsyncCanReceiver for SocketCanReceiver {
     type Error = ReceiveError;
 
-    fn try_recv(&mut self) -> Option<CanMessage> {
-        panic!("Not implemented as our socketcan doesn't support try_read_frame yet!");
+    fn try_recv(&mut self) -> Result<Option<CanMessage>, ReceiveError> {
+        panic!("Not supported with socketcan::tokio");
     //    match self.socket.try_read_frame() {
     //        Ok(frame) => Some(socketcan_frame_to_zencan_message(frame).unwrap()),
     //        _ => None,
@@ -125,10 +125,10 @@ pub struct SocketCanSender {
 }
 
 impl AsyncCanSender for SocketCanSender {
-    async fn send(&mut self, msg: CanMessage) -> Result<(), CanMessage> {
+    async fn send(&mut self, msg: CanMessage) -> Result<(), CanSendError> {
         let result = self.socket.write_frame(zencan_message_to_socket_frame(msg)).await;
         if result.is_err() {
-            Err(msg)
+            Err(CanSendError(msg))
         } else {
             Ok(())
         }

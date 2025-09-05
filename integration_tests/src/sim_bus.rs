@@ -1,7 +1,8 @@
+use std::fmt::Display;
 use std::sync::{Arc, Mutex};
 
 use zencan_common::messages::CanMessage;
-use zencan_common::traits::{AsyncCanReceiver, AsyncCanSender};
+use zencan_common::traits::{AsyncCanReceiver, AsyncCanSender, CanSendError};
 use zencan_node::{Node, NodeMbox};
 
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -56,7 +57,7 @@ pub struct SimBusSender<'a> {
 }
 
 impl AsyncCanSender for SimBusSender<'_> {
-    async fn send(&mut self, msg: CanMessage) -> Result<(), CanMessage> {
+    async fn send(&mut self, msg: CanMessage) -> Result<(), CanSendError> {
         // Send to nodes on the bus
         for ns in self.node_states.lock().unwrap().iter() {
             // It doesn't matter if store message fails; that just means the node did not
@@ -72,6 +73,17 @@ impl AsyncCanSender for SimBusSender<'_> {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct SimBusReceiverError {}
+
+impl Display for SimBusReceiverError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SimBusReceiverError")
+    }
+}
+
+impl std::error::Error for SimBusReceiverError {}
+
 pub struct SimBusReceiver {
     channel_rx: UnboundedReceiver<CanMessage>,
 }
@@ -83,17 +95,18 @@ impl SimBusReceiver {
 }
 
 impl AsyncCanReceiver for SimBusReceiver {
-    type Error = ();
+    type Error = SimBusReceiverError;
 
     async fn recv(&mut self) -> Result<CanMessage, Self::Error> {
-        self.channel_rx.recv().await.ok_or(())
+        self.channel_rx.recv().await.ok_or(SimBusReceiverError {})
     }
 
-    fn try_recv(&mut self) -> Option<CanMessage> {
-        self.channel_rx.try_recv().ok()
+    fn try_recv(&mut self) -> Result<Option<CanMessage>, Self::Error> {
+        Ok(self.channel_rx.try_recv().ok())
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self) -> Result<(), Self::Error> {
         while self.channel_rx.try_recv().is_ok() {}
+        Ok(())
     }
 }
