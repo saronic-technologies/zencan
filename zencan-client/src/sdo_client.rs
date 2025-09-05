@@ -87,6 +87,7 @@ pub enum SdoClientError {
     /// allowed to change the block size between each block, and can request resend of part of a
     /// block by not acknowledging all segments.
     BlockSizeChangedTooSmall,
+    Unknown
 }
 
 type Result<T> = std::result::Result<T, SdoClientError>;
@@ -171,6 +172,9 @@ impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
             // Do an expedited transfer
             let msg =
                 SdoRequest::expedited_download(index, sub, data).to_can_message(self.req_cob_id);
+            // Flush our receiver socket
+            // !!! This makes this struct not thread-safe!
+            self.receiver.flush().map_err(|_| SdoClientError::Unknown)?;
             self.sender.send(msg).await.unwrap(); // TODO: Expect errors
 
             let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
@@ -184,6 +188,9 @@ impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         } else {
             let msg = SdoRequest::initiate_download(index, sub, Some(data.len() as u32))
                 .to_can_message(self.req_cob_id);
+            // Flush our receiver socket
+            // !!! This makes this struct not thread-safe!
+            self.receiver.flush().map_err(|_| SdoClientError::Unknown)?;
             self.sender.send(msg).await.unwrap();
 
             let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
