@@ -6,6 +6,12 @@ use zencan_common::{
 };
 use snafu::{ResultExt, Snafu};
 
+#[cfg(feature = "not_linux")]
+extern crate socketcan_dev as socketcan;
+
+#[cfg(not(feature = "not_linux"))]
+extern crate socketcan_rs as socketcan;
+
 #[cfg(feature = "socketcan")]
 use socketcan::{tokio::CanSocket, CanFilter, CanFrame, EmbeddedFrame, Frame, ShouldRetry, IoError, SocketOptions};
 

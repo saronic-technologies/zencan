@@ -13,13 +13,19 @@ repository.workspace = true
 [dependencies]
 zencan-common = { workspace = true, features = ["log"] }
 snafu.workspace = true
-socketcan = { workspace = true, optional = true }
+
+socketcan_rs = { package = "socketcan", version = "3.3.0", optional = true }
+socketcan_dev = { package = "socketcan-with-osx", git = "https://github.com/saronic-technologies/socketcan-rs", branch = "aomahony/compile-on-OSX", optional = true }
 
 [dev-dependencies]
 assertables = "9.8.0"
 
 [features]
-socketcan = ["dep:socketcan"]
+default = ["socketcan", "linux"]
+socketcan = []
+# Gate off socketcan based on if we are on Linux or not on Linux
+linux = ["dep:socketcan_rs"]
+not_linux = ["dep:socketcan_dev"]
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
