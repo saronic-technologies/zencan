@@ -2,15 +2,15 @@
 resolver = "2"
 members = [
     # "examples/socketcan_node",
-    "integration_tests",
-    "zencan-build",
-    "zencan-cli",
+    # "integration_tests",
+    # "zencan-build",
+    # "zencan-cli",
     "zencan-client",
     "zencan-common",
-    "zencan-eds",
-    "zencan-macro",
-    "zencan-node",
-    "zencan-util"
+    # "zencan-eds",
+    # "zencan-macro",
+    # "zencan-node",
+    # "zencan-util"
 ]
 
 
