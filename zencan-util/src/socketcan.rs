@@ -6,10 +6,10 @@ use zencan_common::{
 };
 use snafu::{ResultExt, Snafu};
 
-#[cfg(feature = "not_linux")]
+#[cfg(target_os = "macos")]
 extern crate socketcan_dev as socketcan;
 
-#[cfg(not(feature = "not_linux"))]
+#[cfg(target_os = "linux")]
 extern crate socketcan_rs as socketcan;
 
 #[cfg(feature = "socketcan")]
