@@ -22,12 +22,12 @@ repository = "https://github.com/mcbridejc/zencan"
 
 [workspace.dependencies]
 # Local
-zencan-build = { path = "zencan-build" }
+# zencan-build = { path = "zencan-build" }
 zencan-client = { path = "zencan-client" }
 zencan-common = { path = "zencan-common", default-features = false }
-zencan-macro = { path = "zencan-macro" }
-zencan-node = { path = "zencan-node" }
-zencan-util = { path = "zencan-util" }
+# zencan-macro = { path = "zencan-macro" }
+# zencan-node = { path = "zencan-node" }
+# zencan-util = { path = "zencan-util" }
 
 # External
 crc16 = "0.4.0"
