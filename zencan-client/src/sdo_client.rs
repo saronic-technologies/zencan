@@ -87,6 +87,7 @@ pub enum SdoClientError {
     /// allowed to change the block size between each block, and can request resend of part of a
     /// block by not acknowledging all segments.
     BlockSizeChangedTooSmall,
+    /// Unknown Error
     Unknown
 }
 
@@ -174,7 +175,9 @@ impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                 SdoRequest::expedited_download(index, sub, data).to_can_message(self.req_cob_id);
             // Flush our receiver socket
             // !!! This makes this struct not thread-safe!
-            self.receiver.flush().map_err(|_| SdoClientError::Unknown)?;
+            // self.receiver.flush().map_err(|_| SdoClientError::Unknown)?;
+            // !!! Commented out as we aren't planning on doing config with SDO I/O,
+            // !!! which is where the mix occurs
             self.sender.send(msg).await.unwrap(); // TODO: Expect errors
 
             let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
@@ -190,7 +193,9 @@ impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                 .to_can_message(self.req_cob_id);
             // Flush our receiver socket
             // !!! This makes this struct not thread-safe!
-            self.receiver.flush().map_err(|_| SdoClientError::Unknown)?;
+            // self.receiver.flush().map_err(|_| SdoClientError::Unknown)?;
+            // !!! Commented out as we aren't planning on doing config with SDO I/O,
+            // !!! which is where the mix occurs
             self.sender.send(msg).await.unwrap();
 
             let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;

@@ -19,6 +19,7 @@ regex = { version = "1.11.1", optional = true }
 serde = { workspace = true, optional = true }
 snafu.workspace = true
 toml = { workspace = true, optional = true }
+async-trait.workspace = true
 
 [dev-dependencies]
 assertables = "9.8.0"

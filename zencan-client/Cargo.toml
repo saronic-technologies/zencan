@@ -13,6 +13,7 @@ repository.workspace = true
 
 [dependencies]
 # External
+async-trait.workspace = true
 crc16.workspace = true
 futures.workspace = true
 log.workspace = true

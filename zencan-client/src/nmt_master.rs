@@ -2,8 +2,8 @@
 use std::{time::Instant};
 
 use zencan_common::{
-    messages::{CanMessage, NmtCommand, NmtCommandSpecifier, NmtState, ZencanMessage},
-    traits::{AsyncCanReceiver, AsyncCanSender},
+    messages::{CanMessage, NmtState, ZencanMessage},
+    traits::{AsyncCanReceiver},
 };
 
 // !!! Preferrable to use anyhow, but this is more generic for now
@@ -36,13 +36,12 @@ const MAX_NODES: usize = 127;
 
 #[derive(Debug)]
 /// An NMT master which allows monitoring the bus for heartbeats and commanding state changes
-pub struct NmtMaster<S, R> {
-    sender: S,
+pub struct NmtMaster<R> {
     receiver: R,
     nodes: [Node; MAX_NODES],
 }
 
-impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
+impl<R: AsyncCanReceiver> NmtMaster<R> {
     /// Create a new NmtMaster
     ///
     /// # Arguments
@@ -52,10 +51,9 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
     ///   messages from the bus
     ///
     /// When using socketcan, these can be created with [`crate::open_socketcan`].
-    pub fn new(sender: S, receiver: R) -> Self {
+    pub fn new(receiver: R) -> Self {
         let nodes = [Node::default(); MAX_NODES];
         Self {
-            sender,
             receiver,
             nodes,
         }
@@ -84,7 +82,8 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
 
     /// Get a list of all nodes detected on the bus via heartbeat/reset messages
     pub fn get_nodes(&mut self) -> &[Node] {
-        self.process_rx();
+        // !!! This seems to not actually return an error code 
+        let _ = self.process_rx();
 
         // Find the first empty slot; this indicates the end of the list
         let n = self
@@ -122,46 +121,4 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
         }
     }
 
-    /// Send application reset command
-    ///
-    /// # Arguments
-    ///
-    /// - `node`: The node ID to command, or 0 to broadcast to all nodes
-    pub async fn nmt_reset_app(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandSpecifier::ResetApp, node).await
-    }
-
-    /// Send communications reset command
-    ///
-    /// # Arguments
-    ///
-    /// - `node`: The node ID to command, or 0 to broadcast to all nodes
-    pub async fn nmt_reset_comms(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandSpecifier::ResetComm, node)
-            .await
-    }
-
-    /// Send start operation command
-    ///
-    /// # Arguments
-    ///
-    /// - `node`: The node ID to command, or 0 to broadcast to all nodes
-    pub async fn nmt_start(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandSpecifier::Start, node).await
-    }
-
-    /// Send start operation command
-    ///
-    /// # Arguments
-    ///
-    /// - `node`: The node ID to command, or 0 to broadcast to all nodes
-    pub async fn nmt_stop(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandSpecifier::Stop, node).await
-    }
-
-    async fn send_nmt_cmd(&mut self, cmd: NmtCommandSpecifier, node: u8) -> Result<()> {
-        let message = NmtCommand { cs: cmd, node };
-        self.sender.send(message.into()).await?;
-        Ok(())
-    }
 }

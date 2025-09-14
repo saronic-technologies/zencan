@@ -30,6 +30,7 @@ zencan-common = { path = "zencan-common", default-features = false }
 # zencan-util = { path = "zencan-util" }
 
 # External
+async-trait = "0.1"
 crc16 = "0.4.0"
 critical-section = { version = "1.2.0", default-features = false }
 crossbeam = { version = "0.8.4", default-features = false }

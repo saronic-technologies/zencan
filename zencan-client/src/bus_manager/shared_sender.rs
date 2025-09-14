@@ -1,5 +1,6 @@
 //! Utility for sharing a single socket among tasks
 use std::sync::Arc;
+use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use zencan_common::{traits::{AsyncCanSender, CanSendError}, CanMessage};
@@ -28,11 +29,12 @@ impl<S: AsyncCanSender> SharedSender<S> {
     }
 }
 
+#[async_trait]
 impl<S: AsyncCanSender> AsyncCanSender for SharedSender<S> {
-    fn send(
+    async fn send(
         &mut self,
         msg: CanMessage,
-    ) -> impl core::future::Future<Output = Result<(), CanSendError>> {
-        self.send(msg)
+    ) -> Result<(), CanSendError> {
+        self.send(msg).await
     }
 }

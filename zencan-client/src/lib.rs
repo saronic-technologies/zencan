@@ -24,6 +24,7 @@
 mod bus_manager;
 mod lss_master;
 pub mod nmt_master;
+pub mod nmt_client;
 mod node_configuration;
 mod sdo_client;
 pub use zencan_common as common;

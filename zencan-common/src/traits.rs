@@ -3,6 +3,8 @@
 use core::time::Duration;
 use std::error::Error;
 
+use async_trait::async_trait;
+
 use crate::messages::CanMessage;
 
 /// Error type for CAN send operations containing the failed message
@@ -45,15 +47,17 @@ pub trait CanReceiver {
 }
 
 /// An async CAN sender trait
+#[async_trait]
 pub trait AsyncCanSender: Send {
     /// Send a message to the bus
-    fn send(
+    async fn send(
         &mut self,
         msg: CanMessage,
-    ) -> impl core::future::Future<Output = Result<(), CanSendError>>;
+    ) -> Result<(), CanSendError>;
 }
 
 /// An async CAN receiver trait
+#[async_trait]
 pub trait AsyncCanReceiver: Send {
     /// The error type returned by recv
     type Error: Error + Send + 'static; //core::fmt::Debug + Send;
@@ -62,9 +66,9 @@ pub trait AsyncCanReceiver: Send {
     fn try_recv(&mut self) -> Result<Option<CanMessage>, Self::Error>;
 
     /// A blocking receive
-    fn recv(
+    async fn recv(
         &mut self,
-    ) -> impl core::future::Future<Output = Result<CanMessage, Self::Error>> + Send;
+    ) -> Result<CanMessage, Self::Error>;
 
     /// Remove any pending messages from the receiver
     fn flush(&mut self) -> Result<(), Self::Error> {

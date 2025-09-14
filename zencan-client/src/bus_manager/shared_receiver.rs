@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use async_trait::async_trait;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
@@ -126,6 +127,7 @@ impl SharedReceiverChannel {
     }
 }
 
+#[async_trait]
 impl AsyncCanReceiver for SharedReceiverChannel {
     type Error = NoMsgError;
 
