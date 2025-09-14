@@ -20,40 +20,29 @@ impl NmtClient {
     }
 
     /// Send application reset command
-    ///
-    /// # Arguments
-    ///
-    /// - `node`: The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_reset_app(&mut self) -> Result<(), CanSendError> {
         self.send_nmt_cmd(NmtCommandSpecifier::ResetApp, self.node_id).await
     }
 
     /// Send communications reset command
-    ///
-    /// # Arguments
-    ///
-    /// - `node`: The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_reset_comms(&mut self) -> Result<(), CanSendError> {
         self.send_nmt_cmd(NmtCommandSpecifier::ResetComm, self.node_id)
             .await
     }
 
     /// Send start operation command
-    ///
-    /// # Arguments
-    ///
-    /// - `node`: The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_start(&mut self) -> Result<(), CanSendError> {
         self.send_nmt_cmd(NmtCommandSpecifier::Start, self.node_id).await
     }
 
     /// Send start operation command
-    ///
-    /// # Arguments
-    ///
-    /// - `node`: The node ID to command, or 0 to broadcast to all nodes
     pub async fn nmt_stop(&mut self) -> Result<(), CanSendError> {
         self.send_nmt_cmd(NmtCommandSpecifier::Stop, self.node_id).await
+    }
+
+    /// Send preop command
+    pub async fn nmt_preop(&mut self) -> Result<(), CanSendError> {
+        self.send_nmt_cmd(NmtCommandSpecifier::EnterPreOp, self.node_id).await
     }
 
     async fn send_nmt_cmd(&mut self, cmd: NmtCommandSpecifier, node: u8) -> Result<(), CanSendError> {
