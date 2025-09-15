@@ -231,6 +231,19 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
         }
     }
 
+    /// Activates the configured baud rate
+
+    pub async fn activate_baud_rate(&mut self, delay :u16) -> Result<(), LssError> {
+        // No response expected; the baud rate will activate after the delay, at which
+        // point we should also be on the same baud rate.
+        self.send_and_receive(
+            LssRequest::ActivateBitTiming { delay },
+            Duration::ZERO
+        ).await;
+
+        Ok(())
+    }
+
     /// Perform a fast scan of the network to find unconfigured nodes
     ///
     /// # Arguments
@@ -277,8 +290,10 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
             resp_flag
         };
 
-        // The first message resets the LSS state machines, and a response confirms that there is at
-        // least one unconfigured slave to discover
+        // !!! I don't think this is correct for FastScan; it's checking to see if there is an
+        // !!! unconfigured node with the FASTSCAN_CONFIRM, but it's checking against all 0's,
+        // !!! which doesn't seem correct either
+
         // if !send_fs(&id, LSS_FASTSCAN_CONFIRM, sub, next).await {
         //     return None;
         // }
@@ -334,6 +349,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
                     }
                 }
                 // `recv` returned without a message. Keep waiting.
+                // !!! Is this correct??
                 Ok(Err(e)) => {
                     log::error!("Error reading can socket: {e:?}");
                     return None;
