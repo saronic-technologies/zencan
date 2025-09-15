@@ -279,9 +279,9 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
 
         // The first message resets the LSS state machines, and a response confirms that there is at
         // least one unconfigured slave to discover
-        if !send_fs(&id, LSS_FASTSCAN_CONFIRM, sub, next).await {
-            return None;
-        }
+        // if !send_fs(&id, LSS_FASTSCAN_CONFIRM, sub, next).await {
+        //     return None;
+        // }
         while sub < 4 {
             bit_check = 32;
             while bit_check > 0 {
