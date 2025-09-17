@@ -38,19 +38,19 @@ pub struct BusNode {
 async fn scan_node<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send>(
     node_id: u8,
     mut sdo_client :SdoClient<S, R>
-) -> Result<BusNode, ScannerError> {
+) -> anyhow::Result<Option<BusNode>> {
     log::info!("Scanning Node {node_id}");
     let identity = match sdo_client.read_identity().await {
         Ok(id) => id,
         Err(SdoClientError::NoResponse) => {
             log::info!("No response from node {node_id}");
-            return Err(ScannerError::IdentityReadFailed { node_id, source: SdoClientError::NoResponse });
+            return Ok(None);
         }
         Err(e) => {
             // A server responded, but we failed to read identity. An unexpected situation, as all
             // nodes should implement the identity object
             log::error!("SDO Abort Response scanning node {node_id} identity: {e:?}");
-            return Err(ScannerError::IdentityReadFailed { node_id, source: e });
+            return Err(ScannerError::IdentityReadFailed { node_id, source: e }.into());
         }
     };
     let device_name = match sdo_client.read_device_name().await {
@@ -76,13 +76,13 @@ async fn scan_node<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync +
         }
     };
 
-    Ok(BusNode {
+    Ok(Some(BusNode {
         node_id,
         identity,
         device_name,
         software_version,
         hardware_version,
-    })
+    }))
 }
 
 /// The bus scanner is used just to scan a CANOpen bus by node, which we provide
@@ -107,7 +107,7 @@ impl<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send> BusScan
     }
 
     /// Perform a bus scan
-    pub async fn scan(&mut self, node_ids :&[u8]) -> Result<Vec<BusNode>, ScannerError> {
+    pub async fn scan(&mut self, node_ids :&[u8]) -> anyhow::Result<Vec<BusNode>> {
         let mut return_value :Vec<BusNode> = vec![];
 
         const N_PARALLEL: usize = 10;
@@ -125,7 +125,7 @@ impl<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send> BusScan
                 let mut block_nodes = Vec::new();
                 for block_data in block_values {
                     match scan_node(block_data.0, block_data.1.map_err(|_| ScannerError::UnknownError)?).await {
-                        Ok(node) => block_nodes.push(node),
+                        Ok(node) => if node.is_some() { block_nodes.push(node.unwrap()) },
                         Err(e) => return Err(e),
                     }
                 }
