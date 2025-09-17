@@ -1,10 +1,8 @@
-use std::collections::HashMap;
-
 use futures::future::join_all;
 use snafu::Snafu;
 use zencan_common::{lss::LssIdentity, AsyncCanReceiver, AsyncCanSender};
 
-use crate::{sdo_client::ISDOClientBuilder, LssError, SdoClient, SdoClientError};
+use crate::{sdo_client::ISDOClientBuilder, SdoClient, SdoClientError};
 
 /// Error returned by scanner operations
 #[derive(Clone, Debug, PartialEq, Snafu)]
@@ -119,7 +117,7 @@ impl<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send> BusScan
         for chunk in node_ids.chunks(128 / N_PARALLEL) {
             let chunk = Vec::from_iter(chunk.iter().cloned());
             // Pair the node ID with its SDO client
-            let block_values :Vec<(u8, std::result::Result<SdoClient<S, R>, Box<dyn std::error::Error + Send + Sync + 'static>>)> =
+            let block_values :Vec<(u8, anyhow::Result<SdoClient<S, R>>)> =
                 chunk.iter().map(
                   |node_id| (*node_id, self.sdo_client_builder.set_node_id(*node_id).build())
                 ).collect();

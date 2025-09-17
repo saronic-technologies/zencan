@@ -117,11 +117,11 @@ impl SharedReceiverChannel {
         while let Ok(_msg) = self.receiver.try_recv() {}
     }
 
-    pub async fn recv(&mut self) -> Result<CanMessage, NoMsgError> {
-        self.receiver.recv().await.ok_or(NoMsgError)
+    pub async fn recv(&mut self) -> anyhow::Result<CanMessage> {
+        Ok(self.receiver.recv().await.ok_or(NoMsgError)?)
     }
 
-    pub fn try_recv(&mut self) -> Result<Option<CanMessage>, NoMsgError> {
+    pub fn try_recv(&mut self) -> anyhow::Result<Option<CanMessage>> {
         let message = self.receiver.try_recv().map_err(|_| NoMsgError)?;
         Ok(Some(message))
     }
@@ -129,14 +129,12 @@ impl SharedReceiverChannel {
 
 #[async_trait]
 impl AsyncCanReceiver for SharedReceiverChannel {
-    type Error = NoMsgError;
-
-    fn try_recv(&mut self) -> Result<Option<CanMessage>, NoMsgError> {
-        self.try_recv()
+    fn try_recv(&mut self) -> anyhow::Result<Option<CanMessage>> {
+        Ok(self.try_recv()?)
     }
 
-    async fn recv(&mut self) -> Result<CanMessage, NoMsgError> {
-        self.recv().await
+    async fn recv(&mut self) -> anyhow::Result<CanMessage> {
+        Ok(self.recv().await?)
     }
 }
 

@@ -23,9 +23,9 @@ impl<S: AsyncCanSender> SharedSender<S> {
         Self { inner: sender }
     }
 
-    async fn send(&mut self, msg: CanMessage) -> Result<(), CanSendError> {
+    async fn send(&mut self, msg: CanMessage) -> anyhow::Result<()> {
         let mut inner = self.inner.lock().await;
-        inner.send(msg).await
+        Ok(inner.send(msg).await?)
     }
 }
 
@@ -34,7 +34,7 @@ impl<S: AsyncCanSender> AsyncCanSender for SharedSender<S> {
     async fn send(
         &mut self,
         msg: CanMessage,
-    ) -> Result<(), CanSendError> {
-        self.send(msg).await
+    ) -> anyhow::Result<()> {
+        Ok(self.send(msg).await?)
     }
 }

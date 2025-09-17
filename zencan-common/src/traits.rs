@@ -53,25 +53,22 @@ pub trait AsyncCanSender: Send {
     async fn send(
         &mut self,
         msg: CanMessage,
-    ) -> Result<(), CanSendError>;
+    ) -> anyhow::Result<()>;
 }
 
 /// An async CAN receiver trait
 #[async_trait]
 pub trait AsyncCanReceiver: Send {
-    /// The error type returned by recv
-    type Error: Error + Send + 'static; //core::fmt::Debug + Send;
-
     /// Receive available message immediately
-    fn try_recv(&mut self) -> Result<Option<CanMessage>, Self::Error>;
+    fn try_recv(&mut self) -> anyhow::Result<Option<CanMessage>>;
 
     /// A blocking receive
     async fn recv(
         &mut self,
-    ) -> Result<CanMessage, Self::Error>;
+    ) -> anyhow::Result<CanMessage>;
 
     /// Remove any pending messages from the receiver
-    fn flush(&mut self) -> Result<(), Self::Error> {
+    fn flush(&mut self) -> anyhow::Result<()> {
         while self.try_recv()?.is_some() {}
         Ok(())
     }
