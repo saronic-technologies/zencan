@@ -159,3 +159,11 @@ impl<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send> BusScan
         Ok(return_value)
     }
 }
+
+pub trait IBusScannerBuilder<S, R>
+    where S :AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send {
+    fn set_sdo_client_builder(&mut self, sdo_client_builder :Box<dyn ISDOClientBuilder<S, R>>)
+        -> &mut dyn IBusScannerBuilder<S, R>;
+    /// Build the LSS client with the configured identity
+    fn build(&self) -> anyhow::Result<BusScanner<S, R>>;
+}
