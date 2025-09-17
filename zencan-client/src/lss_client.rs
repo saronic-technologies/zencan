@@ -192,10 +192,9 @@ impl LssClient {
 }
 
 /// Builder trait for creating LSS clients
-pub trait ILSSClientBuilder<ErrorType> 
-  where ErrorType: std::error::Error + Send + 'static {
+pub trait ILSSClientBuilder {
     /// Set the LSS identity for the client to be built
-    fn set_identity(&mut self, identity: LssIdentity) -> &mut dyn ILSSClientBuilder<ErrorType>;
+    fn set_identity(&mut self, identity: LssIdentity) -> &mut dyn ILSSClientBuilder;
     /// Build the LSS client with the configured identity
     fn build(&self) -> anyhow::Result<LssClient>;
 }
