@@ -755,5 +755,5 @@ pub trait ISDOClientBuilder<S, R>
     /// Sets the Node ID for the SDO client
     fn set_node_id(&mut self, node_id :u8) -> &mut dyn ISDOClientBuilder<S, R>;
     /// Builds the SDO Client
-    fn build(&self) -> SdoClient<S, R>;
+    fn build(&self) -> std::result::Result<SdoClient<S, R>, Box<dyn std::error::Error>>;
 }

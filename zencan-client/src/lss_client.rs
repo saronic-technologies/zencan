@@ -195,3 +195,9 @@ impl<ErrorType :std::error::Error + Send + 'static> LssClient<ErrorType> {
         }
     }
 }
+
+pub trait ILSSClientBuilder<ErrorType> 
+  where ErrorType: std::error::Error + Send + 'static {
+    fn set_identity(&mut self, identity: LssIdentity) -> &mut dyn ILSSClientBuilder<ErrorType>;
+    fn build(&self) -> std::result::Result<LssClient<ErrorType>, Box<dyn std::error::Error>>;
+}

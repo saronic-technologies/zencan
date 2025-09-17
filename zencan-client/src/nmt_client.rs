@@ -51,3 +51,8 @@ impl NmtClient {
         Ok(())
     }
 }
+
+pub trait INMTClientBuilder {
+    fn set_node_id(&mut self, node_id :u8) -> &mut dyn INMTClientBuilder;
+    fn build(&self) -> std::result::Result<NmtClient, Box<dyn std::error::Error>>;
+}
