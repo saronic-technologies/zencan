@@ -9,18 +9,18 @@ use zencan_common::{lss::{LssIdentity, LssRequest, LssResponse}, AsyncCanReceive
 use crate::LssError;
 
 /// LSS client for configuring devices with specific LSS identities
-pub struct LssClient<'struct_lifetime, ErrorType>
+pub struct LssClient<ErrorType>
     where ErrorType: std::error::Error + Send + 'static {
-    sender :Box<dyn AsyncCanSender + 'struct_lifetime>,
-    receiver :Box<dyn AsyncCanReceiver<Error = ErrorType> + 'struct_lifetime>,
+    sender :Box<dyn AsyncCanSender>,
+    receiver :Box<dyn AsyncCanReceiver<Error = ErrorType>>,
     identity :LssIdentity
 }
 
-impl<'struct_lifetime, ErrorType :std::error::Error + Send + 'static> LssClient<'struct_lifetime, ErrorType> {
+impl<ErrorType :std::error::Error + Send + 'static> LssClient<ErrorType> {
     /// Create a new LSS client bound to a specific device identity
     pub fn new(
-        sender :Box<dyn AsyncCanSender +'struct_lifetime>,
-        receiver :Box<dyn AsyncCanReceiver<Error = ErrorType> + 'struct_lifetime>,
+        sender :Box<dyn AsyncCanSender>,
+        receiver :Box<dyn AsyncCanReceiver<Error = ErrorType>>,
         identity :LssIdentity
     ) -> Self {
         Self {
@@ -58,7 +58,7 @@ impl<'struct_lifetime, ErrorType :std::error::Error + Send + 'static> LssClient<
 
         let serial = self.identity.serial;
         match self
-            .send_and_receive(LssRequest::SwitchStateSerial { serial }, None)
+            .send_and_receive(LssRequest::SwitchStateSerial { serial }, Some(RESPONSE_TIMEOUT))
             .await
         {
             Some(LssResponse::SwitchStateResponse) => Ok(()),
