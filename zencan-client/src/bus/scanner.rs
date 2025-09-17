@@ -17,6 +17,8 @@ pub enum ScannerError {
         /// The underlying SDO error
         source: SdoClientError,
     },
+    /// Unknown Error
+    UnknownError
 }
 
 #[derive(Debug, Clone)]
@@ -117,14 +119,14 @@ impl<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send> BusScan
         for chunk in node_ids.chunks(128 / N_PARALLEL) {
             let chunk = Vec::from_iter(chunk.iter().cloned());
             // Pair the node ID with its SDO client
-            let block_values :Vec<(u8, SdoClient<S, R>)> =
+            let block_values :Vec<(u8, std::result::Result<SdoClient<S, R>, Box<dyn std::error::Error>>)> =
                 chunk.iter().map(
                   |node_id| (*node_id, self.sdo_client_builder.set_node_id(*node_id).build())
                 ).collect();
             futures.push(async {
                 let mut block_nodes = Vec::new();
                 for block_data in block_values {
-                    match scan_node(block_data.0, block_data.1).await {
+                    match scan_node(block_data.0, block_data.1.map_err(|_| ScannerError::UnknownError)?).await {
                         Ok(node) => block_nodes.push(node),
                         Err(e) => return Err(e),
                     }
