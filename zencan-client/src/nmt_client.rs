@@ -90,5 +90,5 @@ pub trait INMTClientBuilder {
     /// Set the node ID for the NMT client to be built
     fn set_node_id(&mut self, node_id :u8) -> &mut dyn INMTClientBuilder;
     /// Build the NMT client with the configured node ID
-    fn build(&self) -> std::result::Result<NmtClient, Box<dyn std::error::Error>>;
+    fn build(&self) -> anyhow::Result<NmtClient>;
 }
