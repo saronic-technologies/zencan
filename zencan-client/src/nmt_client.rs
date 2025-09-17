@@ -35,21 +35,47 @@ impl NmtClient {
         }
     }
 
-    /// Check for and process any waiting heartbeat messages
-    pub async fn update_heartbeat(&mut self) -> anyhow::Result<()> {
-        let received_data = self.receiver.try_recv()?;
-
-        if let Some(data) = received_data {
+    // Returns true if our receiver received a heartbeat
+    fn has_heartbeat(&mut self) -> anyhow::Result<bool> {
+        while let Some(data) = self.receiver.try_recv()? {
             match data.try_into() {
                 Ok(ZencanMessage::Heartbeat(_)) => {
-                    // Update our last_seen variable
-                    self.last_seen = Some(Instant::now());
+                    return Ok(true)
                 },
                 // No heartbeat, no sweat
-                _ => return Ok(())
+                _ => break,
             }
         }
+
+        Ok(false)
+    }
+
+    /// Check for and process any waiting heartbeat messages
+    pub fn update_heartbeat(&mut self) -> anyhow::Result<()> {
+        if true == self.has_heartbeat()? {
+            // Update our last_seen variable
+            self.last_seen = Some(Instant::now());
+        }
+
         Ok(())
+    }
+
+    /// Returns true if we received a heartbeat within the allotted time
+    /// Useful to check the presence of a device without clotting up a runloop
+    pub async fn wait_for_heartbeat(&mut self, wait_time :Duration) -> anyhow::Result<bool> {
+        let wait_until = tokio::time::Instant::now() + wait_time;
+        loop {
+            if true == self.has_heartbeat()? {
+                return Ok(true)
+            }
+
+            if tokio::time::Instant::now() >= wait_until {
+                return Ok(false)
+            }
+
+            // Yield time back to the executor
+            tokio::task::yield_now().await;
+        }
     }
 
     /// Send application reset command

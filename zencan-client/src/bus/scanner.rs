@@ -160,10 +160,12 @@ impl<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send> BusScan
     }
 }
 
+/// Builder trait for creating bus scanners with configurable SDO clients
 pub trait IBusScannerBuilder<S, R>
     where S :AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send {
+    /// Set the SDO client builder for the bus scanner
     fn set_sdo_client_builder(&mut self, sdo_client_builder :Box<dyn ISDOClientBuilder<S, R>>)
         -> &mut dyn IBusScannerBuilder<S, R>;
-    /// Build the LSS client with the configured identity
+    /// Build the bus scanner with the configured SDO client builder
     fn build(&self) -> anyhow::Result<BusScanner<S, R>>;
 }
