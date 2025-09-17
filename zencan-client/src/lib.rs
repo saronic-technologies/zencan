@@ -21,15 +21,17 @@
 )]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-mod bus_manager;
+mod bus;
 mod lss_master;
+/// LSS client for binding to specific device identities
+pub mod lss_client;
 pub mod nmt_master;
 pub mod nmt_client;
 mod node_configuration;
 mod sdo_client;
 pub use zencan_common as common;
 
-pub use bus_manager::BusManager;
+pub use bus::{BusManager, scanner::BusScanner};
 pub use lss_master::{LssError, LssMaster};
 pub use node_configuration::{NodeConfig, PdoConfig, PdoMapping};
 pub use sdo_client::{RawAbortCode, SdoClient, SdoClientError};

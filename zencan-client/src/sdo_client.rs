@@ -748,3 +748,9 @@ impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         }
     }
 }
+
+pub trait ISDOClientBuilder<S, R>
+  where S :AsyncCanSender, R :AsyncCanReceiver {
+    fn set_node_id(&mut self, node_id :u8) -> &mut dyn ISDOClientBuilder<S, R>;
+    fn build(&self) -> SdoClient<S, R>;
+}

@@ -3,9 +3,8 @@ use core::time::Duration;
 
 use tokio::time::timeout_at;
 use zencan_common::{
-    lss::{LssIdentity, LssRequest, LssResponse, LssState, LSS_FASTSCAN_CONFIRM},
+    lss::{LssIdentity, LssRequest, LssResponse, LssState},
     traits::{AsyncCanReceiver, AsyncCanSender},
-    NodeId,
 };
 
 use snafu::Snafu;
@@ -74,6 +73,8 @@ pub enum LssError {
         /// Only supposed to be valid when error is 255
         spec_error: u8,
     },
+    /// The provided node ID is invalid (must be 1-127)
+    InvalidNodeIdError
 }
 
 impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
@@ -88,160 +89,6 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
     /// When using socketcan, these can be created with [`crate::open_socketcan`].
     pub fn new(sender: S, receiver: R) -> Self {
         Self { sender, receiver }
-    }
-
-    /// Configure an LSS slave with known identity
-    ///
-    /// If you know the 128-bit identity value for a node, you can configure it this way.
-    pub async fn configure_by_identity(
-        &mut self,
-        identity: LssIdentity,
-        node_id: NodeId,
-        baud_rate_table: u8,
-        baud_rate_index: u8,
-    ) -> Result<(), LssError> {
-        // Put the specified node into configuration mode
-        self.enter_config_by_identity(
-            identity.vendor_id,
-            identity.product_code,
-            identity.revision,
-            identity.serial,
-        )
-        .await?;
-        // set the node ID
-        self.set_node_id(node_id).await?;
-        // Set the bit rate
-        self.set_baud_rate(baud_rate_table, baud_rate_index).await?;
-
-        Ok(())
-    }
-
-    /// Send a sequence of messages to put a single node into configuration mode based on its identity
-    pub async fn enter_config_by_identity(
-        &mut self,
-        vendor_id: u32,
-        product_code: u32,
-        revision: u32,
-        serial: u32,
-    ) -> Result<(), LssError> {
-        const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
-        // Send global mode to put all nodes into waiting state. No response expected.
-        self.send_and_receive(LssRequest::SwitchModeGlobal { mode: 0 }, Duration::ZERO)
-            .await;
-
-        // Now send the identity messages. If a LSS slave node recognizes its identity, it will respond
-        // to the serial setting message with a SwitchStateResponse message
-        self.send_and_receive(LssRequest::SwitchStateVendor { vendor_id }, Duration::ZERO)
-            .await;
-        self.send_and_receive(
-            LssRequest::SwitchStateProduct { product_code },
-            Duration::ZERO,
-        )
-        .await;
-        self.send_and_receive(LssRequest::SwitchStateRevision { revision }, Duration::ZERO)
-            .await;
-        match self
-            .send_and_receive(LssRequest::SwitchStateSerial { serial }, RESPONSE_TIMEOUT)
-            .await
-        {
-            Some(LssResponse::SwitchStateResponse) => Ok(()),
-            _ => Err(LssError::Timeout),
-        }
-    }
-
-    /// Send a command to set the baud rate on the LSS slave current in configuration mode
-    ///
-    /// The node must have been put into configuration mode already.
-    ///
-    /// Returns Err(LssError::Timeout) if the node does not respond to the command, or
-    /// Err(LssError::ConfigError) if the node responds with an error.
-    ///
-    /// # Arguments
-    /// * `table` - The index of the table of baud rate settings to use (0 for the default CANOpen
-    ///   table)
-    /// * `index` - The index into the table of the baud rate setting to use
-    pub async fn set_baud_rate(&mut self, table: u8, index: u8) -> Result<(), LssError> {
-        const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
-        match self
-            .send_and_receive(
-                LssRequest::ConfigureBitTiming { table, index },
-                RESPONSE_TIMEOUT,
-            )
-            .await
-        {
-            Some(LssResponse::ConfigureBitTimingAck { error, spec_error }) => {
-                if error == 0 {
-                    Ok(())
-                } else {
-                    Err(LssError::BitTimingConfigError { error, spec_error })
-                }
-            }
-            _ => Err(LssError::Timeout),
-        }
-    }
-
-    /// Send a command to set the node ID on the LSS slave current in configuration mode
-    ///
-    /// The node must have been put into configuration mode already.
-    ///
-    /// Returns Err(LssError::Timeout) if the node does not respond to the command, or
-    /// Err(LssError::ConfigError) if the node responds with an error.
-    pub async fn set_node_id(&mut self, node_id: NodeId) -> Result<(), LssError> {
-        const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
-        match self
-            .send_and_receive(
-                LssRequest::ConfigureNodeId {
-                    node_id: node_id.into(),
-                },
-                RESPONSE_TIMEOUT,
-            )
-            .await
-        {
-            Some(LssResponse::ConfigureNodeIdAck { error, spec_error }) => {
-                if error == 0 {
-                    Ok(())
-                } else {
-                    Err(LssError::NodeIdConfigError { error, spec_error })
-                }
-            }
-            _ => Err(LssError::Timeout),
-        }
-    }
-
-    /// Send command to store configuration
-    ///
-    /// The node must have been put into configuration mode already.
-    ///
-    /// Returns Err(LssError::Timeout) if the node does not respond to the command, or
-    /// Err(LssError::ConfigError) if the node responds with an error.
-    pub async fn store_config(&mut self) -> Result<(), LssError> {
-        const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
-        match self
-            .send_and_receive(LssRequest::StoreConfiguration, RESPONSE_TIMEOUT)
-            .await
-        {
-            Some(LssResponse::StoreConfigurationAck { error, spec_error }) => {
-                if error == 0 {
-                    Ok(())
-                } else {
-                    Err(LssError::NodeStoreConfigError { error, spec_error })
-                }
-            }
-            _ => Err(LssError::Timeout),
-        }
-    }
-
-    /// Activates the configured baud rate
-
-    pub async fn activate_baud_rate(&mut self, delay :u16) -> Result<(), LssError> {
-        // No response expected; the baud rate will activate after the delay, at which
-        // point we should also be on the same baud rate.
-        self.send_and_receive(
-            LssRequest::ActivateBitTiming { delay },
-            Duration::ZERO
-        ).await;
-
-        Ok(())
     }
 
     /// Perform a fast scan of the network to find unconfigured nodes
