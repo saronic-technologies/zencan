@@ -67,6 +67,18 @@ impl LssClient {
         }
     }
 
+    /// Places the client's node into waiting state
+    /// This method technically places all nodes into the waiting state, as there
+    /// doesn't seem to be a way to do it per node
+    pub async fn exit_configuration_mode(
+        &mut self
+    ) -> anyhow::Result<()> {
+        // Send global mode to put all nodes into waiting state. No response expected.
+        self.send_and_receive(LssRequest::SwitchModeGlobal { mode: 0 }, None)
+            .await?;
+        Ok(())
+    }
+
     /// Send a command to set the baud rate on the LSS slave current in configuration mode
     ///
     /// The node must have been put into configuration mode already.
