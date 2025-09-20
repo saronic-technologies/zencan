@@ -133,21 +133,6 @@ impl<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send> BusScan
             });
         }
 
-        // for block in chunks {
-        //     futures.push(async {
-        //         let mut block_nodes = Vec::new();
-        //         for block_data in block {
-        //             block_nodes.push(
-        //                 scan_node(
-        //                     block_data.0, 
-        //                     block_data.1
-        //                 ).await
-        //             );
-        //         }
-        //         block_nodes
-        //     });
-        // }
-
         let results = join_all(futures).await;
         for result in results {
             match result {
