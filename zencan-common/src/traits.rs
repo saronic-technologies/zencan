@@ -32,7 +32,7 @@ pub trait LoadStore<T> {
 /// A synchronous can sender
 pub trait CanSender {
     /// Send a message to the bus
-    fn send(&mut self, msg: CanMessage) -> Result<(), CanSendError>;
+    fn send(&self, msg: CanMessage) -> Result<(), CanSendError>;
 }
 
 /// A synchronous can receiver
@@ -41,9 +41,9 @@ pub trait CanReceiver {
     type Error;
     /// Attempt to read a message from the receiver, and return None immediately if no message is
     /// available
-    fn try_recv(&mut self) -> Option<CanMessage>;
+    // fn try_recv(&self) -> Option<CanMessage>;
     /// A blocking receive with timeout
-    fn recv(&mut self, timeout: Duration) -> Result<CanMessage, Self::Error>;
+    fn recv(&self, timeout: Duration) -> Result<CanMessage, Self::Error>;
 }
 
 /// An async CAN sender trait
@@ -60,16 +60,16 @@ pub trait AsyncCanSender: Send + Sync + Debug {
 #[async_trait]
 pub trait AsyncCanReceiver: Send + Sync + Debug {
     /// Receive available message immediately
-    fn try_recv(&self) -> anyhow::Result<Option<CanMessage>>;
+    // fn try_recv(&self) -> anyhow::Result<Option<CanMessage>>;
 
     /// A blocking receive
     async fn recv(
         &self,
     ) -> anyhow::Result<CanMessage>;
 
-    /// Remove any pending messages from the receiver
-    fn flush(&self) -> anyhow::Result<()> {
-        while self.try_recv()?.is_some() {}
-        Ok(())
-    }
+    ///// Remove any pending messages from the receiver
+    // fn flush(&self) -> anyhow::Result<()> {
+    //     while self.try_recv()?.is_some() {}
+    //     Ok(())
+    // }
 }

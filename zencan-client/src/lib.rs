@@ -25,7 +25,7 @@ mod bus;
 mod lss_master;
 /// LSS client for binding to specific device identities
 pub mod lss_client;
-pub mod nmt_master;
+// pub mod nmt_master;
 pub mod nmt_client;
 mod node_configuration;
 mod sdo_client;
