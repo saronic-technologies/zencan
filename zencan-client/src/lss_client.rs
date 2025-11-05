@@ -9,9 +9,13 @@ use zencan_common::{lss::{LssIdentity, LssRequest, LssResponse}, AsyncCanReceive
 use crate::LssError;
 
 /// LSS client for configuring devices with specific LSS identities
+#[derive(Debug)]
 pub struct LssClient {
     sender :Box<dyn AsyncCanSender>,
     receiver :Box<dyn AsyncCanReceiver>,
+    // LSS operates using an identity instead of a node ID; the identity
+    // we can either get from a "fast_scan" (no node ID) or a bus scan,
+    // which just loops over every possible node ID and sees which ones respond
     identity :LssIdentity
 }
 

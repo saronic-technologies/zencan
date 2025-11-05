@@ -1,6 +1,6 @@
 use futures::future::join_all;
 use snafu::Snafu;
-use zencan_common::{lss::LssIdentity, AsyncCanReceiver, AsyncCanSender};
+use zencan_common::{lss::LssIdentity};
 
 use crate::{sdo_client::ISDOClientBuilder, SdoClient, SdoClientError};
 
@@ -15,6 +15,10 @@ pub enum ScannerError {
         /// The underlying SDO error
         source: SdoClientError,
     },
+    #[snafu(display("Duplicate node detected {node_id}"))]
+    DuplicateNodeDetected {
+        node_id :u8
+    },
     /// Unknown Error
     UnknownError
 }
@@ -27,17 +31,11 @@ pub struct BusNode {
     /// This is required as we need to be able to pair
     /// nodes with their 128-bit identities
     pub identity: LssIdentity,
-    /// The device name as reported by the node
-    pub device_name: Option<String>,
-    /// The software version as reported by the node
-    pub software_version: Option<String>,
-    /// The hardware version as reported by the node
-    pub hardware_version: Option<String>,
 }
 
-async fn scan_node<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send>(
+async fn scan_node(
     node_id: u8,
-    mut sdo_client :SdoClient<S, R>
+    mut sdo_client :SdoClient
 ) -> anyhow::Result<Option<BusNode>> {
     log::info!("Scanning Node {node_id}");
     let identity = match sdo_client.read_identity().await {
@@ -46,6 +44,14 @@ async fn scan_node<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync +
             log::info!("No response from node {node_id}");
             return Ok(None);
         }
+        // When we read the identity, we perform 4 reads.  If there is a duplicate node, the
+        // first read will trigger 2 of the same response in the socketbuff, the second of which
+        // will be de-queued when we try to read the response to the actual second request.  The
+        // index and sub-index won't match, and we will get the MismatchedObject error.
+
+        Err(SdoClientError::MismatchedObjectIndex { expected :_, received :_ }) => {
+            return Err(ScannerError::DuplicateNodeDetected { node_id: node_id }.into());
+        }
         Err(e) => {
             // A server responded, but we failed to read identity. An unexpected situation, as all
             // nodes should implement the identity object
@@ -53,53 +59,26 @@ async fn scan_node<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync +
             return Err(ScannerError::IdentityReadFailed { node_id, source: e }.into());
         }
     };
-    let device_name = match sdo_client.read_device_name().await {
-        Ok(s) => Some(s),
-        Err(SdoClientError::NoResponse) => None,
-        Err(e) => {
-            log::error!("SDO Abort Response scanning node {node_id} device name: {e:?}");
-            None
-        }
-    };
-    let software_version = match sdo_client.read_software_version().await {
-        Ok(s) => Some(s),
-        Err(e) => {
-            log::error!("SDO Abort Response scanning node {node_id} SW version: {e:?}");
-            None
-        }
-    };
-    let hardware_version = match sdo_client.read_hardware_version().await {
-        Ok(s) => Some(s),
-        Err(e) => {
-            log::error!("SDO Abort Response scanning node {node_id} HW version: {e:?}");
-            None
-        }
-    };
 
     Ok(Some(BusNode {
         node_id,
         identity,
-        device_name,
-        software_version,
-        hardware_version,
     }))
 }
 
 /// The bus scanner is used just to scan a CANOpen bus by node, which we provide
 /// a helper method for
-pub struct BusScanner<S, R> 
-    where S :AsyncCanSender, R :AsyncCanReceiver {
-
+pub struct BusScanner {
     // We use a builder so we can control when our receiver and sender are
     // actually constructed, and when they are destroyed.  This works well for
     // sockets, because we don't have them open longer than they need to be
-    sdo_client_builder :Box<dyn ISDOClientBuilder<S, R>>,
+    sdo_client_builder :Box<dyn ISDOClientBuilder>,
 }
 
-impl<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send> BusScanner<S, R> {
+impl BusScanner {
     /// Create a new Bus Scanner
     pub fn new(
-        sdo_client_builder :Box<dyn ISDOClientBuilder<S, R>>
+        sdo_client_builder :Box<dyn ISDOClientBuilder>
     ) -> Self {
         Self {
             sdo_client_builder
@@ -117,10 +96,12 @@ impl<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send> BusScan
         for chunk in node_ids.chunks(128 / N_PARALLEL) {
             let chunk = Vec::from_iter(chunk.iter().cloned());
             // Pair the node ID with its SDO client
-            let block_values :Vec<(u8, anyhow::Result<SdoClient<S, R>>)> =
+            let block_values :Vec<(u8, anyhow::Result<SdoClient>)> =
                 chunk.iter().map(
                   |node_id| (*node_id, self.sdo_client_builder.set_node_id(*node_id).build())
                 ).collect();
+            // We've built the SDO client for this node ID, so now we can make a future that
+            // scans the specific chunk we are currently on
             futures.push(async {
                 let mut block_nodes = Vec::new();
                 for block_data in block_values {
@@ -146,11 +127,10 @@ impl<S: AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send> BusScan
 }
 
 /// Builder trait for creating bus scanners with configurable SDO clients
-pub trait IBusScannerBuilder<S, R>
-    where S :AsyncCanSender + Sync + Send, R :AsyncCanReceiver + Sync + Send {
+pub trait IBusScannerBuilder {
     /// Set the SDO client builder for the bus scanner
-    fn set_sdo_client_builder(&mut self, sdo_client_builder :Box<dyn ISDOClientBuilder<S, R>>)
-        -> &mut dyn IBusScannerBuilder<S, R>;
+    fn set_sdo_client_builder(&mut self, sdo_client_builder :Box<dyn ISDOClientBuilder>)
+        -> &mut dyn IBusScannerBuilder;
     /// Build the bus scanner with the configured SDO client builder
-    fn build(&self) -> anyhow::Result<BusScanner<S, R>>;
+    fn build(&self) -> anyhow::Result<BusScanner>;
 }

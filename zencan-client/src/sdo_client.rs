@@ -126,14 +126,14 @@ macro_rules! match_response  {
 /// A client for accessing a node's SDO server
 ///
 /// A single server can talk to a single client at a time.
-pub struct SdoClient<S, R> {
+pub struct SdoClient {
     req_cob_id: CanId,
     resp_cob_id: CanId,
-    sender: S,
-    receiver: R
+    sender :Box<dyn AsyncCanSender>,
+    receiver :Box<dyn AsyncCanReceiver>
 }
 
-impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
+impl SdoClient {
     ///
     /// Create a new SdoClient using a node ID
     ///
@@ -144,8 +144,8 @@ impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     /// can be created using [`Self::new()`]
     pub fn new_std(
         server_node_id: u8, 
-        sender: S,
-        receiver: R
+        sender :Box<dyn AsyncCanSender>,
+        receiver :Box<dyn AsyncCanReceiver>
     ) -> Self {
         let req_cob_id = CanId::Std(0x600 + server_node_id as u16);
         let resp_cob_id = CanId::Std(0x580 + server_node_id as u16);
@@ -156,8 +156,8 @@ impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     pub fn new(
         req_cob_id: CanId, 
         resp_cob_id: CanId, 
-        sender: S,
-        receiver: R
+        sender :Box<dyn AsyncCanSender>,
+        receiver :Box<dyn AsyncCanReceiver>
     ) -> Self {
         Self {
             req_cob_id,
@@ -262,10 +262,19 @@ impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                 n,
                 e,
                 s,
-                index: _,
-                sub: _,
+                // We check these to make sure we received the correct index/subindex,
+                // which allows us to find duplicate nodes on the bus
+                index :returned_index,
+                sub :returned_sub_index,
                 data,
             } => {
+                if returned_index != index || returned_sub_index != sub {
+                    return MismatchedObjectIndexSnafu {
+                        expected: (index, sub),
+                        received: (returned_index, returned_sub_index),
+                    }
+                    .fail();
+                }
                 if e {
                     let mut len = 0;
                     if s {
@@ -735,6 +744,8 @@ impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                 Err(_) => return NoResponseSnafu.fail(),
                 // Message was recieved. If it is the resp, return. Otherwise, keep waiting
                 Ok(Ok(msg)) => {
+                    // !!! Socketcan filters should handle this, but if we aren't using socketcan,
+                    // !!! then this is needed.
                     if msg.id == self.resp_cob_id {
                         return msg.try_into().map_err(|_| MalformedResponseSnafu.build());
                     }
@@ -750,10 +761,9 @@ impl<S :AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
 }
 
 /// SDO Client builder
-pub trait ISDOClientBuilder<S, R>
-  where S :AsyncCanSender, R :AsyncCanReceiver {
+pub trait ISDOClientBuilder {
     /// Sets the Node ID for the SDO client
-    fn set_node_id(&mut self, node_id :u8) -> &mut dyn ISDOClientBuilder<S, R>;
+    fn set_node_id(&mut self, node_id :u8) -> &mut dyn ISDOClientBuilder;
     /// Builds the SDO Client
-    fn build(&self) -> anyhow::Result<SdoClient<S, R>>;
+    fn build(&self) -> anyhow::Result<SdoClient>;
 }

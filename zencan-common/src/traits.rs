@@ -1,6 +1,6 @@
 //! Common traits
 
-use core::time::Duration;
+use core::{fmt::Debug, time::Duration};
 use std::error::Error;
 
 use async_trait::async_trait;
@@ -48,7 +48,7 @@ pub trait CanReceiver {
 
 /// An async CAN sender trait
 #[async_trait]
-pub trait AsyncCanSender: Send {
+pub trait AsyncCanSender: Send + Sync + Debug {
     /// Send a message to the bus
     async fn send(
         &mut self,
@@ -58,7 +58,7 @@ pub trait AsyncCanSender: Send {
 
 /// An async CAN receiver trait
 #[async_trait]
-pub trait AsyncCanReceiver: Send {
+pub trait AsyncCanReceiver: Send + Sync + Debug {
     /// Receive available message immediately
     fn try_recv(&mut self) -> anyhow::Result<Option<CanMessage>>;
 
