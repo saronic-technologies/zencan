@@ -51,7 +51,7 @@ pub trait CanReceiver {
 pub trait AsyncCanSender: Send + Sync + Debug {
     /// Send a message to the bus
     async fn send(
-        &mut self,
+        &self,
         msg: CanMessage,
     ) -> anyhow::Result<()>;
 }
@@ -60,15 +60,15 @@ pub trait AsyncCanSender: Send + Sync + Debug {
 #[async_trait]
 pub trait AsyncCanReceiver: Send + Sync + Debug {
     /// Receive available message immediately
-    fn try_recv(&mut self) -> anyhow::Result<Option<CanMessage>>;
+    fn try_recv(&self) -> anyhow::Result<Option<CanMessage>>;
 
     /// A blocking receive
     async fn recv(
-        &mut self,
+        &self,
     ) -> anyhow::Result<CanMessage>;
 
     /// Remove any pending messages from the receiver
-    fn flush(&mut self) -> anyhow::Result<()> {
+    fn flush(&self) -> anyhow::Result<()> {
         while self.try_recv()?.is_some() {}
         Ok(())
     }

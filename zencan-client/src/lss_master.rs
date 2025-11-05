@@ -98,13 +98,13 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
     ///   Duration::from_millis(20) is probably a pretty safe value, but this depends on the
     ///   responsiveness of the slaves, and on the amount of bus traffic. If the timeout is set too
     ///   short, the scan may fail to find existing nodes.
-    pub async fn fast_scan(&mut self, timeout: Duration) -> Option<LssIdentity> {
+    pub async fn fast_scan(&self, timeout: Duration) -> Option<LssIdentity> {
         let mut id = [0, 0, 0, 0];
         let mut sub = 0;
         let mut next = 0;
         let mut bit_check;
 
-        let mut send_fs = async |id: &[u32; 4], bit_check: u8, sub: u8, next: u8| -> bool {
+        let send_fs = async |id: &[u32; 4], bit_check: u8, sub: u8, next: u8| -> bool {
             // Unlike send_and_receive, this function always waits the full timeout, because we don't know
             // how many nodes will respond to us, so we need to give them time.
             self.sender
@@ -168,7 +168,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
     }
 
     /// Send command to the bus to set the LSS mode for all nodes
-    pub async fn set_global_mode(&mut self, mode: LssState) {
+    pub async fn set_global_mode(&self, mode: LssState) {
         // Send global mode to put all nodes into waiting state. No response expected.
         self.send_and_receive(
             LssRequest::SwitchModeGlobal { mode: mode as u8 },
@@ -178,7 +178,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
     }
 
     async fn send_and_receive(
-        &mut self,
+        &self,
         msg: LssRequest,
         timeout: Duration,
     ) -> Option<LssResponse> {

@@ -168,7 +168,7 @@ impl SdoClient {
     }
 
     /// Write data to a sub-object on the SDO server
-    pub async fn download(&mut self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
+    pub async fn download(&self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
         if data.len() <= 4 {
             // Do an expedited transfer
             let msg =
@@ -247,7 +247,7 @@ impl SdoClient {
     }
 
     /// Read a sub-object on the SDO server
-    pub async fn upload(&mut self, index: u16, sub: u8) -> Result<Vec<u8>> {
+    pub async fn upload(&self, index: u16, sub: u8) -> Result<Vec<u8>> {
         let mut read_buf = Vec::new();
 
         let msg = SdoRequest::initiate_upload(index, sub).to_can_message(self.req_cob_id);
@@ -327,7 +327,7 @@ impl SdoClient {
     ///
     /// Block downloads are more efficient for large amounts of data, but may not be supported by
     /// all devices.
-    pub async fn block_download(&mut self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
+    pub async fn block_download(&self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
         self.sender
             .send(
                 SdoRequest::InitiateBlockDownload {
@@ -451,7 +451,7 @@ impl SdoClient {
     }
 
     /// Write to a u32 object on the SDO server
-    pub async fn download_u32(&mut self, index: u16, sub: u8, data: u32) -> Result<()> {
+    pub async fn download_u32(&self, index: u16, sub: u8, data: u32) -> Result<()> {
         let data = data.to_le_bytes();
         self.download(index, sub, &data).await
     }
@@ -459,12 +459,12 @@ impl SdoClient {
     /// Alias for `download_u32`
     ///
     /// This is a convenience function to allow for a more intuitive API
-    pub async fn write_u32(&mut self, index: u16, sub: u8, data: u32) -> Result<()> {
+    pub async fn write_u32(&self, index: u16, sub: u8, data: u32) -> Result<()> {
         self.download_u32(index, sub, data).await
     }
 
     /// Write to a u16 object on the SDO server
-    pub async fn download_u16(&mut self, index: u16, sub: u8, data: u16) -> Result<()> {
+    pub async fn download_u16(&self, index: u16, sub: u8, data: u16) -> Result<()> {
         let data = data.to_le_bytes();
         self.download(index, sub, &data).await
     }
@@ -472,12 +472,12 @@ impl SdoClient {
     /// Alias for `download_u16`
     ///
     /// This is a convenience function to allow for a more intuitive API
-    pub async fn write_u16(&mut self, index: u16, sub: u8, data: u16) -> Result<()> {
+    pub async fn write_u16(&self, index: u16, sub: u8, data: u16) -> Result<()> {
         self.download_u16(index, sub, data).await
     }
 
     /// Write to a u16 object on the SDO server
-    pub async fn download_u8(&mut self, index: u16, sub: u8, data: u8) -> Result<()> {
+    pub async fn download_u8(&self, index: u16, sub: u8, data: u8) -> Result<()> {
         let data = data.to_le_bytes();
         self.download(index, sub, &data).await
     }
@@ -485,12 +485,12 @@ impl SdoClient {
     /// Alias for `download_u8`
     ///
     /// This is a convenience function to allow for a more intuitive API
-    pub async fn write_u8(&mut self, index: u16, sub: u8, data: u8) -> Result<()> {
+    pub async fn write_u8(&self, index: u16, sub: u8, data: u8) -> Result<()> {
         self.download_u8(index, sub, data).await
     }
 
     /// Write to an i32 object on the SDO server
-    pub async fn download_i32(&mut self, index: u16, sub: u8, data: i32) -> Result<()> {
+    pub async fn download_i32(&self, index: u16, sub: u8, data: i32) -> Result<()> {
         let data = data.to_le_bytes();
         self.download(index, sub, &data).await
     }
@@ -498,12 +498,12 @@ impl SdoClient {
     /// Alias for `download_i32`
     ///
     /// This is a convenience function to allow for a more intuitive API
-    pub async fn write_i32(&mut self, index: u16, sub: u8, data: i32) -> Result<()> {
+    pub async fn write_i32(&self, index: u16, sub: u8, data: i32) -> Result<()> {
         self.download_i32(index, sub, data).await
     }
 
     /// Write to an i16 object on the SDO server
-    pub async fn download_i16(&mut self, index: u16, sub: u8, data: i16) -> Result<()> {
+    pub async fn download_i16(&self, index: u16, sub: u8, data: i16) -> Result<()> {
         let data = data.to_le_bytes();
         self.download(index, sub, &data).await
     }
@@ -511,12 +511,12 @@ impl SdoClient {
     /// Alias for `download_i16`
     ///
     /// This is a convenience function to allow for a more intuitive API
-    pub async fn write_i16(&mut self, index: u16, sub: u8, data: i16) -> Result<()> {
+    pub async fn write_i16(&self, index: u16, sub: u8, data: i16) -> Result<()> {
         self.download_i16(index, sub, data).await
     }
 
     /// Write to an i8 object on the SDO server
-    pub async fn download_i8(&mut self, index: u16, sub: u8, data: i8) -> Result<()> {
+    pub async fn download_i8(&self, index: u16, sub: u8, data: i8) -> Result<()> {
         let data = data.to_le_bytes();
         self.download(index, sub, &data).await
     }
@@ -524,22 +524,22 @@ impl SdoClient {
     /// Alias for `download_i8`
     ///
     /// This is a convenience function to allow for a more intuitive API
-    pub async fn write_i8(&mut self, index: u16, sub: u8, data: i8) -> Result<()> {
+    pub async fn write_i8(&self, index: u16, sub: u8, data: i8) -> Result<()> {
         self.download_i8(index, sub, data).await
     }
 
     /// Read a string from the SDO server
-    pub async fn upload_utf8(&mut self, index: u16, sub: u8) -> Result<String> {
+    pub async fn upload_utf8(&self, index: u16, sub: u8) -> Result<String> {
         let data = self.upload(index, sub).await?;
         Ok(String::from_utf8_lossy(&data).into())
     }
     /// Alias for `upload_utf8`
-    pub async fn read_utf8(&mut self, index: u16, sub: u8) -> Result<String> {
+    pub async fn read_utf8(&self, index: u16, sub: u8) -> Result<String> {
         self.upload_utf8(index, sub).await
     }
 
     /// Read a sub-object from the SDO server, assuming it is an u8
-    pub async fn upload_u8(&mut self, index: u16, sub: u8) -> Result<u8> {
+    pub async fn upload_u8(&self, index: u16, sub: u8) -> Result<u8> {
         let data = self.upload(index, sub).await?;
         if data.len() != 1 {
             return UnexpectedSizeSnafu.fail();
@@ -549,12 +549,12 @@ impl SdoClient {
     /// Alias for `upload_u8`
     ///
     /// This is a convenience function to allow for a more intuitive API
-    pub async fn read_u8(&mut self, index: u16, sub: u8) -> Result<u8> {
+    pub async fn read_u8(&self, index: u16, sub: u8) -> Result<u8> {
         self.upload_u8(index, sub).await
     }
 
     /// Read a sub-object from the SDO server, assuming it is an u16
-    pub async fn upload_u16(&mut self, index: u16, sub: u8) -> Result<u16> {
+    pub async fn upload_u16(&self, index: u16, sub: u8) -> Result<u16> {
         let data = self.upload(index, sub).await?;
         if data.len() != 2 {
             return UnexpectedSizeSnafu.fail();
@@ -565,12 +565,12 @@ impl SdoClient {
     /// Alias for `upload_u16`
     ///
     /// This is a convenience function to allow for a more intuitive API
-    pub async fn read_u16(&mut self, index: u16, sub: u8) -> Result<u16> {
+    pub async fn read_u16(&self, index: u16, sub: u8) -> Result<u16> {
         self.upload_u16(index, sub).await
     }
 
     /// Read a sub-object from the SDO server, assuming it is an u32
-    pub async fn upload_u32(&mut self, index: u16, sub: u8) -> Result<u32> {
+    pub async fn upload_u32(&self, index: u16, sub: u8) -> Result<u32> {
         let data = self.upload(index, sub).await?;
         if data.len() != 4 {
             return UnexpectedSizeSnafu.fail();
@@ -581,12 +581,12 @@ impl SdoClient {
     /// Alias for `upload_u32`
     ///
     /// This is a convenience function to allow for a more intuitive API
-    pub async fn read_u32(&mut self, index: u16, sub: u8) -> Result<u32> {
+    pub async fn read_u32(&self, index: u16, sub: u8) -> Result<u32> {
         self.upload_u32(index, sub).await
     }
 
     /// Read a sub-object from the SDO server, assuming it is an i8
-    pub async fn upload_i8(&mut self, index: u16, sub: u8) -> Result<i8> {
+    pub async fn upload_i8(&self, index: u16, sub: u8) -> Result<i8> {
         let data = self.upload(index, sub).await?;
         if data.len() != 1 {
             return UnexpectedSizeSnafu.fail();
@@ -597,12 +597,12 @@ impl SdoClient {
     /// Alias for `upload_i8`
     ///
     /// This is a convenience function to allow for a more intuitive API
-    pub async fn read_i8(&mut self, index: u16, sub: u8) -> Result<i8> {
+    pub async fn read_i8(&self, index: u16, sub: u8) -> Result<i8> {
         self.upload_i8(index, sub).await
     }
 
     /// Read a sub-object from the SDO server, assuming it is an i16
-    pub async fn upload_i16(&mut self, index: u16, sub: u8) -> Result<i16> {
+    pub async fn upload_i16(&self, index: u16, sub: u8) -> Result<i16> {
         let data = self.upload(index, sub).await?;
         if data.len() != 2 {
             return UnexpectedSizeSnafu.fail();
@@ -613,12 +613,12 @@ impl SdoClient {
     /// Alias for `upload_i16`
     ///
     /// This is a convenience function to allow for a more intuitive API
-    pub async fn read_i16(&mut self, index: u16, sub: u8) -> Result<i16> {
+    pub async fn read_i16(&self, index: u16, sub: u8) -> Result<i16> {
         self.upload_i16(index, sub).await
     }
 
     /// Read a sub-object from the SDO server, assuming it is an i32
-    pub async fn upload_i32(&mut self, index: u16, sub: u8) -> Result<i32> {
+    pub async fn upload_i32(&self, index: u16, sub: u8) -> Result<i32> {
         let data = self.upload(index, sub).await?;
         if data.len() != 4 {
             return UnexpectedSizeSnafu.fail();
@@ -629,14 +629,14 @@ impl SdoClient {
     /// Alias for `upload_i32`
     ///
     /// This is a convenience function to allow for a more intuitive API
-    pub async fn read_i32(&mut self, index: u16, sub: u8) -> Result<i32> {
+    pub async fn read_i32(&self, index: u16, sub: u8) -> Result<i32> {
         self.upload_i32(index, sub).await
     }
 
     /// Read an object as a visible string
     ///
     /// It will be read and assumed to contain valid UTF8 characters
-    pub async fn read_visible_string(&mut self, index: u16, sub: u8) -> Result<String> {
+    pub async fn read_visible_string(&self, index: u16, sub: u8) -> Result<String> {
         let bytes = self.upload(index, sub).await?;
         Ok(String::from_utf8_lossy(&bytes).into())
     }
@@ -644,7 +644,7 @@ impl SdoClient {
     /// Read the identity object
     ///
     /// All nodes should implement this object
-    pub async fn read_identity(&mut self) -> Result<LssIdentity> {
+    pub async fn read_identity(&self) -> Result<LssIdentity> {
         let vendor_id = self.upload_u32(object_ids::IDENTITY, 1).await?;
         let product_code = self.upload_u32(object_ids::IDENTITY, 2).await?;
         let revision_number = self.upload_u32(object_ids::IDENTITY, 3).await?;
@@ -658,7 +658,7 @@ impl SdoClient {
     }
 
     /// Write object 0x1010sub1 to command all objects be saved
-    pub async fn save_objects(&mut self) -> Result<()> {
+    pub async fn save_objects(&self) -> Result<()> {
         self.download_u32(object_ids::SAVE_OBJECTS, 1, SAVE_CMD)
             .await
     }
@@ -666,14 +666,14 @@ impl SdoClient {
     /// Read the device name object
     ///
     /// All nodes should implement this object
-    pub async fn read_device_name(&mut self) -> Result<String> {
+    pub async fn read_device_name(&self) -> Result<String> {
         self.read_visible_string(object_ids::DEVICE_NAME, 0).await
     }
 
     /// Read the software version object
     ///
     /// All nodes should implement this object
-    pub async fn read_software_version(&mut self) -> Result<String> {
+    pub async fn read_software_version(&self) -> Result<String> {
         self.read_visible_string(object_ids::SOFTWARE_VERSION, 0)
             .await
     }
@@ -681,7 +681,7 @@ impl SdoClient {
     /// Read the hardware version object
     ///
     /// All nodes should implement this object
-    pub async fn read_hardware_version(&mut self) -> Result<String> {
+    pub async fn read_hardware_version(&self) -> Result<String> {
         self.read_visible_string(object_ids::HARDWARE_VERSION, 0)
             .await
     }
@@ -690,7 +690,7 @@ impl SdoClient {
     ///
     /// This is a convenience function to write the PDO comm and mapping objects based on a
     /// [`PdoConfig`].
-    pub async fn configure_tpdo(&mut self, pdo_num: usize, cfg: &PdoConfig) -> Result<()> {
+    pub async fn configure_tpdo(&self, pdo_num: usize, cfg: &PdoConfig) -> Result<()> {
         let comm_index = 0x1800 + pdo_num as u16;
         let mapping_index = 0x1a00 + pdo_num as u16;
         self.store_pdo(comm_index, mapping_index, cfg).await
@@ -700,14 +700,14 @@ impl SdoClient {
     ///
     /// This is a convenience function to write the PDO comm and mapping objects based on a
     /// [`PdoConfig`].
-    pub async fn configure_rpdo(&mut self, pdo_num: usize, cfg: &PdoConfig) -> Result<()> {
+    pub async fn configure_rpdo(&self, pdo_num: usize, cfg: &PdoConfig) -> Result<()> {
         let comm_index = 0x1400 + pdo_num as u16;
         let mapping_index = 0x1600 + pdo_num as u16;
         self.store_pdo(comm_index, mapping_index, cfg).await
     }
 
     async fn store_pdo(
-        &mut self,
+        &self,
         comm_index: u16,
         mapping_index: u16,
         cfg: &PdoConfig,
@@ -736,7 +736,7 @@ impl SdoClient {
         Ok(())
     }
 
-    async fn wait_for_response(&mut self, timeout: Duration) -> Result<SdoResponse> {
+    async fn wait_for_response(&self, timeout: Duration) -> Result<SdoResponse> {
         let wait_until = tokio::time::Instant::now() + timeout;
         loop {
             match tokio::time::timeout_at(wait_until, self.receiver.recv()).await {

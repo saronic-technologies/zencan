@@ -35,7 +35,7 @@ pub struct BusNode {
 
 async fn scan_node(
     node_id: u8,
-    mut sdo_client :SdoClient
+    sdo_client :SdoClient
 ) -> anyhow::Result<Option<BusNode>> {
     log::info!("Scanning Node {node_id}");
     let identity = match sdo_client.read_identity().await {
@@ -86,6 +86,8 @@ impl BusScanner {
     }
 
     /// Perform a bus scan
+    // Mutable because we modify our builder for each scan, to get an SdoClient that
+    // we use to perform the scan.
     pub async fn scan(&mut self, node_ids :&[u8]) -> anyhow::Result<Vec<BusNode>> {
         let mut return_value :Vec<BusNode> = vec![];
 

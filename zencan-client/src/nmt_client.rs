@@ -1,5 +1,5 @@
 //! nmt_client module for sending NMT commands to a specific node
-use std::time::{Duration, Instant};
+use std::time::{Duration};
 
 use zencan_common::{messages::{NmtCommand, NmtCommandSpecifier, ZencanMessage}, AsyncCanReceiver, AsyncCanSender};
 
@@ -8,7 +8,6 @@ pub struct NmtClient {
     sender :Box<dyn AsyncCanSender>,
     receiver :Box<dyn AsyncCanReceiver>,
     node_id :u8,
-    last_seen: Option<Instant>,
 }
 
 impl NmtClient {
@@ -22,7 +21,6 @@ impl NmtClient {
             sender,
             receiver,
             node_id,
-            last_seen: None
         }
     }
 
@@ -62,7 +60,7 @@ impl NmtClient {
 
     /// Returns true if we received a heartbeat within the allotted time
     /// Useful to check the presence of a device without clotting up a runloop
-    pub async fn wait_for_heartbeat(&mut self, wait_time :Duration) -> anyhow::Result<bool> {
+    pub async fn wait_for_heartbeat(&self, wait_time :Duration) -> anyhow::Result<bool> {
         // let wait_until = tokio::time::Instant::now() + wait_time;
         loop {
             tokio::select! {
@@ -95,32 +93,32 @@ impl NmtClient {
     }
 
     /// Send application reset command
-    pub async fn nmt_reset_app(&mut self) -> anyhow::Result<()> {
+    pub async fn nmt_reset_app(&self) -> anyhow::Result<()> {
         self.send_nmt_cmd(NmtCommandSpecifier::ResetApp, self.node_id).await
     }
 
     /// Send communications reset command
-    pub async fn nmt_reset_comms(&mut self) -> anyhow::Result<()> {
+    pub async fn nmt_reset_comms(&self) -> anyhow::Result<()> {
         self.send_nmt_cmd(NmtCommandSpecifier::ResetComm, self.node_id)
             .await
     }
 
     /// Send start operation command
-    pub async fn nmt_start(&mut self) -> anyhow::Result<()> {
+    pub async fn nmt_start(&self) -> anyhow::Result<()> {
         self.send_nmt_cmd(NmtCommandSpecifier::Start, self.node_id).await
     }
 
     /// Send start operation command
-    pub async fn nmt_stop(&mut self) -> anyhow::Result<()> {
+    pub async fn nmt_stop(&self) -> anyhow::Result<()> {
         self.send_nmt_cmd(NmtCommandSpecifier::Stop, self.node_id).await
     }
 
     /// Send preop command
-    pub async fn nmt_preop(&mut self) -> anyhow::Result<()> {
+    pub async fn nmt_preop(&self) -> anyhow::Result<()> {
         self.send_nmt_cmd(NmtCommandSpecifier::EnterPreOp, self.node_id).await
     }
 
-    async fn send_nmt_cmd(&mut self, cmd: NmtCommandSpecifier, node: u8) -> anyhow::Result<()> {
+    async fn send_nmt_cmd(&self, cmd: NmtCommandSpecifier, node: u8) -> anyhow::Result<()> {
         let message = NmtCommand { cs: cmd, node };
         self.sender.send(message.into()).await?;
         Ok(())

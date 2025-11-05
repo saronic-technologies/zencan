@@ -35,7 +35,7 @@ impl LssClient {
 
     /// Send a sequence of messages to put a single node into configuration mode based on its identity
     pub async fn enter_configuration_mode(
-        &mut self,
+        &self,
     ) -> anyhow::Result<()> {
         const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
         // Send global mode to put all nodes into waiting state. No response expected.
@@ -120,7 +120,7 @@ impl LssClient {
     ///
     /// Returns Err(LssError::Timeout) if the node does not respond to the command, or
     /// Err(LssError::ConfigError) if the node responds with an error.
-    pub async fn set_node_id(&mut self, node_id: u8) -> anyhow::Result<()> {
+    pub async fn set_node_id(&self, node_id: u8) -> anyhow::Result<()> {
         let node_id_object = NodeId::new(node_id).map_err(|_| LssError::InvalidNodeIdError)?;
         
         const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
@@ -170,7 +170,7 @@ impl LssClient {
 
     /// Activates the configured baud rate
 
-    pub async fn activate_baud_rate(&mut self, delay :u16) -> anyhow::Result<()> {
+    pub async fn activate_baud_rate(&self, delay :u16) -> anyhow::Result<()> {
         // No response expected; the baud rate will activate after the delay, at which
         // point we should also be on the same baud rate.
         self.send_and_receive(
@@ -182,7 +182,7 @@ impl LssClient {
     }
 
     async fn send_and_receive(
-        &mut self,
+        &self,
         msg: LssRequest,
         timeout: Option<Duration>,
     ) -> anyhow::Result<Option<LssResponse>> {
