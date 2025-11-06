@@ -2,7 +2,7 @@ use futures::future::join_all;
 use snafu::Snafu;
 use zencan_common::{lss::LssIdentity};
 
-use crate::{sdo_client::SDOClientBuilder, SdoClient, SdoClientError};
+use crate::{sdo_client::SdoClientBuilder, SdoClient, SdoClientError};
 
 /// Error returned by scanner operations
 #[derive(Clone, Debug, PartialEq, Snafu)]
@@ -73,13 +73,13 @@ pub struct BusScanner {
     // We use a builder so we can control when our receiver and sender are
     // actually constructed, and when they are destroyed.  This works well for
     // sockets, because we don't have them open longer than they need to be
-    sdo_client_builder :Box<dyn SDOClientBuilder>,
+    sdo_client_builder :Box<dyn SdoClientBuilder>,
 }
 
 impl BusScanner {
     /// Create a new Bus Scanner
     pub fn new(
-        sdo_client_builder :Box<dyn SDOClientBuilder>
+        sdo_client_builder :Box<dyn SdoClientBuilder>
     ) -> anyhow::Result<Self> {
         Ok(Self {
             sdo_client_builder
