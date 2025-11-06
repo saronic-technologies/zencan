@@ -1,6 +1,6 @@
 //! Common traits
 
-use core::{fmt::Debug, time::Duration};
+use core::{fmt::Debug};
 use std::error::Error;
 
 use async_trait::async_trait;
@@ -29,26 +29,9 @@ pub trait LoadStore<T> {
     fn store(&self, value: T);
 }
 
-/// A synchronous can sender
-pub trait CanSender {
-    /// Send a message to the bus
-    fn send(&self, msg: CanMessage) -> Result<(), CanSendError>;
-}
-
-/// A synchronous can receiver
-pub trait CanReceiver {
-    /// The error type returned by recv
-    type Error;
-    /// Attempt to read a message from the receiver, and return None immediately if no message is
-    /// available
-    // fn try_recv(&self) -> Option<CanMessage>;
-    /// A blocking receive with timeout
-    fn recv(&self, timeout: Duration) -> Result<CanMessage, Self::Error>;
-}
-
 /// An async CAN sender trait
 #[async_trait]
-pub trait AsyncCanSender: Send + Sync + Debug {
+pub trait AsyncCanSender: Send + Sync {
     /// Send a message to the bus
     async fn send(
         &self,
@@ -58,18 +41,9 @@ pub trait AsyncCanSender: Send + Sync + Debug {
 
 /// An async CAN receiver trait
 #[async_trait]
-pub trait AsyncCanReceiver: Send + Sync + Debug {
-    /// Receive available message immediately
-    // fn try_recv(&self) -> anyhow::Result<Option<CanMessage>>;
-
-    /// A blocking receive
+pub trait AsyncCanReceiver: Send + Sync {
+    /// An async receive
     async fn recv(
         &self,
     ) -> anyhow::Result<CanMessage>;
-
-    ///// Remove any pending messages from the receiver
-    // fn flush(&self) -> anyhow::Result<()> {
-    //     while self.try_recv()?.is_some() {}
-    //     Ok(())
-    // }
 }

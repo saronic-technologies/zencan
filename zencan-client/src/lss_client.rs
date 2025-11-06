@@ -9,7 +9,6 @@ use zencan_common::{lss::{LssIdentity, LssRequest, LssResponse}, AsyncCanReceive
 use crate::LssError;
 
 /// LSS client for configuring devices with specific LSS identities
-#[derive(Debug)]
 pub struct LssClient {
     sender :Box<dyn AsyncCanSender>,
     receiver :Box<dyn AsyncCanReceiver>,
@@ -208,7 +207,7 @@ impl LssClient {
 }
 
 /// Builder trait for creating LSS clients
-pub trait ILSSClientBuilder {
+pub trait ILSSClientBuilder :Send + Sync {
     /// Set the LSS identity for the client to be built
     fn set_identity(&mut self, identity: LssIdentity) -> &mut dyn ILSSClientBuilder;
     /// Build the LSS client with the configured identity

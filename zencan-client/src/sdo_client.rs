@@ -122,7 +122,6 @@ macro_rules! match_response  {
     };
 }
 
-#[derive(Debug)]
 /// A client for accessing a node's SDO server
 ///
 /// A single server can talk to a single client at a time.
@@ -761,7 +760,7 @@ impl SdoClient {
 }
 
 /// SDO Client builder
-pub trait ISDOClientBuilder {
+pub trait ISDOClientBuilder :Send + Sync {
     /// Sets the Node ID for the SDO client
     fn set_node_id(&mut self, node_id :u8) -> &mut dyn ISDOClientBuilder;
     /// Builds the SDO Client

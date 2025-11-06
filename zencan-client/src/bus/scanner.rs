@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use futures::future::join_all;
 use snafu::Snafu;
 use zencan_common::{lss::LssIdentity};
@@ -23,7 +24,8 @@ pub enum ScannerError {
     UnknownError
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
+/// Resulting Bus node from a Bus scanner's scan
 pub struct BusNode {
     /// The node's CAN ID (1-127)
     pub node_id: u8,
@@ -128,11 +130,25 @@ impl BusScanner {
     }
 }
 
-/// Builder trait for creating bus scanners with configurable SDO clients
-pub trait IBusScannerBuilder {
-    /// Set the SDO client builder for the bus scanner
-    fn set_sdo_client_builder(&mut self, sdo_client_builder :Box<dyn ISDOClientBuilder>)
-        -> &mut dyn IBusScannerBuilder;
-    /// Build the bus scanner with the configured SDO client builder
-    fn build(&self) -> anyhow::Result<BusScanner>;
+/// Builder for a BusScanner
+pub struct BusScannerBuilder {
+    sdo_client_builder :Option<Box<dyn ISDOClientBuilder>>
+}
+
+impl BusScannerBuilder {
+    /// Sets the SDO Client Builder for this BusScanner
+    pub fn set_sdo_client_builder(&mut self, sdo_client_builder: Box<dyn ISDOClientBuilder>)
+        -> &mut BusScannerBuilder {
+        self.sdo_client_builder = Some(sdo_client_builder);
+        self
+    }
+
+    /// Builder for the BusScanner
+    /// Consumes the sdo_client_builder, so we pass "self" instead of "&self"
+    pub fn build(self) -> anyhow::Result<BusScanner> {
+        Ok(BusScanner {
+            sdo_client_builder: self.sdo_client_builder
+                .ok_or_else(|| anyhow!("Missing SDO client builder"))?
+        })
+    }
 }

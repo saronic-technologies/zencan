@@ -84,7 +84,7 @@ impl NmtClient {
 }
 
 /// Builder trait for creating NMT clients
-pub trait INMTClientBuilder {
+pub trait INMTClientBuilder :Send + Sync {
     /// Set the node ID for the NMT client to be built
     fn set_node_id(&mut self, node_id :u8) -> &mut dyn INMTClientBuilder;
     /// Build the NMT client with the configured node ID
