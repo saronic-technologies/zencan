@@ -33,4 +33,4 @@ pub use zencan_common as common;
 pub use bus::{scanner::BusScanner, scanner::BusNode};
 pub use lss_master::{LssError, LssMaster};
 pub use node_configuration::{NodeConfig, PdoConfig, PdoMapping};
-pub use sdo_client::{RawAbortCode, SdoClient, SdoClientError, ISDOClientBuilder};
+pub use sdo_client::{RawAbortCode, SdoClient, SdoClientError, SDOClientBuilder};

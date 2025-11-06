@@ -760,9 +760,16 @@ impl SdoClient {
 }
 
 /// SDO Client builder
-pub trait ISDOClientBuilder :Send + Sync {
-    /// Sets the Node ID for the SDO client
-    fn set_node_id(&mut self, node_id :u8) -> &mut dyn ISDOClientBuilder;
-    /// Builds the SDO Client
-    fn build(&self) -> anyhow::Result<SdoClient>;
+pub trait SDOClientBuilder :Send + Sync {
+    /// "Clones" the builder with a different node ID
+    fn with_node_id(&self, node_id :u8) -> Box<dyn SDOClientBuilder>;
+    /// dyn-safe builder
+    fn build_box(self: Box<Self>) -> anyhow::Result<SdoClient>;
+
+    /// Sets the node id of the builder
+    fn set_node_id(self, node_id :u8) -> Self
+        where Self :Sized;
+    /// Size-safe builder
+    fn build(self) -> anyhow::Result<SdoClient>
+        where Self :Sized;
 }

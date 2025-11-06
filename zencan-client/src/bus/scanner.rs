@@ -2,7 +2,7 @@ use futures::future::join_all;
 use snafu::Snafu;
 use zencan_common::{lss::LssIdentity};
 
-use crate::{sdo_client::ISDOClientBuilder, SdoClient, SdoClientError};
+use crate::{sdo_client::SDOClientBuilder, SdoClient, SdoClientError};
 
 /// Error returned by scanner operations
 #[derive(Clone, Debug, PartialEq, Snafu)]
@@ -73,13 +73,13 @@ pub struct BusScanner {
     // We use a builder so we can control when our receiver and sender are
     // actually constructed, and when they are destroyed.  This works well for
     // sockets, because we don't have them open longer than they need to be
-    sdo_client_builder :Box<dyn ISDOClientBuilder>,
+    sdo_client_builder :Box<dyn SDOClientBuilder>,
 }
 
 impl BusScanner {
     /// Create a new Bus Scanner
     pub fn new(
-        sdo_client_builder :Box<dyn ISDOClientBuilder>
+        sdo_client_builder :Box<dyn SDOClientBuilder>
     ) -> anyhow::Result<Self> {
         Ok(Self {
             sdo_client_builder
@@ -107,7 +107,7 @@ impl BusScanner {
             // Pair the node ID with its SDO client
             let block_values :Vec<(u8, anyhow::Result<SdoClient>)> =
                 chunk.iter().map(
-                  |node_id| (*node_id, self.sdo_client_builder.set_node_id(*node_id).build())
+                  |node_id| (*node_id, self.sdo_client_builder.with_node_id(*node_id).build_box())
                 ).collect();
             // We've built the SDO client for this node ID, so now we can make a future that
             // scans the specific chunk we are currently on

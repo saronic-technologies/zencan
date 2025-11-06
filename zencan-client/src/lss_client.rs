@@ -207,9 +207,9 @@ impl LssClient {
 }
 
 /// Builder trait for creating LSS clients
-pub trait ILSSClientBuilder :Send + Sync {
+pub trait LSSClientBuilder :Send + Sync {
     /// Set the LSS identity for the client to be built
-    fn set_identity(&mut self, identity: LssIdentity) -> &mut dyn ILSSClientBuilder;
+    fn set_identity(self, identity: LssIdentity) -> Self;
     /// Build the LSS client with the configured identity
-    fn build(&self) -> anyhow::Result<LssClient>;
+    fn build(self) -> anyhow::Result<LssClient>;
 }
