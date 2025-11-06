@@ -87,6 +87,12 @@ impl BusScanner {
         }
     }
 
+    /// Scans the entire CanOPEN Bus (128 possible nodes)
+    pub async fn full_scan(&mut self) -> anyhow::Result<Vec<BusNode>> {
+        let full_range :Vec<u8> = (0u8..128).collect();
+        self.scan(&full_range).await
+    }
+
     /// Perform a bus scan
     // Mutable because we modify our builder for each scan, to get an SdoClient that
     // we use to perform the scan.
