@@ -30,7 +30,7 @@ mod node_configuration;
 mod sdo_client;
 pub use zencan_common as common;
 
-pub use bus::{scanner::BusScanner, scanner::BusScannerBuilder, scanner::BusNode};
+pub use bus::{scanner::BusScanner, scanner::BusNode};
 pub use lss_master::{LssError, LssMaster};
 pub use node_configuration::{NodeConfig, PdoConfig, PdoMapping};
 pub use sdo_client::{RawAbortCode, SdoClient, SdoClientError, ISDOClientBuilder};

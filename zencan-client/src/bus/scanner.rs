@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use futures::future::join_all;
 use snafu::Snafu;
 use zencan_common::{lss::LssIdentity};
@@ -81,10 +80,10 @@ impl BusScanner {
     /// Create a new Bus Scanner
     pub fn new(
         sdo_client_builder :Box<dyn ISDOClientBuilder>
-    ) -> Self {
-        Self {
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
             sdo_client_builder
-        }
+        })
     }
 
     /// Scans the entire CanOPEN Bus (128 possible nodes)
@@ -136,26 +135,3 @@ impl BusScanner {
     }
 }
 
-/// Builder for a BusScanner
-#[derive(Default)]
-pub struct BusScannerBuilder {
-    sdo_client_builder :Option<Box<dyn ISDOClientBuilder>>
-}
-
-impl BusScannerBuilder {
-    /// Sets the SDO Client Builder for this BusScanner
-    pub fn set_sdo_client_builder(&mut self, sdo_client_builder: Box<dyn ISDOClientBuilder>)
-        -> &mut BusScannerBuilder {
-        self.sdo_client_builder = Some(sdo_client_builder);
-        self
-    }
-
-    /// Builder for the BusScanner
-    /// Consumes the sdo_client_builder, so we pass "self" instead of "&self"
-    pub fn build(self) -> anyhow::Result<BusScanner> {
-        Ok(BusScanner {
-            sdo_client_builder: self.sdo_client_builder
-                .ok_or_else(|| anyhow!("Missing SDO client builder"))?
-        })
-    }
-}
