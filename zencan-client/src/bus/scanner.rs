@@ -137,6 +137,7 @@ impl BusScanner {
 }
 
 /// Builder for a BusScanner
+#[derive(Default)]
 pub struct BusScannerBuilder {
     sdo_client_builder :Option<Box<dyn ISDOClientBuilder>>
 }
