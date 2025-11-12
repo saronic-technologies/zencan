@@ -9,11 +9,9 @@ use zencan_common::{
 
 use snafu::Snafu;
 
-#[derive(Debug)]
 /// Struct to interact with nodes using the LSS protocol
-pub struct LssMaster<S, R> {
-    sender: S,
-    receiver: R,
+pub struct LssMaster {
+    io_guard :tokio::sync::Mutex<(Box<dyn AsyncCanSender>, Box<dyn AsyncCanReceiver>)>
 }
 
 /// Error returned by [`LssMaster`]
@@ -77,7 +75,7 @@ pub enum LssError {
     InvalidNodeIdError
 }
 
-impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
+impl LssMaster {
     /// Create a new LssMaster
     ///
     /// # Arguments
@@ -87,8 +85,13 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
     ///   messages from the bus
     ///
     /// When using socketcan, these can be created with [`crate::open_socketcan`].
-    pub fn new(sender: S, receiver: R) -> Self {
-        Self { sender, receiver }
+    pub fn new(
+        sender: Box<dyn AsyncCanSender>,
+        receiver: Box<dyn AsyncCanReceiver>
+    ) -> Self {
+        Self {
+            io_guard: (sender, receiver).into()
+        }
     }
 
     /// Perform a fast scan of the network to find unconfigured nodes
@@ -104,10 +107,15 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
         let mut next = 0;
         let mut bit_check;
 
+        let io = self.io_guard.lock().await;
+
+        let sender = &io.0;
+        let receiver = &io.1;
+
         let send_fs = async |id: &[u32; 4], bit_check: u8, sub: u8, next: u8| -> bool {
             // Unlike send_and_receive, this function always waits the full timeout, because we don't know
             // how many nodes will respond to us, so we need to give them time.
-            self.sender
+            sender
                 .send(
                     LssRequest::FastScan {
                         id: id[sub as usize],
@@ -123,7 +131,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
             let wait_until = tokio::time::Instant::now() + timeout;
             let mut resp_flag = false;
             loop {
-                match timeout_at(wait_until, self.receiver.recv()).await {
+                match timeout_at(wait_until, receiver.recv()).await {
                     // timeout
                     Err(_) => break,
                     Ok(Ok(msg)) => {
@@ -182,11 +190,15 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> LssMaster<S, R> {
         msg: LssRequest,
         timeout: Duration,
     ) -> Option<LssResponse> {
-        self.sender.send(msg.into()).await.ok()?;
+        let io = self.io_guard.lock().await;
+        let sender = &io.0;
+        let receiver = &io.1;
+
+        sender.send(msg.into()).await.ok()?;
 
         let wait_until = tokio::time::Instant::now() + timeout;
         loop {
-            match timeout_at(wait_until, self.receiver.recv()).await {
+            match timeout_at(wait_until, receiver.recv()).await {
                 // Got a message
                 Ok(Ok(msg)) => {
                     match msg.try_into() {

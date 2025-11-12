@@ -10,8 +10,9 @@ use crate::LssError;
 
 /// LSS client for configuring devices with specific LSS identities
 pub struct LssClient {
-    sender :Box<dyn AsyncCanSender>,
-    receiver :Box<dyn AsyncCanReceiver>,
+    // While our sender and receiver by themselves are "Sync", our protocol
+    // is not, as it requires exclusive access to them.  This guard guarantees that.
+    io_guard :tokio::sync::Mutex<(Box<dyn AsyncCanSender>, Box<dyn AsyncCanReceiver>)>,
     // LSS operates using an identity instead of a node ID; the identity
     // we can either get from a "fast_scan" (no node ID) or a bus scan,
     // which just loops over every possible node ID and sees which ones respond
@@ -26,8 +27,7 @@ impl LssClient {
         identity :LssIdentity
     ) -> Self {
         Self {
-            sender,
-            receiver,
+            io_guard :(sender, receiver).into(),
             identity
         }
     }
@@ -185,13 +185,17 @@ impl LssClient {
         msg: LssRequest,
         timeout: Option<Duration>,
     ) -> anyhow::Result<Option<LssResponse>> {
-        self.sender.send(msg.into()).await?;
+        let io = self.io_guard.lock().await;
+        let sender = &io.0;
+        let receiver = &io.1;
+
+        sender.send(msg.into()).await?;
 
         let wait_until = tokio::time::Instant::now() 
           + (if timeout.is_none() {Duration::ZERO} else {timeout.unwrap()});
 
         loop {
-            match timeout_at(wait_until, self.receiver.recv()).await {
+            match timeout_at(wait_until, receiver.recv()).await {
                 // Got a message
                 Ok(Ok(msg)) => {
                     return Ok(Some(msg.try_into()?))

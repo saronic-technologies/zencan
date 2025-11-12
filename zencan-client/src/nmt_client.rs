@@ -5,8 +5,7 @@ use zencan_common::{messages::{NmtCommand, NmtCommandSpecifier, ZencanMessage}, 
 
 /// Client struct to represent NMT commands for a specific node
 pub struct NmtClient {
-    sender :Box<dyn AsyncCanSender>,
-    receiver :Box<dyn AsyncCanReceiver>,
+    io_guard :tokio::sync::Mutex<(Box<dyn AsyncCanSender>, Box<dyn AsyncCanReceiver>)>,
     node_id :u8,
 }
 
@@ -18,8 +17,7 @@ impl NmtClient {
         node_id :u8
     ) -> Self {
         Self {
-            sender,
-            receiver,
+            io_guard :(sender, receiver).into(),
             node_id,
         }
     }
@@ -27,10 +25,11 @@ impl NmtClient {
     /// Returns true if we received a heartbeat within the allotted time
     /// Useful to check the presence of a device without clotting up a runloop
     pub async fn wait_for_heartbeat(&self, wait_time :Duration) -> anyhow::Result<bool> {
-        // let wait_until = tokio::time::Instant::now() + wait_time;
+        let io = self.io_guard.lock().await;
+        let receiver = &io.1;
         loop {
             tokio::select! {
-                data = self.receiver.recv() => {
+                data = receiver.recv() => {
                     match data?.try_into() {
                         Ok(ZencanMessage::Heartbeat(_)) => {
                             return Ok(true)
@@ -77,8 +76,11 @@ impl NmtClient {
     }
 
     async fn send_nmt_cmd(&self, cmd: NmtCommandSpecifier, node: u8) -> anyhow::Result<()> {
+        let io = self.io_guard.lock().await;
+        let sender = &io.0;
+
         let message = NmtCommand { cs: cmd, node };
-        self.sender.send(message.into()).await?;
+        sender.send(message.into()).await?;
         Ok(())
     }
 }

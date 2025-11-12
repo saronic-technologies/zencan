@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{time::Duration};
 
 use snafu::Snafu;
 
@@ -128,8 +128,9 @@ macro_rules! match_response  {
 pub struct SdoClient {
     req_cob_id: CanId,
     resp_cob_id: CanId,
-    sender :Box<dyn AsyncCanSender>,
-    receiver :Box<dyn AsyncCanReceiver>
+    // While our sender and receiver by themselves are "Sync", our protocol
+    // is not, as it requires exclusive access to them.  This guard guarantees that.
+    io_guard :tokio::sync::Mutex<(Box<dyn AsyncCanSender>, Box<dyn AsyncCanReceiver>)>
 }
 
 impl SdoClient {
@@ -161,25 +162,25 @@ impl SdoClient {
         Self {
             req_cob_id,
             resp_cob_id,
-            sender,
-            receiver,
+            io_guard :(sender, receiver).into()
         }
     }
 
     /// Write data to a sub-object on the SDO server
     pub async fn download(&self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
+        // Lock our io guard so we can send and receive without the sockets
+        // being taken by other threads
+        let io = self.io_guard.lock().await;
+        let sender = &io.0;
+        let receiver = &io.1;
+
         if data.len() <= 4 {
             // Do an expedited transfer
             let msg =
                 SdoRequest::expedited_download(index, sub, data).to_can_message(self.req_cob_id);
-            // Flush our receiver socket
-            // !!! This makes this struct not thread-safe!
-            // self.receiver.flush().map_err(|_| SdoClientError::Unknown)?;
-            // !!! Commented out as we aren't planning on doing config with SDO I/O,
-            // !!! which is where the mix occurs
-            self.sender.send(msg).await.unwrap(); // TODO: Expect errors
+            sender.send(msg).await.unwrap(); // TODO: Expect errors
 
-            let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
+            let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
             match_response!(
                 resp,
                 "ConfirmDownload",
@@ -195,9 +196,9 @@ impl SdoClient {
             // self.receiver.flush().map_err(|_| SdoClientError::Unknown)?;
             // !!! Commented out as we aren't planning on doing config with SDO I/O,
             // !!! which is where the mix occurs
-            self.sender.send(msg).await.unwrap();
+            sender.send(msg).await.unwrap();
 
-            let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
+            let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
             match_response!(
                 resp,
                 "ConfirmDownload",
@@ -216,11 +217,11 @@ impl SdoClient {
                     &data[n * 7..n * 7 + segment_size],
                 )
                 .to_can_message(self.req_cob_id);
-                self.sender
+                sender
                     .send(seg_msg)
                     .await
                     .expect("failed sending DL segment");
-                let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
+                let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
                 match_response!(
                     resp,
                     "ConfirmDownloadSegment",
@@ -230,7 +231,7 @@ impl SdoClient {
                             let abort_msg =
                                 SdoRequest::abort(index, sub, AbortCode::ToggleNotAlternated)
                                     .to_can_message(self.req_cob_id);
-                            self.sender
+                            sender
                                 .send(abort_msg)
                                 .await
                                 .expect("Error sending abort");
@@ -247,12 +248,18 @@ impl SdoClient {
 
     /// Read a sub-object on the SDO server
     pub async fn upload(&self, index: u16, sub: u8) -> Result<Vec<u8>> {
+        // Lock our io guard so we can send and receive without the sockets
+        // being taken by other threads
+        let io = self.io_guard.lock().await;
+        let sender = &io.0;
+        let receiver = &io.1;
+
         let mut read_buf = Vec::new();
 
         let msg = SdoRequest::initiate_upload(index, sub).to_can_message(self.req_cob_id);
-        self.sender.send(msg).await.unwrap();
+        sender.send(msg).await.unwrap();
 
-        let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
+        let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
 
         let expedited = match_response!(
             resp,
@@ -292,15 +299,15 @@ impl SdoClient {
                 let msg =
                     SdoRequest::upload_segment_request(toggle).to_can_message(self.req_cob_id);
 
-                self.sender.send(msg).await.unwrap();
+                sender.send(msg).await.unwrap();
 
-                let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
+                let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
                 match_response!(
                     resp,
                     "UploadSegment",
                     SdoResponse::UploadSegment { t, n, c, data } => {
                         if t != toggle {
-                            self.sender
+                            sender
                                 .send(
                                     SdoRequest::abort(index, sub, AbortCode::ToggleNotAlternated)
                                         .to_can_message(self.req_cob_id),
@@ -327,7 +334,13 @@ impl SdoClient {
     /// Block downloads are more efficient for large amounts of data, but may not be supported by
     /// all devices.
     pub async fn block_download(&self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
-        self.sender
+        // Lock our io guard so we can send and receive without the sockets
+        // being taken by other threads
+        let io = self.io_guard.lock().await;
+        let sender = &io.0;
+        let receiver = &io.1;
+
+        sender
             .send(
                 SdoRequest::InitiateBlockDownload {
                     cc: true, // CRC supported
@@ -341,7 +354,7 @@ impl SdoClient {
             .await
             .map_err(|_| SocketSendFailedSnafu {}.build())?;
 
-        let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
+        let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
 
         let (crc_enabled, mut blksize) = match_response!(
             resp,
@@ -383,7 +396,7 @@ impl SdoClient {
                 seqnum,
                 data: segment_data,
             };
-            self.sender
+            sender
                 .send(segment.to_can_message(self.req_cob_id))
                 .await
                 .map_err(|_| SocketSendFailedSnafu.build())?;
@@ -391,7 +404,7 @@ impl SdoClient {
             // Expect a confirmation message after blksize segments are sent, or after sending the
             // complete flag
             if c || seqnum == blksize {
-                let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
+                let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
                 match_response!(
                     resp,
                     "ConfirmBlock",
@@ -436,12 +449,12 @@ impl SdoClient {
 
         let n = ((7 - data.len() % 7) % 7) as u8;
 
-        self.sender
+        sender
             .send(SdoRequest::EndBlockDownload { n, crc }.to_can_message(self.req_cob_id))
             .await
             .map_err(|_| SocketSendFailedSnafu.build())?;
 
-        let resp = self.wait_for_response(RESPONSE_TIMEOUT).await?;
+        let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
         match_response!(
             resp,
             "ConfirmBlockDownloadEnd",
@@ -735,10 +748,10 @@ impl SdoClient {
         Ok(())
     }
 
-    async fn wait_for_response(&self, timeout: Duration) -> Result<SdoResponse> {
+    async fn wait_for_response(&self, receiver :&Box<dyn AsyncCanReceiver>, timeout: Duration) -> Result<SdoResponse> {
         let wait_until = tokio::time::Instant::now() + timeout;
         loop {
-            match tokio::time::timeout_at(wait_until, self.receiver.recv()).await {
+            match tokio::time::timeout_at(wait_until, receiver.recv()).await {
                 // Err indicates the timeout elapsed, so return
                 Err(_) => return NoResponseSnafu.fail(),
                 // Message was recieved. If it is the resp, return. Otherwise, keep waiting
