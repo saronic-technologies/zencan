@@ -130,7 +130,8 @@ pub struct SdoClient {
     resp_cob_id: CanId,
     // While our sender and receiver by themselves are "Sync", our protocol
     // is not, as it requires exclusive access to them.  This guard guarantees that.
-    io_guard :tokio::sync::Mutex<(Box<dyn AsyncCanSender>, Box<dyn AsyncCanReceiver>)>
+    io_guard :tokio::sync::Mutex<(Box<dyn AsyncCanSender>, Box<dyn AsyncCanReceiver>)>,
+    request_timeout :Duration,
 }
 
 impl SdoClient {
@@ -145,11 +146,12 @@ impl SdoClient {
     pub fn new_std(
         server_node_id: u8, 
         sender :Box<dyn AsyncCanSender>,
-        receiver :Box<dyn AsyncCanReceiver>
+        receiver :Box<dyn AsyncCanReceiver>,
+        request_timeout: Option<Duration>,
     ) -> Self {
         let req_cob_id = CanId::Std(0x600 + server_node_id as u16);
         let resp_cob_id = CanId::Std(0x580 + server_node_id as u16);
-        Self::new(req_cob_id, resp_cob_id, sender, receiver)
+        Self::new(req_cob_id, resp_cob_id, sender, receiver, request_timeout)
     }
 
     /// Create a new SdoClient from request and response COB IDs
@@ -157,12 +159,14 @@ impl SdoClient {
         req_cob_id: CanId, 
         resp_cob_id: CanId, 
         sender :Box<dyn AsyncCanSender>,
-        receiver :Box<dyn AsyncCanReceiver>
+        receiver :Box<dyn AsyncCanReceiver>,
+        request_timeout: Option<Duration>,
     ) -> Self {
         Self {
             req_cob_id,
             resp_cob_id,
-            io_guard :(sender, receiver).into()
+            io_guard :(sender, receiver).into(),
+            request_timeout: request_timeout.unwrap_or(RESPONSE_TIMEOUT)
         }
     }
 
@@ -180,7 +184,7 @@ impl SdoClient {
                 SdoRequest::expedited_download(index, sub, data).to_can_message(self.req_cob_id);
             sender.send(msg).await.unwrap(); // TODO: Expect errors
 
-            let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
+            let resp = self.wait_for_response(receiver, self.request_timeout).await?;
             match_response!(
                 resp,
                 "ConfirmDownload",
@@ -198,7 +202,7 @@ impl SdoClient {
             // !!! which is where the mix occurs
             sender.send(msg).await.unwrap();
 
-            let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
+            let resp = self.wait_for_response(receiver, self.request_timeout).await?;
             match_response!(
                 resp,
                 "ConfirmDownload",
@@ -221,7 +225,7 @@ impl SdoClient {
                     .send(seg_msg)
                     .await
                     .expect("failed sending DL segment");
-                let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
+                let resp = self.wait_for_response(receiver, self.request_timeout).await?;
                 match_response!(
                     resp,
                     "ConfirmDownloadSegment",
@@ -259,7 +263,7 @@ impl SdoClient {
         let msg = SdoRequest::initiate_upload(index, sub).to_can_message(self.req_cob_id);
         sender.send(msg).await.unwrap();
 
-        let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
+        let resp = self.wait_for_response(receiver, self.request_timeout).await?;
 
         let expedited = match_response!(
             resp,
@@ -301,7 +305,7 @@ impl SdoClient {
 
                 sender.send(msg).await.unwrap();
 
-                let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
+                let resp = self.wait_for_response(receiver, self.request_timeout).await?;
                 match_response!(
                     resp,
                     "UploadSegment",
@@ -354,7 +358,7 @@ impl SdoClient {
             .await
             .map_err(|_| SocketSendFailedSnafu {}.build())?;
 
-        let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
+        let resp = self.wait_for_response(receiver, self.request_timeout).await?;
 
         let (crc_enabled, mut blksize) = match_response!(
             resp,
@@ -404,7 +408,7 @@ impl SdoClient {
             // Expect a confirmation message after blksize segments are sent, or after sending the
             // complete flag
             if c || seqnum == blksize {
-                let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
+                let resp = self.wait_for_response(receiver, self.request_timeout).await?;
                 match_response!(
                     resp,
                     "ConfirmBlock",
@@ -454,7 +458,7 @@ impl SdoClient {
             .await
             .map_err(|_| SocketSendFailedSnafu.build())?;
 
-        let resp = self.wait_for_response(receiver, RESPONSE_TIMEOUT).await?;
+        let resp = self.wait_for_response(receiver, self.request_timeout).await?;
         match_response!(
             resp,
             "ConfirmBlockDownloadEnd",
