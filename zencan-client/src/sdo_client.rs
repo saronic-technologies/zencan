@@ -77,6 +77,7 @@ pub enum SdoClientError {
         received: (u16, u8),
     },
     /// An SDO upload response had a size that did not match the expected size
+    #[snafu(display("Unexpected size in SDO response"))]
     UnexpectedSize,
     /// Failed to write a message to the socket
     #[snafu(display("Error sending CAN message"))]
@@ -182,7 +183,10 @@ impl SdoClient {
             // Do an expedited transfer
             let msg =
                 SdoRequest::expedited_download(index, sub, data).to_can_message(self.req_cob_id);
-            sender.send(msg).await.unwrap(); // TODO: Expect errors
+
+            // Send our download request message
+            sender.send(msg).await
+                .map_err(|_| SocketSendFailedSnafu {}.build())?;
 
             let resp = self.wait_for_response(receiver, self.request_timeout).await?;
             match_response!(
@@ -195,12 +199,10 @@ impl SdoClient {
         } else {
             let msg = SdoRequest::initiate_download(index, sub, Some(data.len() as u32))
                 .to_can_message(self.req_cob_id);
-            // Flush our receiver socket
-            // !!! This makes this struct not thread-safe!
-            // self.receiver.flush().map_err(|_| SdoClientError::Unknown)?;
-            // !!! Commented out as we aren't planning on doing config with SDO I/O,
-            // !!! which is where the mix occurs
-            sender.send(msg).await.unwrap();
+
+            // Send our download request message
+            sender.send(msg).await
+                .map_err(|_| SocketSendFailedSnafu {}.build())?;
 
             let resp = self.wait_for_response(receiver, self.request_timeout).await?;
             match_response!(
@@ -261,7 +263,9 @@ impl SdoClient {
         let mut read_buf = Vec::new();
 
         let msg = SdoRequest::initiate_upload(index, sub).to_can_message(self.req_cob_id);
-        sender.send(msg).await.unwrap();
+        // sender.send(msg).await.unwrap();
+        sender.send(msg).await
+           .map_err(|_| SocketSendFailedSnafu {}.build())?;
 
         let resp = self.wait_for_response(receiver, self.request_timeout).await?;
 
@@ -303,7 +307,9 @@ impl SdoClient {
                 let msg =
                     SdoRequest::upload_segment_request(toggle).to_can_message(self.req_cob_id);
 
-                sender.send(msg).await.unwrap();
+                sender.send(msg).await
+                   .map_err(|_| SocketSendFailedSnafu {}.build())?;
+                // sender.send(msg).await.unwrap();
 
                 let resp = self.wait_for_response(receiver, self.request_timeout).await?;
                 match_response!(
@@ -575,7 +581,10 @@ impl SdoClient {
         if data.len() != 2 {
             return UnexpectedSizeSnafu.fail();
         }
-        Ok(u16::from_le_bytes(data.try_into().unwrap()))
+
+        Ok(u16::from_le_bytes(
+            data.try_into().map_err(|_| UnexpectedSizeSnafu {}.build())?)
+        )
     }
 
     /// Alias for `upload_u16`
@@ -591,7 +600,10 @@ impl SdoClient {
         if data.len() != 4 {
             return UnexpectedSizeSnafu.fail();
         }
-        Ok(u32::from_le_bytes(data.try_into().unwrap()))
+        Ok(u32::from_le_bytes(
+            data.try_into().map_err(|_| UnexpectedSizeSnafu {}.build())?)
+        )
+        // Ok(u32::from_le_bytes(data.try_into().unwrap()))
     }
 
     /// Alias for `upload_u32`
@@ -607,7 +619,10 @@ impl SdoClient {
         if data.len() != 1 {
             return UnexpectedSizeSnafu.fail();
         }
-        Ok(i8::from_le_bytes(data.try_into().unwrap()))
+        Ok(i8::from_le_bytes(
+            data.try_into().map_err(|_| UnexpectedSizeSnafu {}.build())?)
+        )
+        // Ok(i8::from_le_bytes(data.try_into().unwrap()))
     }
 
     /// Alias for `upload_i8`
@@ -623,7 +638,10 @@ impl SdoClient {
         if data.len() != 2 {
             return UnexpectedSizeSnafu.fail();
         }
-        Ok(i16::from_le_bytes(data.try_into().unwrap()))
+        Ok(i16::from_le_bytes(
+            data.try_into().map_err(|_| UnexpectedSizeSnafu {}.build())?)
+        )
+        // Ok(i16::from_le_bytes(data.try_into().unwrap()))
     }
 
     /// Alias for `upload_i16`
@@ -639,7 +657,11 @@ impl SdoClient {
         if data.len() != 4 {
             return UnexpectedSizeSnafu.fail();
         }
-        Ok(i32::from_le_bytes(data.try_into().unwrap()))
+
+        Ok(i32::from_le_bytes(
+            data.try_into().map_err(|_| UnexpectedSizeSnafu {}.build())?)
+        )
+        // Ok(i32::from_le_bytes(data.try_into().unwrap()))
     }
 
     /// Alias for `upload_i32`
