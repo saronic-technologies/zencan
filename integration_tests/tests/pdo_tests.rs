@@ -1,7 +1,13 @@
 //! Test node PDO operations
 //!
 
-use std::time::Duration;
+use std::{
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use integration_tests::{object_dict1, prelude::*};
 use serial_test::serial;
@@ -25,7 +31,21 @@ async fn test_rpdo_assignment() {
 
     let mut bus = SimBus::new();
     bus.add_node(&NODE_MBOX);
-    let callbacks = Callbacks::new();
+
+    let rpdo_cb_counter: Arc<AtomicU8> = Arc::new(AtomicU8::new(0));
+    let rpdo_cb_counter_clone = rpdo_cb_counter.clone();
+    let mut rpdo_received = move |slot: u8| {
+        rpdo_cb_counter_clone.fetch_add(1, Ordering::Relaxed);
+
+        assert_eq!(slot, 0);
+        assert_eq!(OBJECT2000.read_u32(1), Ok(500));
+        assert_eq!(OBJECT300C.read_u24(12), Ok(u24::new(0x010203)));
+    };
+
+    let callbacks = Callbacks {
+        pdo_received: Some(&mut rpdo_received),
+        ..Default::default()
+    };
     let mut node = Node::new(
         NodeId::new(NODE_ID).unwrap(),
         callbacks,
@@ -96,11 +116,14 @@ async fn test_rpdo_assignment() {
         // Delay a bit, because node process() method has to be called for PDO to apply
         ctx.wait_for_process(1).await;
         // Readback the mapped object; the PDO message above should have updated it
+        // These are also checked by the RPDO callback, but we confirm we also can read them via SDO
         assert_eq!(500, client.read_u32(0x2000, 1).await.unwrap());
         assert_eq!(
             u24::new(0x010203),
             client.read_u24(0x300C, 12).await.unwrap()
         );
+        // Check callback was called at least once
+        assert_eq!(rpdo_cb_counter.load(Ordering::Relaxed), 1);
     };
 
     test_with_background_process(&mut [&mut node], &mut bus, test_task).await;

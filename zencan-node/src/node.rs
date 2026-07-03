@@ -28,6 +28,7 @@ pub type StoreNodeConfigFn<'a> = dyn FnMut(NodeId) + 'a;
 pub type StoreObjectsFn<'a> = dyn Fn(&mut dyn embedded_io::Read<Error = Infallible>, usize) + 'a;
 pub type StateChangeFn<'a> = dyn FnMut(&'a [ODEntry<'a>]) + 'a;
 pub type SyncReceiveFn<'a> = dyn FnMut(SyncObject) + 'a;
+pub type PdoReceiveFn<'a> = dyn FnMut(u8);
 
 /// Collection of callbacks events which Node object can call.
 ///
@@ -77,6 +78,9 @@ pub struct Callbacks<'a> {
 
     /// The node has received a SYNC object
     pub sync_received: Option<&'a mut SyncReceiveFn<'a>>,
+
+    /// The node has received a PDO
+    pub pdo_received: Option<&'a mut PdoReceiveFn<'a>>,
 }
 
 impl<'a> Callbacks<'a> {
@@ -91,6 +95,7 @@ impl<'a> Callbacks<'a> {
             enter_stopped: None,
             enter_preoperational: None,
             sync_received: None,
+            pdo_received: None,
         }
     }
 }
@@ -359,12 +364,15 @@ impl<'a> Node<'a> {
                 pdo.clear_events();
             }
 
-            for rpdo in self.state.rpdos() {
+            for (i, rpdo) in self.state.rpdos().iter().enumerate() {
                 if !rpdo.valid() {
                     continue;
                 }
                 if let Some(new_data) = rpdo.buffered_value.take() {
                     rpdo.store_pdo_data(&new_data);
+                    if let Some(cb) = &mut self.callbacks.pdo_received {
+                        (*cb)(i as u8);
+                    }
                     update_flag = true;
                 }
             }
