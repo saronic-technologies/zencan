@@ -1,9 +1,10 @@
 //! Traits and types for implementing objects in the OD
 
 use zencan_common::{
+    i24,
     objects::{AccessType, DataType, ObjectCode, SubInfo},
     sdo::AbortCode,
-    AtomicCell,
+    u24, AtomicCell,
 };
 
 use super::{ObjectFlagAccess, SubObjectAccess};
@@ -168,6 +169,13 @@ pub trait ObjectAccess: Sync + Send {
         Ok(u32::from_le_bytes(buf))
     }
 
+    /// Read a sub object as a u24
+    fn read_u24(&self, sub: u8) -> Result<u24, AbortCode> {
+        let mut buf = [0; 3];
+        self.read(sub, 0, &mut buf)?;
+        Ok(u24::from_le_bytes(buf))
+    }
+
     /// Read a sub object as a u16
     fn read_u16(&self, sub: u8) -> Result<u16, AbortCode> {
         let mut buf = [0; 2];
@@ -187,6 +195,13 @@ pub trait ObjectAccess: Sync + Send {
         let mut buf = [0; 4];
         self.read(sub, 0, &mut buf)?;
         Ok(i32::from_le_bytes(buf))
+    }
+
+    /// Read a sub object as an i24
+    fn read_i24(&self, sub: u8) -> Result<i24, AbortCode> {
+        let mut buf = [0; 3];
+        self.read(sub, 0, &mut buf)?;
+        Ok(i24::from_le_bytes(buf))
     }
 
     /// Read a sub object as an i16
