@@ -21,7 +21,7 @@ use zencan_common::{
     traits::{AsyncCanReceiver, AsyncCanSender},
     u24, NodeId,
 };
-use zencan_node::object_dict::ObjectAccess as _;
+use zencan_node::{object_dict::ObjectAccess as _, pdo::MappingEntry};
 
 #[serial]
 #[tokio::test]
@@ -34,10 +34,20 @@ async fn test_rpdo_assignment() {
 
     let rpdo_cb_counter: Arc<AtomicU8> = Arc::new(AtomicU8::new(0));
     let rpdo_cb_counter_clone = rpdo_cb_counter.clone();
-    let mut rpdo_received = move |slot: u8| {
+    let mut rpdo_received = move |mappings: &[MappingEntry<'_>]| {
         rpdo_cb_counter_clone.fetch_add(1, Ordering::Relaxed);
 
-        assert_eq!(slot, 0);
+        assert_eq!(mappings.len(), 2);
+
+        let mapping = &mappings[0];
+        assert_eq!(mapping.object.index, 0x2000);
+        assert_eq!(mapping.sub, 1);
+        assert_eq!(mapping.length, 4);
+        let mapping = &mappings[1];
+        assert_eq!(mapping.object.index, 0x300C);
+        assert_eq!(mapping.sub, 12);
+        assert_eq!(mapping.length, 3);
+
         assert_eq!(OBJECT2000.read_u32(1), Ok(500));
         assert_eq!(OBJECT300C.read_u24(12), Ok(u24::new(0x010203)));
     };

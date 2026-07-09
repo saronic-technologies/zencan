@@ -10,17 +10,18 @@ use zencan_common::{
         CanId, CanMessage, Heartbeat, NmtCommandSpecifier, SyncObject, ZencanMessage, LSS_RESP_ID,
     },
     nmt::NmtState,
-    NodeId,
+    AtomicCell, NodeId,
 };
 
-use crate::sdo_server::SdoServer;
 use crate::{
     lss_slave::{LssConfig, LssSlave},
     node_mbox::NodeMbox,
     node_state::NmtStateAccess as _,
     object_dict::{find_object, ODEntry},
+    pdo::N_MAPPING_PARAMS,
     NodeState,
 };
+use crate::{pdo::MappingEntry, sdo_server::SdoServer};
 
 use defmt_or_log::{debug, info};
 
@@ -28,7 +29,7 @@ pub type StoreNodeConfigFn<'a> = dyn FnMut(NodeId) + 'a;
 pub type StoreObjectsFn<'a> = dyn Fn(&mut dyn embedded_io::Read<Error = Infallible>, usize) + 'a;
 pub type StateChangeFn<'a> = dyn FnMut(&'a [ODEntry<'a>]) + 'a;
 pub type SyncReceiveFn<'a> = dyn FnMut(SyncObject) + 'a;
-pub type PdoReceiveFn<'a> = dyn FnMut(u8);
+pub type PdoReceiveFn<'a> = dyn for<'b> FnMut(&'b [MappingEntry<'a>]);
 
 /// Collection of callbacks events which Node object can call.
 ///
@@ -371,7 +372,14 @@ impl<'a> Node<'a> {
                 if let Some(new_data) = rpdo.buffered_value.take() {
                     rpdo.store_pdo_data(&new_data);
                     if let Some(cb) = &mut self.callbacks.pdo_received {
-                        (*cb)(i as u8);
+                        let mapping: heapless::Vec<MappingEntry<'a>, N_MAPPING_PARAMS> = rpdo
+                            .mapping_params[..rpdo.valid_maps.load().into()]
+                            .iter()
+                            .map(AtomicCell::load)
+                            .map(Option::unwrap)
+                            .collect();
+
+                        (*cb)(mapping.as_slice());
                     }
                     update_flag = true;
                 }

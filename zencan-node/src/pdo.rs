@@ -58,11 +58,11 @@ use zencan_common::{
 ///
 /// Since we do not yet support CAN-FD, or sub-byte mapping, it's not possible to map more than 8
 /// objects to a single PDO
-const N_MAPPING_PARAMS: usize = 8;
+pub const N_MAPPING_PARAMS: usize = 8;
 
 #[derive(Clone, Copy)]
 /// Data structure for storing a PDO object mapping
-struct MappingEntry<'a> {
+pub struct MappingEntry<'a> {
     /// A reference to the object which is mapped
     pub object: &'a ODEntry<'a>,
     /// The index of the sub object mapped
@@ -196,11 +196,11 @@ pub struct Pdo<'a> {
     /// Indicates how many of the values in mapping_params are valid
     ///
     /// This represents sub0 for the mapping object
-    valid_maps: AtomicCell<u8>,
+    pub valid_maps: AtomicCell<u8>,
     /// The mapping parameters
     ///
     /// These specify which objects are
-    mapping_params: [AtomicCell<Option<MappingEntry<'a>>>; N_MAPPING_PARAMS],
+    pub mapping_params: [AtomicCell<Option<MappingEntry<'a>>>; N_MAPPING_PARAMS],
     /// System default values for this PDO
     defaults: Option<&'a PdoDefaults<'a>>,
 }
