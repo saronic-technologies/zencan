@@ -60,6 +60,7 @@ use zencan_common::{
 /// objects to a single PDO
 pub const N_MAPPING_PARAMS: usize = 8;
 
+#[allow(missing_debug_implementations)]
 #[derive(Clone, Copy)]
 /// Data structure for storing a PDO object mapping
 pub struct MappingEntry<'a> {
