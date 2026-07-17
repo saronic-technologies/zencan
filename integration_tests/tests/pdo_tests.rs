@@ -34,8 +34,10 @@ async fn test_rpdo_assignment() {
 
     let rpdo_cb_counter: Arc<AtomicU8> = Arc::new(AtomicU8::new(0));
     let rpdo_cb_counter_clone = rpdo_cb_counter.clone();
-    let mut rpdo_received = move |mappings: &[MappingEntry<'_>]| {
+    let mut rpdo_received = move |slot: u8, mappings: &[MappingEntry<'_>]| {
         rpdo_cb_counter_clone.fetch_add(1, Ordering::Relaxed);
+
+        assert_eq!(slot, 0);
 
         assert_eq!(mappings.len(), 2);
 

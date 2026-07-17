@@ -29,7 +29,7 @@ pub type StoreNodeConfigFn<'a> = dyn FnMut(NodeId) + 'a;
 pub type StoreObjectsFn<'a> = dyn Fn(&mut dyn embedded_io::Read<Error = Infallible>, usize) + 'a;
 pub type StateChangeFn<'a> = dyn FnMut(&'a [ODEntry<'a>]) + 'a;
 pub type SyncReceiveFn<'a> = dyn FnMut(SyncObject) + 'a;
-pub type PdoReceiveFn<'a> = dyn for<'b> FnMut(&'b [MappingEntry<'a>]);
+pub type PdoReceiveFn<'a> = dyn for<'b> FnMut(u8, &'b [MappingEntry<'a>]);
 
 /// Collection of callbacks events which Node object can call.
 ///
@@ -379,7 +379,7 @@ impl<'a> Node<'a> {
                             .map(Option::unwrap)
                             .collect();
 
-                        (*cb)(mapping.as_slice());
+                        (*cb)(i as u8, mapping.as_slice());
                     }
                     update_flag = true;
                 }
