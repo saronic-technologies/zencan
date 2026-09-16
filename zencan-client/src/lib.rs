@@ -22,10 +22,13 @@
 #![allow(clippy::single_match)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+#[macro_use]
+mod sdo_client;
+
+pub mod blocking;
 mod bus_manager;
 mod lss_master;
 pub mod nmt_master;
-mod sdo_client;
 pub use zencan_common as common;
 
 pub use bus_manager::BusManager;

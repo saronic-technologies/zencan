@@ -1,8 +1,9 @@
-use std::time::Duration;
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 
-use snafu::Snafu;
+use paste::paste;
 use zencan_common::{
-    can::{AsyncCanReceiver, AsyncCanSender, CanId, CanMessage, CanSendError as _},
+    can::{CanId, CanMessage, CanReceiver, CanSender},
     i24,
     node_configuration::PdoConfig,
     object_model::{
@@ -13,132 +14,20 @@ use zencan_common::{
     u24,
 };
 
+use crate::sdo_client::{
+    BlockSizeChangedTooSmallSnafu, MalformedResponseSnafu, MismatchedObjectIndexSnafu,
+    NoResponseSnafu, Result, SdoClientError, ServerAbortSnafu, SocketSendFailedSnafu,
+    ToggleNotAlternatedSnafu, UnexpectedResponseSnafu, UnexpectedSizeSnafu,
+};
+
 const DEFAULT_RESPONSE_TIMEOUT: Duration = Duration::from_millis(150);
 
-/// A wrapper around the AbortCode enum to allow for unknown values
-///
-/// Although the library should "know" all the abort codes, it is possible to receive other values
-/// and this allows those to be captured and exposed.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum RawAbortCode {
-    /// A recognized abort code
-    Valid(AbortCode),
-    /// An unrecognized abort code
-    Unknown(u32),
-}
-
-impl std::fmt::Display for RawAbortCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RawAbortCode::Valid(abort_code) => write!(f, "{abort_code:?}"),
-            RawAbortCode::Unknown(code) => write!(f, "{code:X}"),
-        }
-    }
-}
-
-impl From<u32> for RawAbortCode {
-    fn from(value: u32) -> Self {
-        match AbortCode::try_from(value) {
-            Ok(code) => Self::Valid(code),
-            Err(_) => Self::Unknown(value),
-        }
-    }
-}
-
-/// Error returned by [`SdoClient`] methods
-#[derive(Clone, Debug, PartialEq, Snafu)]
-#[snafu(visibility(pub(crate)))]
-pub enum SdoClientError {
-    /// Timeout while awaiting an expected response
-    NoResponse,
-    /// Received a response that could not be interpreted
-    MalformedResponse,
-    /// Received a valid SdoResponse, but with an unexpected command specifier
-    #[snafu(display("Unexpected SDO response. Expected {expecting}, got {response:?}"))]
-    UnexpectedResponse {
-        /// The type of response which was expected
-        expecting: String,
-        /// The response which was received
-        response: SdoResponse,
-    },
-    /// Received a ServerAbort response from the node
-    #[snafu(display("Received abort accessing object 0x{index:X}sub{sub}: {abort_code}"))]
-    ServerAbort {
-        /// Index of the SDO access which was aborted
-        index: u16,
-        /// Sub index of the SDO access which was aborted
-        sub: u8,
-        /// Reason for the abort
-        abort_code: RawAbortCode,
-    },
-    /// Received a response with the wrong toggle bit
-    ToggleNotAlternated,
-    /// Received a response with a different index/sub value than was requested
-    #[snafu(display("Received object 0x{:x}sub{} after requesting 0x{:x}sub{}",
-        received.0, received.1, expected.0, expected.1))]
-    MismatchedObjectIndex {
-        /// The object ID which was expected to be echoed back
-        expected: (u16, u8),
-        /// The received object ID
-        received: (u16, u8),
-    },
-    /// An SDO upload response had a size that did not match the expected size
-    UnexpectedSize,
-    /// Failed to write a message to the socket
-    #[snafu(display("Failed to send CAN message: {message}"))]
-    SocketSendFailed {
-        /// A string describing the error reason
-        message: String,
-    },
-    /// An SDO server shrunk the block size while requesting retransmission
-    ///
-    /// Hopefully no node will ever do this, but it's a possible corner case, since servers are
-    /// allowed to change the block size between each block, and can request resend of part of a
-    /// block by not acknowledging all segments.
-    BlockSizeChangedTooSmall,
-    /// The CRC on a block upload did not match
-    CrcMismatch,
-}
-
-pub(crate) type Result<T> = std::result::Result<T, SdoClientError>;
-
-/// Convenience macro for expecting a particular variant of a response and erroring on abort of
-/// unexpected variant
-macro_rules! match_response  {
-    ($resp: ident, $expecting: literal, $($match:pat => $code : expr),*) => {
-                match $resp {
-                    $($match => $code),*
-                    SdoResponse::Abort {
-                        index,
-                        sub,
-                        abort_code,
-                    } => {
-                        return ServerAbortSnafu {
-                            index,
-                            sub,
-                            abort_code,
-                        }
-                        .fail()
-                    }
-                    _ => {
-                        return UnexpectedResponseSnafu {
-                            expecting: $expecting,
-                            response: $resp,
-                        }
-                        .fail()
-                    }
-                }
-    };
-}
-
-use paste::paste;
 macro_rules! access_methods {
     ($type: ty) => {
-
         paste! {
             #[doc = concat!("Read a ", stringify!($type), " sub object from the SDO server")]
-            pub async fn [<read_ $type>](&mut self, index: u16, sub: u8) -> Result<$type> {
-                let data = self.upload(index, sub).await?;
+            pub fn [<read_ $type>](&mut self, index: u16, sub: u8) -> Result<$type> {
+                let data = self.upload(index, sub)?;
                 if data.len() != <$type as ReadSize>::READ_SIZE {
                     return UnexpectedSizeSnafu.fail();
                 }
@@ -146,18 +35,20 @@ macro_rules! access_methods {
             }
 
             #[doc = concat!("Write a ", stringify!($type), " sub object to the SDO server")]
-            pub async fn [<write_ $type>](&mut self, index: u16, sub: u8, value: $type) -> Result<()> {
+            pub fn [<write_ $type>](&mut self, index: u16, sub: u8, value: $type) -> Result<()> {
                 let data = value.to_le_bytes();
-                self.download(index, sub, &data).await
+                self.download(index, sub, &data)
             }
         }
     };
 }
 
-#[derive(Debug)]
-/// A client for accessing a node's SDO server
+/// A blocking client for accessing a node's SDO server
+///
+/// The blocking counterpart of [`crate::SdoClient`].
 ///
 /// A single server can talk to a single client at a time.
+#[derive(Debug)]
 pub struct SdoClient<S, R> {
     req_cob_id: CanId,
     resp_cob_id: CanId,
@@ -166,7 +57,7 @@ pub struct SdoClient<S, R> {
     receiver: R,
 }
 
-impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
+impl<S: CanSender, R: CanReceiver> SdoClient<S, R> {
     /// Create a new SdoClient using a node ID
     ///
     /// Nodes have a default SDO server, which uses a COB ID based on the node ID. This is a
@@ -201,18 +92,19 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         self.timeout
     }
 
-    async fn send(&mut self, data: [u8; 8]) -> Result<()> {
+    fn send(&mut self, data: [u8; 8]) -> Result<()> {
         let frame = CanMessage::new(self.req_cob_id, &data);
         let mut tries = 3;
         loop {
-            match self.sender.send(frame).await {
+            match self.sender.send(frame) {
                 Ok(()) => return Ok(()),
-                Err(e) => {
+                // The blocking sender hands the message back rather than an error
+                Err(_) => {
                     tries -= 1;
-                    tokio::time::sleep(Duration::from_millis(5)).await;
+                    sleep(Duration::from_millis(5));
                     if tries == 0 {
                         return SocketSendFailedSnafu {
-                            message: e.message(),
+                            message: "sender rejected the message",
                         }
                         .fail();
                     }
@@ -222,13 +114,12 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     }
 
     /// Write data to a sub-object on the SDO server
-    pub async fn download(&mut self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
+    pub fn download(&mut self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
         if data.len() <= 4 {
             // Do an expedited transfer
-            self.send(SdoRequest::expedited_download(index, sub, data).to_bytes())
-                .await?;
+            self.send(SdoRequest::expedited_download(index, sub, data).to_bytes())?;
 
-            let resp = self.wait_for_response().await?;
+            let resp = self.wait_for_response()?;
             match_response!(
                 resp,
                 "ConfirmDownload",
@@ -239,10 +130,9 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         } else {
             self.send(
                 SdoRequest::initiate_download(index, sub, Some(data.len() as u32)).to_bytes(),
-            )
-            .await?;
+            )?;
 
-            let resp = self.wait_for_response().await?;
+            let resp = self.wait_for_response()?;
             match_response!(
                 resp,
                 "ConfirmDownload",
@@ -250,7 +140,6 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
             );
 
             let mut toggle = false;
-            // Send segments
             let total_segments = data.len().div_ceil(7);
             for n in 0..total_segments {
                 let last_segment = n == total_segments - 1;
@@ -260,22 +149,19 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                     last_segment,
                     &data[n * 7..n * 7 + segment_size],
                 );
-                self.send(seg_msg.to_bytes()).await?;
-                let resp = self.wait_for_response().await?;
+                self.send(seg_msg.to_bytes())?;
+
+                let resp = self.wait_for_response()?;
                 match_response!(
                     resp,
                     "ConfirmDownloadSegment",
                     SdoResponse::ConfirmDownloadSegment { t } => {
-                        // Fail if toggle value doesn't match
                         if t != toggle {
                             let abort_msg =
                                 SdoRequest::abort(index, sub, AbortCode::ToggleNotAlternated);
-
-                            self.send(abort_msg.to_bytes())
-                                .await?;
+                            self.send(abort_msg.to_bytes())?;
                             return ToggleNotAlternatedSnafu.fail();
                         }
-                        // Otherwise, carry on
                     }
                 );
                 toggle = !toggle;
@@ -285,13 +171,12 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     }
 
     /// Read a sub-object on the SDO server
-    pub async fn upload(&mut self, index: u16, sub: u8) -> Result<Vec<u8>> {
+    pub fn upload(&mut self, index: u16, sub: u8) -> Result<Vec<u8>> {
         let mut read_buf = Vec::new();
 
-        self.send(SdoRequest::initiate_upload(index, sub).to_bytes())
-            .await?;
+        self.send(SdoRequest::initiate_upload(index, sub).to_bytes())?;
 
-        let resp = self.wait_for_response().await?;
+        let resp = self.wait_for_response()?;
 
         let expedited = match_response!(
             resp,
@@ -316,28 +201,24 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         );
 
         if !expedited {
-            // Read segments
             let mut toggle = false;
             loop {
-                self.send(SdoRequest::upload_segment_request(toggle).to_bytes())
-                    .await?;
+                self.send(SdoRequest::upload_segment_request(toggle).to_bytes())?;
 
-                let resp = self.wait_for_response().await?;
+                let resp = self.wait_for_response()?;
                 match_response!(
                     resp,
                     "UploadSegment",
                     SdoResponse::UploadSegment { t, n, c, data } => {
                         if t != toggle {
                             self.send(
-                                    SdoRequest::abort(index, sub, AbortCode::ToggleNotAlternated)
-                                        .to_bytes(),
-                                )
-                                .await?;
+                                SdoRequest::abort(index, sub, AbortCode::ToggleNotAlternated)
+                                    .to_bytes(),
+                            )?;
                             return ToggleNotAlternatedSnafu.fail();
                         }
                         read_buf.extend_from_slice(&data[0..7 - n as usize]);
                         if c {
-                            // Transfer complete
                             break;
                         }
                     }
@@ -352,7 +233,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     ///
     /// Block downloads are more efficient for large amounts of data, but may not be supported by
     /// all devices.
-    pub async fn block_download(&mut self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
+    pub fn block_download(&mut self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
         self.send(
             SdoRequest::InitiateBlockDownload {
                 cc: true, // CRC supported
@@ -362,10 +243,9 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                 size: data.len() as u32,
             }
             .to_bytes(),
-        )
-        .await?;
+        )?;
 
-        let resp = self.wait_for_response().await?;
+        let resp = self.wait_for_response()?;
 
         let (crc_enabled, mut blksize) = match_response!(
             resp,
@@ -401,18 +281,17 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
             segment_data[0..segment_len]
                 .copy_from_slice(&data[segment_start..segment_start + segment_len]);
 
-            // Send the segment
             let segment = BlockSegment {
                 c,
                 seqnum,
                 data: segment_data,
             };
-            self.send(segment.to_bytes()).await?;
+            self.send(segment.to_bytes())?;
 
             // Expect a confirmation message after blksize segments are sent, or after sending the
             // complete flag
             if c || seqnum == blksize {
-                let resp = self.wait_for_response().await?;
+                let resp = self.wait_for_response()?;
                 match_response!(
                     resp,
                     "ConfirmBlock",
@@ -429,12 +308,8 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                             // Missing segments. Resend all segments after ackseq
                             seqnum = ackseq;
                             segment_num = last_block_start + ackseq as usize;
-                            // The spec says the block size given by the server can change between
-                            // blocks. What should a client do if it is going to resend a block, and
-                            // the server sets the block size smaller than the already delivered
-                            // segments? This shouldn't happen I think, but, it's possible.
-                            // zencan-node based nodes won't do it, but there are other devices out
-                            // there.
+                            // A server may shrink the block size between blocks, which could in
+                            // principle drop below what has already been delivered.
                             if new_blksize < seqnum {
                                 return BlockSizeChangedTooSmallSnafu.fail();
                             }
@@ -448,7 +323,6 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
             }
         }
 
-        // End the download
         let crc = if crc_enabled {
             crc16::State::<crc16::XMODEM>::calculate(data)
         } else {
@@ -457,10 +331,9 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
 
         let n = ((7 - data.len() % 7) % 7) as u8;
 
-        self.send(SdoRequest::EndBlockDownload { n, crc }.to_bytes())
-            .await?;
+        self.send(SdoRequest::EndBlockDownload { n, crc }.to_bytes())?;
 
-        let resp = self.wait_for_response().await?;
+        let resp = self.wait_for_response()?;
         match_response!(
             resp,
             "ConfirmBlockDownloadEnd",
@@ -469,16 +342,16 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     }
 
     /// Perform a block upload of data from the node
-    pub async fn block_upload(&mut self, index: u16, sub: u8) -> Result<Vec<u8>> {
+    pub fn block_upload(&mut self, index: u16, sub: u8) -> Result<Vec<u8>> {
         const CRC_SUPPORTED: bool = true;
         const BLKSIZE: u8 = 127;
         const PST: u8 = 0;
+
         self.send(
             SdoRequest::initiate_block_upload(index, sub, CRC_SUPPORTED, BLKSIZE, PST).to_bytes(),
-        )
-        .await?;
+        )?;
 
-        let resp = self.wait_for_response().await?;
+        let resp = self.wait_for_response()?;
 
         let server_supports_crc = match_response!(
             resp,
@@ -486,12 +359,12 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
             SdoResponse::ConfirmBlockUpload { sc, s: _, index: _, sub: _, size: _ } => {sc}
         );
 
-        self.send(SdoRequest::StartBlockUpload.to_bytes()).await?;
+        self.send(SdoRequest::StartBlockUpload.to_bytes())?;
 
         let mut rx_data = Vec::new();
         let last_segment;
         loop {
-            let segment = self.wait_for_block_segment().await?;
+            let segment = self.wait_for_block_segment()?;
             rx_data.extend_from_slice(&segment.data);
             if !segment.c && segment.seqnum == BLKSIZE {
                 // Finished sub block, but not yet done. Confirm this sub block and expect more
@@ -501,8 +374,7 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                         blksize: BLKSIZE,
                     }
                     .to_bytes(),
-                )
-                .await?;
+                )?;
             }
             if segment.c {
                 last_segment = segment.seqnum;
@@ -518,10 +390,9 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                 blksize: BLKSIZE,
             }
             .to_bytes(),
-        )
-        .await?;
+        )?;
 
-        let resp = self.wait_for_response().await?;
+        let resp = self.wait_for_response()?;
         let (n, crc) = match_response!(
             resp,
             "BlockUploadEnd",
@@ -534,13 +405,12 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         if server_supports_crc {
             let computed_crc = crc16::State::<crc16::XMODEM>::calculate(&rx_data);
             if crc != computed_crc {
-                self.send(SdoRequest::abort(index, sub, AbortCode::CrcError).to_bytes())
-                    .await?;
+                self.send(SdoRequest::abort(index, sub, AbortCode::CrcError).to_bytes())?;
                 return Err(SdoClientError::CrcMismatch);
             }
         }
 
-        self.send(SdoRequest::EndBlockUpload.to_bytes()).await?;
+        self.send(SdoRequest::EndBlockUpload.to_bytes())?;
 
         Ok(rx_data)
     }
@@ -559,31 +429,31 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     access_methods!(i8);
 
     /// Write to a TimeOfDay object on the SDO server
-    pub async fn write_time_of_day(&mut self, index: u16, sub: u8, data: TimeOfDay) -> Result<()> {
+    pub fn write_time_of_day(&mut self, index: u16, sub: u8, data: TimeOfDay) -> Result<()> {
         let data = data.to_le_bytes();
-        self.download(index, sub, &data).await
+        self.download(index, sub, &data)
     }
 
     /// Write to a TimeDifference object on the SDO server
-    pub async fn write_time_difference(
+    pub fn write_time_difference(
         &mut self,
         index: u16,
         sub: u8,
         data: TimeDifference,
     ) -> Result<()> {
         let data = data.to_le_bytes();
-        self.download(index, sub, &data).await
+        self.download(index, sub, &data)
     }
 
     /// Read a string from the SDO server
-    pub async fn read_utf8(&mut self, index: u16, sub: u8) -> Result<String> {
-        let data = self.upload(index, sub).await?;
+    pub fn read_utf8(&mut self, index: u16, sub: u8) -> Result<String> {
+        let data = self.upload(index, sub)?;
         Ok(String::from_utf8_lossy(&data).into())
     }
 
     /// Read a TimeOfDay object from the SDO server
-    pub async fn read_time_of_day(&mut self, index: u16, sub: u8) -> Result<TimeOfDay> {
-        let data = self.upload(index, sub).await?;
+    pub fn read_time_of_day(&mut self, index: u16, sub: u8) -> Result<TimeOfDay> {
+        let data = self.upload(index, sub)?;
         if data.len() != TimeOfDay::SIZE {
             UnexpectedSizeSnafu.fail()
         } else {
@@ -592,8 +462,8 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     }
 
     /// Read a TimeDifference object from the SDO server
-    pub async fn read_time_difference(&mut self, index: u16, sub: u8) -> Result<TimeDifference> {
-        let data = self.upload(index, sub).await?;
+    pub fn read_time_difference(&mut self, index: u16, sub: u8) -> Result<TimeDifference> {
+        let data = self.upload(index, sub)?;
         if data.len() != TimeDifference::SIZE {
             UnexpectedSizeSnafu.fail()
         } else {
@@ -604,14 +474,14 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     /// Read an object as a visible string
     ///
     /// It will be read and assumed to contain valid UTF8 characters
-    pub async fn read_visible_string(&mut self, index: u16, sub: u8) -> Result<String> {
-        let bytes = self.upload(index, sub).await?;
+    pub fn read_visible_string(&mut self, index: u16, sub: u8) -> Result<String> {
+        let bytes = self.upload(index, sub)?;
         Ok(String::from_utf8_lossy(&bytes).into())
     }
 
     /// Read an object as a boolean
-    pub async fn read_bool(&mut self, index: u16, sub: u8) -> Result<bool> {
-        let bytes = self.upload(index, sub).await?;
+    pub fn read_bool(&mut self, index: u16, sub: u8) -> Result<bool> {
+        let bytes = self.upload(index, sub)?;
         if bytes.len() != 1 {
             return UnexpectedSizeSnafu.fail();
         }
@@ -619,19 +489,19 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     }
 
     /// Write an object as a boolean
-    pub async fn write_bool(&mut self, index: u16, sub: u8, value: bool) -> Result<()> {
+    pub fn write_bool(&mut self, index: u16, sub: u8, value: bool) -> Result<()> {
         let data = if value { [1u8] } else { [0u8] };
-        self.download(index, sub, &data).await
+        self.download(index, sub, &data)
     }
 
     /// Read the identity object
     ///
     /// All nodes should implement this object
-    pub async fn read_identity(&mut self) -> Result<LssIdentity> {
-        let vendor_id = self.read_u32(object_ids::IDENTITY, 1).await?;
-        let product_code = self.read_u32(object_ids::IDENTITY, 2).await?;
-        let revision_number = self.read_u32(object_ids::IDENTITY, 3).await?;
-        let serial = self.read_u32(object_ids::IDENTITY, 4).await?;
+    pub fn read_identity(&mut self) -> Result<LssIdentity> {
+        let vendor_id = self.read_u32(object_ids::IDENTITY, 1)?;
+        let product_code = self.read_u32(object_ids::IDENTITY, 2)?;
+        let revision_number = self.read_u32(object_ids::IDENTITY, 3)?;
+        let serial = self.read_u32(object_ids::IDENTITY, 4)?;
         Ok(LssIdentity::new(
             vendor_id,
             product_code,
@@ -641,57 +511,55 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     }
 
     /// Write object 0x1010sub1 to command all objects be saved
-    pub async fn save_objects(&mut self) -> Result<()> {
-        self.write_u32(object_ids::SAVE_OBJECTS, 1, SAVE_CMD).await
+    pub fn save_objects(&mut self) -> Result<()> {
+        self.write_u32(object_ids::SAVE_OBJECTS, 1, SAVE_CMD)
     }
 
     /// Read the device name object
     ///
     /// All nodes should implement this object
-    pub async fn read_device_name(&mut self) -> Result<String> {
-        self.read_visible_string(object_ids::DEVICE_NAME, 0).await
+    pub fn read_device_name(&mut self) -> Result<String> {
+        self.read_visible_string(object_ids::DEVICE_NAME, 0)
     }
 
     /// Read the software version object
     ///
     /// All nodes should implement this object
-    pub async fn read_software_version(&mut self) -> Result<String> {
+    pub fn read_software_version(&mut self) -> Result<String> {
         self.read_visible_string(object_ids::SOFTWARE_VERSION, 0)
-            .await
     }
 
     /// Read the hardware version object
     ///
     /// All nodes should implement this object
-    pub async fn read_hardware_version(&mut self) -> Result<String> {
+    pub fn read_hardware_version(&mut self) -> Result<String> {
         self.read_visible_string(object_ids::HARDWARE_VERSION, 0)
-            .await
     }
 
     /// Configure a transmit PDO on the device
     ///
     /// This is a convenience function to write the PDO comm and mapping objects based on a
     /// [`PdoConfig`].
-    pub async fn configure_tpdo(&mut self, pdo_num: usize, cfg: &PdoConfig) -> Result<()> {
+    pub fn configure_tpdo(&mut self, pdo_num: usize, cfg: &PdoConfig) -> Result<()> {
         let comm_index = 0x1800 + pdo_num as u16;
         let mapping_index = 0x1a00 + pdo_num as u16;
-        self.store_pdo_config(comm_index, mapping_index, cfg).await
+        self.store_pdo_config(comm_index, mapping_index, cfg)
     }
 
     /// Configure a receive PDO on the device
     ///
     /// This is a convenience function to write the PDO comm and mapping objects based on a
     /// [`PdoConfig`].
-    pub async fn configure_rpdo(&mut self, pdo_num: usize, cfg: &PdoConfig) -> Result<()> {
+    pub fn configure_rpdo(&mut self, pdo_num: usize, cfg: &PdoConfig) -> Result<()> {
         let comm_index = 0x1400 + pdo_num as u16;
         let mapping_index = 0x1600 + pdo_num as u16;
-        self.store_pdo_config(comm_index, mapping_index, cfg).await
+        self.store_pdo_config(comm_index, mapping_index, cfg)
     }
 
     /// Set the COB_ID config for an RPDO
     ///
     /// Can be used to enable/disable, or change COB ID for a PDO without changing other settings
-    pub async fn set_rpdo_cob_id(
+    pub fn set_rpdo_cob_id(
         &mut self,
         pdo_num: usize,
         cob_id: CanId,
@@ -700,13 +568,12 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     ) -> Result<()> {
         let comm_index = 0x1400 + pdo_num as u16;
         self.set_pdo_cob_id(comm_index, cob_id, valid, rtr_disabled)
-            .await
     }
 
     /// Set the COB_ID config for a TPDO
     ///
     /// Can be used to enable/disable, or change COB ID for a PDO without changing other settings
-    pub async fn set_tpdo_cob_id(
+    pub fn set_tpdo_cob_id(
         &mut self,
         pdo_num: usize,
         cob_id: CanId,
@@ -715,10 +582,9 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
     ) -> Result<()> {
         let comm_index = 0x1800 + pdo_num as u16;
         self.set_pdo_cob_id(comm_index, cob_id, valid, rtr_disabled)
-            .await
     }
 
-    async fn set_pdo_cob_id(
+    fn set_pdo_cob_id(
         &mut self,
         comm_index: u16,
         cob_id: CanId,
@@ -735,24 +601,19 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         if rtr_disabled {
             cob_value |= 1 << 30;
         }
-        self.write_u32(comm_index, 1, cob_value).await?;
+        self.write_u32(comm_index, 1, cob_value)?;
 
         Ok(())
     }
 
     /// Write to a PDO Comm parameter
-    async fn set_pdo_comm_parameter(
-        &mut self,
-        comm_index: u16,
-        comm: PdoCommParameter,
-    ) -> Result<()> {
-        self.write_u8(comm_index, 2, comm.transmission_type).await?;
-        self.set_pdo_cob_id(comm_index, comm.cob_id, comm.valid, comm.rtr_disabled)
-            .await?;
+    fn set_pdo_comm_parameter(&mut self, comm_index: u16, comm: PdoCommParameter) -> Result<()> {
+        self.write_u8(comm_index, 2, comm.transmission_type)?;
+        self.set_pdo_cob_id(comm_index, comm.cob_id, comm.valid, comm.rtr_disabled)?;
         Ok(())
     }
 
-    async fn store_pdo_config(
+    fn store_pdo_config(
         &mut self,
         comm_index: u16,
         mapping_index: u16,
@@ -764,52 +625,50 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         };
 
         // Ensure PDO is disabled
-        self.set_pdo_comm_parameter(comm_index, disabled_comm)
-            .await?;
+        self.set_pdo_comm_parameter(comm_index, disabled_comm)?;
 
         // Set the number of valid mappings to 0
-        self.write_u8(mapping_index, 0, 0).await?;
+        self.write_u8(mapping_index, 0, 0)?;
 
         // Write the mappings
         assert!(cfg.mappings.len() < 0x40);
         for (i, m) in cfg.mappings.iter().enumerate() {
             let mapping_value = m.to_object_value();
-            self.write_u32(mapping_index, (i + 1) as u8, mapping_value)
-                .await?;
+            self.write_u32(mapping_index, (i + 1) as u8, mapping_value)?;
         }
 
         // Set the number of valid mappings to the number configured
         let num_mappings = cfg.mappings.len() as u8;
-        self.write_u8(mapping_index, 0, num_mappings).await?;
+        self.write_u8(mapping_index, 0, num_mappings)?;
 
         // Make PDO valid, if requested
         if cfg.comm.valid {
-            self.set_pdo_comm_parameter(comm_index, cfg.comm).await?;
+            self.set_pdo_comm_parameter(comm_index, cfg.comm)?;
         }
         Ok(())
     }
 
     /// Read the configuration of an RPDO from the node
-    pub async fn read_rpdo_config(&mut self, pdo_num: usize) -> Result<PdoConfig> {
+    pub fn read_rpdo_config(&mut self, pdo_num: usize) -> Result<PdoConfig> {
         let comm_index = 0x1400 + pdo_num as u16;
         let mapping_index = 0x1600 + pdo_num as u16;
-        self.read_pdo_config(comm_index, mapping_index).await
+        self.read_pdo_config(comm_index, mapping_index)
     }
 
     /// Read the configuration of a TPDO from the node
-    pub async fn read_tpdo_config(&mut self, pdo_num: usize) -> Result<PdoConfig> {
+    pub fn read_tpdo_config(&mut self, pdo_num: usize) -> Result<PdoConfig> {
         let comm_index = 0x1800 + pdo_num as u16;
         let mapping_index = 0x1a00 + pdo_num as u16;
-        self.read_pdo_config(comm_index, mapping_index).await
+        self.read_pdo_config(comm_index, mapping_index)
     }
 
-    async fn read_pdo_config(&mut self, comm_index: u16, mapping_index: u16) -> Result<PdoConfig> {
-        let cob_word = self.read_u32(comm_index, 1).await?;
-        let transmission_type = self.read_u8(comm_index, 2).await?;
-        let num_mappings = self.read_u8(mapping_index, 0).await?;
+    fn read_pdo_config(&mut self, comm_index: u16, mapping_index: u16) -> Result<PdoConfig> {
+        let cob_word = self.read_u32(comm_index, 1)?;
+        let transmission_type = self.read_u8(comm_index, 2)?;
+        let num_mappings = self.read_u8(mapping_index, 0)?;
         let mut mappings = Vec::with_capacity(num_mappings as usize);
         for i in 0..num_mappings {
-            let mapping_raw = self.read_u32(mapping_index, i + 1).await?;
+            let mapping_raw = self.read_u32(mapping_index, i + 1)?;
             mappings.push(PdoMapping::from_object_value(mapping_raw));
         }
         let valid = cob_word & (1 << 31) == 0;
@@ -832,14 +691,14 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
         })
     }
 
-    async fn wait_for_block_segment(&mut self) -> Result<BlockSegment> {
-        let wait_until = tokio::time::Instant::now() + self.timeout;
+    fn wait_for_block_segment(&mut self) -> Result<BlockSegment> {
+        let wait_until = Instant::now() + self.timeout;
+
         loop {
-            match tokio::time::timeout_at(wait_until, self.receiver.recv()).await {
-                // Err indicates the timeout elapsed, so return
-                Err(_) => return NoResponseSnafu.fail(),
-                // Message was recieved. If it is the resp, return. Otherwise, keep waiting
-                Ok(Ok(msg)) => {
+            let remaining = wait_until.saturating_duration_since(Instant::now());
+
+            match self.receiver.recv(remaining) {
+                Ok(msg) => {
                     if msg.id == self.resp_cob_id {
                         return msg
                             .data()
@@ -847,31 +706,34 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> SdoClient<S, R> {
                             .map_err(|_| MalformedResponseSnafu.build());
                     }
                 }
-                // Recv returned an error
-                Ok(Err(e)) => {
-                    log::error!("Error reading from socket: {e:?}");
-                    return NoResponseSnafu.fail();
+                Err(_) => {
+                    if Instant::now() >= wait_until {
+                        return NoResponseSnafu.fail();
+                    }
                 }
             }
         }
     }
 
-    async fn wait_for_response(&mut self) -> Result<SdoResponse> {
-        let wait_until = tokio::time::Instant::now() + self.timeout;
+    fn wait_for_response(&mut self) -> Result<SdoResponse> {
+        let wait_until = Instant::now() + self.timeout;
+
         loop {
-            match tokio::time::timeout_at(wait_until, self.receiver.recv()).await {
-                // Err indicates the timeout elapsed, so return
-                Err(_) => return NoResponseSnafu.fail(),
-                // Message was recieved. If it is the resp, return. Otherwise, keep waiting
-                Ok(Ok(msg)) => {
+            let remaining = wait_until.saturating_duration_since(Instant::now());
+
+            match self.receiver.recv(remaining) {
+                Ok(msg) => {
                     if msg.id == self.resp_cob_id {
                         return msg.try_into().map_err(|_| MalformedResponseSnafu.build());
                     }
+                    // Someone else's traffic; keep waiting out the timeout.
                 }
-                // Recv returned an error
-                Ok(Err(e)) => {
-                    log::error!("Error reading from socket: {e:?}");
-                    return NoResponseSnafu.fail();
+                // The receiver cannot say whether it timed out or failed, so
+                // let the clock decide whether there is still time to wait.
+                Err(_) => {
+                    if Instant::now() >= wait_until {
+                        return NoResponseSnafu.fail();
+                    }
                 }
             }
         }
