@@ -2,55 +2,33 @@
 use std::time::Instant;
 
 use zencan_common::{
-    can::{AsyncCanReceiver, AsyncCanSender, CanMessage},
+    can::{CanMessage, CanReceiver, CanSender},
     protocol::{NmtCommand, NmtCommandSpecifier, NmtState, ZencanMessage},
 };
 
-pub(crate) type Result<T> = std::result::Result<T, ()>;
-
-/// Represents the information about a single node detected on the bus by the [NmtMaster]
-#[derive(Copy, Clone, Debug)]
-pub struct Node {
-    /// The ID of the node
-    pub id: u8,
-    /// The last NMT state reported by the node
-    pub state: NmtState,
-    /// The time when the last heartbeat message from received from the node
-    pub last_status: Instant,
-    pub(crate) last_toggle: bool,
-}
-
-impl Default for Node {
-    fn default() -> Self {
-        Self {
-            id: 0,
-            state: NmtState::Bootup,
-            last_status: Instant::now(),
-            last_toggle: true,
-        }
-    }
-}
-
-pub(crate) const MAX_NODES: usize = 127;
+use crate::nmt_master::{Node, Result, MAX_NODES};
 
 #[derive(Debug)]
-/// An NMT master which allows monitoring the bus for heartbeats and commanding state changes
+/// A blocking NMT master which allows monitoring the bus for heartbeats and commanding state
+/// changes
+#[allow(clippy::result_unit_err)]
 pub struct NmtMaster<S, R> {
     sender: S,
     receiver: R,
     nodes: [Node; MAX_NODES],
 }
 
-impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
+#[allow(clippy::result_unit_err)]
+impl<S: CanSender, R: CanReceiver> NmtMaster<S, R> {
     /// Create a new NmtMaster
     ///
     /// # Arguments
-    /// - `sender`: An object which implements [`AsyncCanSender`] to be used for sending messages to
+    /// - `sender`: An object which implements [`CanSender`] to be used for sending messages to
     ///   the bus
-    /// - `receiver`: An object which implements [`AsyncCanReceiver`] to be used for receiving
+    /// - `receiver`: An object which implements [`CanReceiver`] to be used for receiving
     ///   messages from the bus
     ///
-    /// When using socketcan, these can be created with [`crate::open_socketcan`].
+    /// When using socketcan, these can be created with [`crate::common::open_socketcan_blocking`].
     pub fn new(sender: S, receiver: R) -> Self {
         let nodes = [Node::default(); MAX_NODES];
         Self {
@@ -125,8 +103,8 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
     /// # Arguments
     ///
     /// - `node`: The node ID to command, or 0 to broadcast to all nodes
-    pub async fn nmt_reset_app(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandSpecifier::ResetApp, node).await
+    pub fn nmt_reset_app(&mut self, node: u8) -> Result<()> {
+        self.send_nmt_cmd(NmtCommandSpecifier::ResetApp, node)
     }
 
     /// Send communications reset command
@@ -134,9 +112,8 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
     /// # Arguments
     ///
     /// - `node`: The node ID to command, or 0 to broadcast to all nodes
-    pub async fn nmt_reset_comms(&mut self, node: u8) -> Result<()> {
+    pub fn nmt_reset_comms(&mut self, node: u8) -> Result<()> {
         self.send_nmt_cmd(NmtCommandSpecifier::ResetComm, node)
-            .await
     }
 
     /// Send start operation command
@@ -144,8 +121,8 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
     /// # Arguments
     ///
     /// - `node`: The node ID to command, or 0 to broadcast to all nodes
-    pub async fn nmt_start(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandSpecifier::Start, node).await
+    pub fn nmt_start(&mut self, node: u8) -> Result<()> {
+        self.send_nmt_cmd(NmtCommandSpecifier::Start, node)
     }
 
     /// Send start operation command
@@ -153,13 +130,13 @@ impl<S: AsyncCanSender, R: AsyncCanReceiver> NmtMaster<S, R> {
     /// # Arguments
     ///
     /// - `node`: The node ID to command, or 0 to broadcast to all nodes
-    pub async fn nmt_stop(&mut self, node: u8) -> Result<()> {
-        self.send_nmt_cmd(NmtCommandSpecifier::Stop, node).await
+    pub fn nmt_stop(&mut self, node: u8) -> Result<()> {
+        self.send_nmt_cmd(NmtCommandSpecifier::Stop, node)
     }
 
-    async fn send_nmt_cmd(&mut self, cmd: NmtCommandSpecifier, node: u8) -> Result<()> {
+    fn send_nmt_cmd(&mut self, cmd: NmtCommandSpecifier, node: u8) -> Result<()> {
         let message = NmtCommand { cs: cmd, node };
-        self.sender.send(message.into()).await.map_err(|_| ())?;
+        self.sender.send(message.into()).map_err(|_| ())?;
         Ok(())
     }
 }
