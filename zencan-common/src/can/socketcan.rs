@@ -1,7 +1,11 @@
 //! Utilities for opening a linux socketcan device
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use super::{AsyncCanReceiver, AsyncCanSender, CanError, CanId, CanMessage, CanSendError};
+use super::{
+    AsyncCanReceiver, AsyncCanSender, CanError, CanId, CanMessage, CanReceiver, CanSendError,
+    CanSender,
+};
 use snafu::{ResultExt, Snafu};
 use socketcan::{CanFrame, CanSocket, EmbeddedFrame, Frame, ShouldRetry, Socket};
 use tokio::io::{unix::AsyncFd, Interest};
@@ -46,10 +50,21 @@ pub struct SocketCanReceiver {
     socket: Arc<AsyncCanSocket>,
 }
 
+/// An error reading from a socketcan socket
 #[derive(Debug, Snafu)]
 pub enum ReceiveError {
-    Io { source: socketcan::IoError },
-    Can { source: CanError },
+    /// The socket could not be read
+    Io {
+        /// The underlying socket error
+        source: socketcan::IoError,
+    },
+    /// An error frame was received
+    Can {
+        /// The bus error the frame reported
+        source: CanError,
+    },
+    /// No frame arrived before the timeout passed
+    Timeout,
 }
 
 #[derive(Debug, Snafu)]
@@ -173,5 +188,76 @@ pub fn open_socketcan<S: AsRef<str>>(
         socket: socket.clone(),
     };
     let sender = SocketCanSender { socket };
+    Ok((sender, receiver))
+}
+
+/// A handle to a socketcan CAN socket implementing the blocking [`CanReceiver`].
+#[derive(Debug, Clone)]
+pub struct BlockingSocketCanReceiver {
+    socket: Arc<CanSocket>,
+}
+
+impl CanReceiver for BlockingSocketCanReceiver {
+    type Error = ReceiveError;
+
+    fn try_recv(&mut self) -> Option<CanMessage> {
+        match self.socket.read_frame_timeout(Duration::ZERO) {
+            Ok(frame) => socketcan_frame_to_zencan_message(frame).ok(),
+            Err(_) => None,
+        }
+    }
+
+    fn recv(&mut self, timeout: Duration) -> Result<CanMessage, Self::Error> {
+        let deadline = Instant::now() + timeout;
+
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+
+            match self.socket.read_frame_timeout(remaining) {
+                Ok(frame) => return socketcan_frame_to_zencan_message(frame).context(CanSnafu),
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut || e.should_retry() => {
+                    if Instant::now() >= deadline {
+                        return Err(ReceiveError::Timeout);
+                    }
+                }
+                Err(e) => return Err(ReceiveError::Io { source: e }),
+            }
+        }
+    }
+}
+
+/// A handle to a socketcan CAN socket implementing the blocking [`CanSender`].
+#[derive(Debug, Clone)]
+pub struct BlockingSocketCanSender {
+    socket: Arc<CanSocket>,
+}
+
+impl CanSender for BlockingSocketCanSender {
+    fn send(&mut self, msg: CanMessage) -> Result<(), CanMessage> {
+        self.socket
+            .write_frame(&zencan_message_to_socket_frame(msg))
+            .map_err(|_| msg)
+    }
+}
+
+/// Open a socketcan device and split it into a blocking sender and receiver object for use
+/// with zencan library
+///
+/// # Arguments
+/// * `device` - The name of the socketcan device to open, e.g. "vcan0", or "can0"
+///
+/// This is the blocking counterpart of [`open_socketcan`]. Has the same key benefit of
+/// sender and receiver sharing one socket, so the receiver will not receive messages sent
+/// by the sender.
+#[cfg_attr(docsrs, doc(cfg(feature = "socketcan")))]
+pub fn open_socketcan_blocking<S: AsRef<str>>(
+    device: S,
+) -> Result<(BlockingSocketCanSender, BlockingSocketCanReceiver), socketcan::IoError> {
+    let device: &str = device.as_ref();
+    let socket = Arc::new(CanSocket::open(device)?);
+    let receiver = BlockingSocketCanReceiver {
+        socket: socket.clone(),
+    };
+    let sender = BlockingSocketCanSender { socket };
     Ok((sender, receiver))
 }

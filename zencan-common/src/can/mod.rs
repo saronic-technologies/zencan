@@ -8,5 +8,5 @@ mod traits;
 pub use messages::*;
 #[cfg(all(feature = "socketcan", target_os = "linux"))]
 #[cfg_attr(docsrs, doc(all(feature = "socketcan", target_os = "linux")))]
-pub use socketcan::open_socketcan;
+pub use socketcan::{open_socketcan, open_socketcan_blocking};
 pub use traits::*;
