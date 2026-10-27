@@ -144,6 +144,26 @@ impl LssClient {
         }
     }
 
+    /// Send a command to inquire the node ID of the LSS slave currently in configuration mode
+    ///
+    /// The node must have been put into configuration mode already.
+    ///
+    /// Returns the node's active node ID, which is [`NodeId::Unconfigured`] if the node has
+    /// none. Returns Err(LssError::Timeout) if the node does not respond to the command, or
+    /// Err(LssError::InvalidNodeIdError) if the node responds with an invalid node ID.
+    pub async fn inquire_node_id(&self) -> anyhow::Result<NodeId> {
+        const RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
+        match self
+            .send_and_receive(LssRequest::InquireNodeId, Some(RESPONSE_TIMEOUT))
+            .await?
+        {
+            Some(LssResponse::InquireNodeIdAck { node_id }) => {
+                Ok(NodeId::new(node_id).map_err(|_| LssError::InvalidNodeIdError)?)
+            }
+            _ => Err(LssError::Timeout.into()),
+        }
+    }
+
     /// Send command to store configuration
     ///
     /// The node must have been put into configuration mode already.

@@ -171,6 +171,12 @@ impl SdoClient {
         }
     }
 
+    /// Replace the time to wait for each response from the SDO server
+    pub fn with_request_timeout(mut self, request_timeout: Duration) -> Self {
+        self.request_timeout = request_timeout;
+        self
+    }
+
     /// Write data to a sub-object on the SDO server
     pub async fn download(&self, index: u16, sub: u8, data: &[u8]) -> Result<()> {
         // Lock our io guard so we can send and receive without the sockets
@@ -695,6 +701,64 @@ impl SdoClient {
         ))
     }
 
+    /// Read the serial number (0x1018sub4) from every node answering on this client's COB IDs
+    ///
+    /// Unlike the other reads, this collects *every* response that arrives until `settle_time`
+    /// passes with no new response, so it can detect multiple nodes sharing a node ID. Each node
+    /// keeps retransmitting its response until it gets through, so two nodes with different
+    /// serial numbers produce two separate responses.
+    ///
+    /// Returns the distinct serial numbers received, sorted. An empty Vec means no node responded,
+    /// and more than one entry means multiple nodes share this node ID. Nodes with identical
+    /// serial numbers cannot be told apart, as their responses merge on the bus.
+    ///
+    /// Nothing else should be making SDO requests to this node while this runs, as responses to
+    /// those requests are indistinguishable from responses to ours.
+    pub async fn read_serial_numbers(&self, settle_time: Duration) -> Result<Vec<u32>> {
+        let io = self.io_guard.lock().await;
+        let sender = &io.0;
+        let receiver = &io.1;
+
+        // Discard anything already queued, so stale responses aren't counted
+        while let Ok(Ok(_)) = tokio::time::timeout(Duration::ZERO, receiver.recv()).await {}
+
+        let msg = SdoRequest::initiate_upload(object_ids::IDENTITY, 4).to_can_message(self.req_cob_id);
+        sender.send(msg).await
+           .map_err(|_| SocketSendFailedSnafu {}.build())?;
+
+        let first = match self.wait_for_response(receiver, self.request_timeout).await {
+            Ok(resp) => resp,
+            Err(SdoClientError::NoResponse) => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
+
+        let mut responses = vec![first];
+        responses.extend(self.collect_responses(receiver, settle_time).await);
+
+        let mut serials = Vec::new();
+        let mut abort = None;
+        for resp in responses {
+            match resp {
+                SdoResponse::ConfirmUpload { n, e: true, s, index: object_ids::IDENTITY, sub: 4, data }
+                    if !s || n == 0 => serials.push(u32::from_le_bytes(data)),
+                SdoResponse::Abort { index, sub, abort_code } => {
+                    abort = Some(ServerAbortSnafu { index, sub, abort_code }.build());
+                }
+                other => log::warn!("Ignoring unexpected SDO response while reading serial numbers: {other:?}"),
+            }
+        }
+
+        if serials.is_empty() {
+            if let Some(abort) = abort {
+                return Err(abort);
+            }
+        }
+
+        serials.sort_unstable();
+        serials.dedup();
+        Ok(serials)
+    }
+
     /// Write object 0x1010sub1 to command all objects be saved
     pub async fn save_objects(&self) -> Result<()> {
         self.download_u32(object_ids::SAVE_OBJECTS, 1, SAVE_CMD)
@@ -792,6 +856,32 @@ impl SdoClient {
                 Ok(Err(e)) => {
                     log::error!("Error reading from socket: {e:?}");
                     return NoResponseSnafu.fail();
+                }
+            }
+        }
+    }
+
+    /// Collect responses until `settle_time` passes without a new one
+    ///
+    /// Malformed responses are logged and dropped.
+    async fn collect_responses(&self, receiver :&Box<dyn AsyncCanReceiver>, settle_time: Duration) -> Vec<SdoResponse> {
+        let mut responses = Vec::new();
+        let mut wait_until = tokio::time::Instant::now() + settle_time;
+        loop {
+            match tokio::time::timeout_at(wait_until, receiver.recv()).await {
+                Err(_) => return responses,
+                Ok(Ok(msg)) => {
+                    if msg.id == self.resp_cob_id {
+                        match SdoResponse::try_from(msg) {
+                            Ok(resp) => responses.push(resp),
+                            Err(_) => log::warn!("Dropping malformed SDO response: {msg:?}"),
+                        }
+                        wait_until = tokio::time::Instant::now() + settle_time;
+                    }
+                }
+                Ok(Err(e)) => {
+                    log::error!("Error reading from socket: {e:?}");
+                    return responses;
                 }
             }
         }
